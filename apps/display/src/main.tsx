@@ -290,7 +290,7 @@ function App(){
 
   return (<div className="board">
     {state && <Scoreboard state={state} homeName={homeName} awayName={awayName} homeLogo={homeLogo||undefined} awayLogo={awayLogo||undefined}/>}
-    {!state && !envError && (
+    {!state && !envError && currentMatch && (
       <div style={{ 
         position: 'fixed', 
         top: '50%', 
@@ -305,26 +305,95 @@ function App(){
       }}>
         <div style={{ fontSize: '24px', marginBottom: '15px' }}>⚽ Scoreboard Pro</div>
         <div style={{ color: '#9aa0a6', marginBottom: '10px' }}>Statut: {connectionStatus}</div>
-        {currentMatch && (
-          <div style={{ fontSize: '14px', color: '#4ade80', marginTop: '10px' }}>
-            Match détecté: {currentMatch.name}
-            <br />
-            {currentMatch.home_name} vs {currentMatch.away_name}
-            <br />
-            <span style={{ 
-              color: currentMatch.status === 'live' ? '#ff6b6b' : '#fbbf24',
-              fontWeight: 'bold'
-            }}>
-              {currentMatch.status === 'live' ? '🔴 ACTIF' : '⏸️ SÉLECTIONNÉ'}
-            </span>
-          </div>
-        )}
+        <div style={{ fontSize: '14px', color: '#4ade80', marginTop: '10px' }}>
+          Match détecté: {currentMatch.name}
+          <br />
+          {currentMatch.home_name} vs {currentMatch.away_name}
+          <br />
+          <span style={{ 
+            color: currentMatch.status === 'live' ? '#ff6b6b' : '#fbbf24',
+            fontWeight: 'bold'
+          }}>
+            {currentMatch.status === 'live' ? '🔴 ACTIF' : '⏸️ SÉLECTIONNÉ'}
+          </span>
+        </div>
         <div style={{ fontSize: '12px', marginTop: '15px', color: '#666' }}>
           Debug: {debugInfo}
         </div>
         <div style={{ fontSize: '12px', marginTop: '15px', color: '#666' }}>
           Le tableau de bord s'affiche automatiquement<br />
           dès qu'un match est sélectionné dans l'Operator
+        </div>
+      </div>
+    )}
+    {!state && !envError && !currentMatch && (
+      <div className="scoreboard-container">
+        {/* Header par défaut */}
+        <div className="scoreboard-header">
+          <div className="period-info">
+            <span className="period-label">PÉRIODE</span>
+            <span className="period-number">1</span>
+          </div>
+          
+          <div className="time-info">
+            <span className="time-display">00:00</span>
+            <div className="time-indicator paused"></div>
+          </div>
+        </div>
+
+        {/* Score par défaut */}
+        <div className="main-scoreboard">
+          <div className="team-section home">
+            <div className="team-info">
+              <div className="team-name">
+                <div className="team-logo-inline">
+                  <div className="logo-placeholder-inline">🏟</div>
+                </div>
+                HOME
+              </div>
+            </div>
+            <div className="score-display">0</div>
+          </div>
+
+          <div className="vs-separator">
+            <div className="vs-text">VS</div>
+          <div className="team-section away">
+            <div className="team-info">
+              <div className="team-name">
+                <div className="team-logo-inline">
+                  <div className="logo-placeholder-inline">🏟</div>
+                </div>
+                AWAY
+              </div>
+            </div>
+            <div className="score-display">0</div>
+          </div>
+        </div>
+          </div>
+        {/* Message d'attente */}
+        <div className="stats-section">
+          <div style={{ 
+            textAlign: 'center', 
+            padding: '40px',
+            background: 'rgba(37, 99, 235, 0.1)',
+            border: '1px solid rgba(37, 99, 235, 0.3)',
+            borderRadius: '12px',
+            margin: '20px'
+          }}>
+            <div style={{ fontSize: '24px', marginBottom: '16px', color: '#2563eb' }}>
+              ⚽ Scoreboard Pro
+            </div>
+            <div style={{ fontSize: '16px', color: '#9aa0a6', marginBottom: '12px' }}>
+              En attente de sélection de match
+            </div>
+            <div style={{ fontSize: '14px', color: '#6b7280' }}>
+              Le tableau de bord s'activera automatiquement<br />
+              dès qu'un match sera sélectionné dans l'Operator
+            </div>
+            <div style={{ fontSize: '12px', color: '#4b5563', marginTop: '16px' }}>
+              Statut: {connectionStatus}
+            </div>
+          </div>
         </div>
       </div>
     )}
