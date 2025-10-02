@@ -435,6 +435,24 @@ export function MatchPage({ match, onBack, activeMatch, onMatchesUpdate }: Match
                   (state.clock.remainingMs < state.clock.durationSec * 1000) ? 'Reprendre' : 'Démarrer'}
             </button>
             <button className="danger" onClick={() => send('clock:stop')}>⏸</button>
+            <button 
+              onClick={() => {
+                if (window.confirm('Êtes-vous sûr de vouloir remettre le chronomètre à zéro ?\n\nCela remettra le temps à sa valeur initiale selon le sport sélectionné.')) {
+                  send('clock:reset');
+                }
+              }}
+              disabled={state.clock.running}
+              title={state.clock.running ? "Arrêtez d'abord le chronomètre pour le remettre à zéro" : "Remettre le chronomètre à sa valeur initiale"}
+              style={{
+                background: state.clock.running ? '#6b7280' : '#f59e0b',
+                borderColor: state.clock.running ? '#6b7280' : '#f59e0b',
+                color: 'white',
+                cursor: state.clock.running ? 'not-allowed' : 'pointer',
+                opacity: state.clock.running ? 0.6 : 1
+              }}
+            >
+              🔄 Reset Chrono
+            </button>
             <div className="time-display">
               {Math.floor(state.clock.remainingMs/60000).toString().padStart(2,'0')}:
               {Math.floor((state.clock.remainingMs%60000)/1000).toString().padStart(2,'0')}
