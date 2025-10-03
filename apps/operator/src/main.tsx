@@ -25,12 +25,24 @@ function App() {
   useEffect(() => {
     console.log('🔐 Auth - Vérification de la session');
     checkSession();
+
+    // Timeout de sécurité : si après 10s on est toujours en chargement, on affiche la page de connexion
+    const timeout = setTimeout(() => {
+      if (loading) {
+        console.warn('⚠️ Auth - Timeout de la vérification de session, affichage de la page de connexion');
+        setLoading(false);
+      }
+    }, 10000);
+
+    return () => clearTimeout(timeout);
   }, []);
 
   async function checkSession() {
     try {
+      console.log('🔄 Auth - Appel getSession()...');
       const { data: { session }, error } = await supa.auth.getSession();
-      
+      console.log('📦 Auth - Réponse getSession:', { session: !!session, error: !!error });
+
       if (error) {
         console.error('❌ Auth - Erreur session:', error);
         setError(`Erreur de session: ${error.message}`);
@@ -43,7 +55,7 @@ function App() {
         setUser(session.user);
         await loadUserData(session.user);
       } else {
-        console.log('ℹ️ Auth - Aucune session active');
+        console.log('ℹ️ Auth - Aucune session active, affichage de la page de connexion');
         setLoading(false);
       }
     } catch (err) {
