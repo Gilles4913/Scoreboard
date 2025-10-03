@@ -7,6 +7,6 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@pkg/types": "workspace:*"
+    "@pkg/types": "*"
   }
 }
