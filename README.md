@@ -9,3 +9,7 @@ Monorepo Vite (Operator + Display) utilisant Supabase (Auth + Realtime + Postgre
 pnpm install
 cp .env.example .env
 pnpm run dev
+
+## Accès
+- **Operator (Authentification)**: http://localhost:5173
+- **Display (Tableau de bord)**: http://localhost:5174
