@@ -470,7 +470,9 @@ function App() {
   );
 }
 
-console.log('🎯 Main - Création du root React');
-const root = createRoot(document.getElementById('root')!);
+console.log('🎯 Main - Montage de l\'application');
+const rootElement = document.getElementById('root')!;
+const root = (rootElement as any)._reactRoot || createRoot(rootElement);
+(rootElement as any)._reactRoot = root;
 root.render(<App />);
 console.log('🚀 Main - Application React montée');

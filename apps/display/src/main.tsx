@@ -470,4 +470,7 @@ function App(){
     </div>
   </div>);
 }
-createRoot(document.getElementById('root')!).render(<React.StrictMode><App/></React.StrictMode>);
+const rootElement = document.getElementById('root')!;
+const root = (rootElement as any)._reactRoot || createRoot(rootElement);
+(rootElement as any)._reactRoot = root;
+root.render(<React.StrictMode><App/></React.StrictMode>);
