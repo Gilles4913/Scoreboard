@@ -18,6 +18,7 @@ function App() {
   const [error, setError] = useState<string>('');
   const [credentials, setCredentials] = useState({ email: '', password: '' });
   const [authLoading, setAuthLoading] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(false);
 
   // Un match est actif seulement s'il a le statut 'live' (chronomètre démarré)
   const activeMatch = matches.find(m => m.status === 'live') || null;
@@ -49,11 +50,11 @@ function App() {
           setError('');
           setLoading(false);
         } else if (event === 'SIGNED_IN' && session?.user) {
-          console.log('✅ Auth - Connexion détectée');
-          setUser(session.user);
-          await loadUserData(session.user);
+          console.log('✅ Auth - Connexion détectée via listener');
+          // Ne rien faire ici, le handleAuth s'en occupe déjà
         } else if (event === 'TOKEN_REFRESHED' && session?.user) {
           console.log('🔄 Auth - Token rafraîchi');
+          // Juste mettre à jour l'utilisateur sans recharger les données
           setUser(session.user);
         }
       })();
@@ -193,29 +194,53 @@ function App() {
     setError('');
 
     try {
-      console.log('🔐 Auth - Tentative de connexion:', credentials.email);
-      const result = await supa.auth.signInWithPassword({
-        email: credentials.email,
-        password: credentials.password
-      });
+      if (isSignUp) {
+        console.log('📝 Auth - Tentative d\'inscription:', credentials.email);
+        const result = await supa.auth.signUp({
+          email: credentials.email,
+          password: credentials.password,
+          options: {
+            emailRedirectTo: undefined
+          }
+        });
 
-      if (result.error) {
-        console.error('❌ Auth - Erreur:', result.error);
-        setError(result.error.message);
-        setAuthLoading(false);
-        return;
-      }
+        if (result.error) {
+          console.error('❌ Auth - Erreur inscription:', result.error);
+          setError(result.error.message);
+          setAuthLoading(false);
+          return;
+        }
 
-      if (result.data.user) {
-        console.log('✅ Auth - Succès:', result.data.user.email);
-        setUser(result.data.user);
-        await loadUserData(result.data.user);
+        if (result.data.user) {
+          console.log('✅ Auth - Inscription réussie:', result.data.user.email);
+          setUser(result.data.user);
+          await loadUserData(result.data.user);
+        }
+      } else {
+        console.log('🔐 Auth - Tentative de connexion:', credentials.email);
+        const result = await supa.auth.signInWithPassword({
+          email: credentials.email,
+          password: credentials.password
+        });
+
+        if (result.error) {
+          console.error('❌ Auth - Erreur:', result.error);
+          setError(result.error.message);
+          setAuthLoading(false);
+          return;
+        }
+
+        if (result.data.user) {
+          console.log('✅ Auth - Succès:', result.data.user.email);
+          setUser(result.data.user);
+          await loadUserData(result.data.user);
+        }
       }
     } catch (err) {
       console.error('💥 Auth - Erreur inattendue:', err);
       setError(`Erreur authentification: ${err instanceof Error ? err.message : 'Erreur inconnue'}`);
     }
-    
+
     setAuthLoading(false);
   }
 
@@ -318,8 +343,8 @@ function App() {
           </h1>
           
           <div style={{ marginBottom: '24px' }}>
-            <div style={{ 
-              textAlign: 'center', 
+            <div style={{
+              textAlign: 'center',
               marginBottom: '16px',
               padding: '12px',
               background: 'rgba(37, 99, 235, 0.1)',
@@ -328,11 +353,7 @@ function App() {
               fontSize: '14px',
               color: '#9aa0a6'
             }}>
-              🔐 Connexion réservée aux utilisateurs autorisés
-              <br />
-              <span style={{ fontSize: '12px', color: '#6b7280' }}>
-                Les comptes sont créés par l'administrateur système
-              </span>
+              {isSignUp ? '📝 Créer un compte' : '🔐 Connexion'}
             </div>
             
             <input
@@ -389,10 +410,33 @@ function App() {
                 fontWeight: '500'
               }}
             >
-              {authLoading ? 'Connexion en cours...' : 'Se connecter'}
+              {authLoading ? (isSignUp ? 'Inscription...' : 'Connexion...') : (isSignUp ? 'S\'inscrire' : 'Se connecter')}
             </button>
+
+            <div style={{
+              textAlign: 'center',
+              marginTop: '16px'
+            }}>
+              <button
+                onClick={() => {
+                  setIsSignUp(!isSignUp);
+                  setError('');
+                }}
+                disabled={authLoading}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#2563eb',
+                  cursor: authLoading ? 'not-allowed' : 'pointer',
+                  fontSize: '14px',
+                  textDecoration: 'underline'
+                }}
+              >
+                {isSignUp ? 'Déjà un compte ? Se connecter' : 'Créer un compte'}
+              </button>
+            </div>
           </div>
-          
+
           {error && (
             <div style={{
               background: 'rgba(255, 107, 107, 0.1)',
@@ -406,15 +450,7 @@ function App() {
               {error}
             </div>
           )}
-          
-          <div style={{
-            fontSize: '12px',
-            color: '#6b7280',
-            textAlign: 'center',
-            marginTop: '16px'
-          }}>
-            Besoin d'un compte ? Contactez votre administrateur système
-          </div>
+
         </div>
       </div>
     );
