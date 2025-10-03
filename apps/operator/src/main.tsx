@@ -61,14 +61,13 @@ function App() {
   }, []);
 
   async function checkSession() {
+    console.log('🔄 Auth - Début checkSession');
     try {
-      console.log('🔄 Auth - Appel getSession()...');
       const { data: { session }, error } = await supa.auth.getSession();
-      console.log('📦 Auth - Réponse getSession:', { session: !!session, error: !!error });
+      console.log('📦 Auth - Réponse:', { hasSession: !!session, hasError: !!error });
 
       if (error) {
         console.error('❌ Auth - Erreur session:', error);
-        setError(`Erreur de session: ${error.message}`);
         setLoading(false);
         return;
       }
@@ -76,14 +75,18 @@ function App() {
       if (session?.user) {
         console.log('✅ Auth - Session trouvée:', session.user.email);
         setUser(session.user);
-        await loadUserData(session.user);
+        try {
+          await loadUserData(session.user);
+        } catch (loadErr) {
+          console.error('❌ Erreur loadUserData:', loadErr);
+          setLoading(false);
+        }
       } else {
-        console.log('ℹ️ Auth - Aucune session active, affichage de la page de connexion');
+        console.log('ℹ️ Auth - Pas de session, affichage login');
         setLoading(false);
       }
     } catch (err) {
-      console.error('💥 Auth - Erreur inattendue:', err);
-      setError(`Erreur inattendue: ${err instanceof Error ? err.message : 'Erreur inconnue'}`);
+      console.error('💥 Auth - Erreur checkSession:', err);
       setLoading(false);
     }
   }
