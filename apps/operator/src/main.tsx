@@ -27,53 +27,35 @@ function App() {
   useEffect(() => {
     console.log('🔐 Auth - Vérification de la session');
 
-    let isInitialLoad = true;
-
     // Écouter les changements d'état d'authentification
     const { data: { subscription } } = supa.auth.onAuthStateChange((event, session) => {
-      (async () => {
-        console.log('🔄 Auth - Changement d\'état:', event);
+      console.log('🔄 Auth - Changement d\'état:', event);
 
-        // Ignorer INITIAL_SESSION pour éviter les doubles chargements
-        if (event === 'INITIAL_SESSION') {
-          console.log('ℹ️ Auth - Session initiale, traitement via checkSession()');
-          return;
-        }
+      // Ignorer INITIAL_SESSION pour éviter les doubles chargements
+      if (event === 'INITIAL_SESSION') {
+        console.log('ℹ️ Auth - Session initiale, traitement via checkSession()');
+        return;
+      }
 
-        if (event === 'SIGNED_OUT') {
-          console.log('👋 Auth - Déconnexion détectée');
-          setUser(null);
-          setUserRole(null);
-          setOrg(null);
-          setMatches([]);
-          setSelectedMatch(null);
-          setError('');
-          setLoading(false);
-        } else if (event === 'SIGNED_IN' && session?.user) {
-          console.log('✅ Auth - Connexion détectée via listener');
-          // Ne rien faire ici, le handleAuth s'en occupe déjà
-        } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-          console.log('🔄 Auth - Token rafraîchi');
-          // Juste mettre à jour l'utilisateur sans recharger les données
-          setUser(session.user);
-        }
-      })();
+      if (event === 'SIGNED_OUT') {
+        console.log('👋 Auth - Déconnexion détectée');
+        setUser(null);
+        setUserRole(null);
+        setOrg(null);
+        setMatches([]);
+        setSelectedMatch(null);
+        setError('');
+        setLoading(false);
+      } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+        console.log('🔄 Auth - Token rafraîchi');
+        setUser(session.user);
+      }
     });
 
     // Vérifier la session une seule fois au démarrage
-    if (isInitialLoad) {
-      checkSession();
-      isInitialLoad = false;
-    }
-
-    // Timeout de sécurité
-    const timeout = setTimeout(() => {
-      setLoading(false);
-      console.warn('⚠️ Auth - Timeout, affichage de la page de connexion');
-    }, 10000);
+    checkSession();
 
     return () => {
-      clearTimeout(timeout);
       subscription.unsubscribe();
     };
   }, []);
