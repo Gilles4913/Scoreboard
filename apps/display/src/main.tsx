@@ -10,6 +10,10 @@ import { createClient } from '@supabase/supabase-js';
 
 function App(){
   const p = new URLSearchParams(location.search);
+  // Extraire le display_token de l'URL : /display/:token ou ?token=xxx
+  const urlPath = location.pathname.split('/');
+  const displayToken = urlPath[urlPath.length - 1] !== 'display' ? urlPath[urlPath.length - 1] : p.get('token');
+
   const [currentMatch, setCurrentMatch] = useState<any>(null);
   const [homeName, setHome] = useState('HOME');
   const [awayName, setAway] = useState('AWAY');
@@ -23,39 +27,70 @@ function App(){
   const [envError, setEnvError] = useState<string>('');
   const [supa, setSupa] = useState<any>(null);
   const [debugInfo, setDebugInfo] = useState<string>('');
+  const [orgId, setOrgId] = useState<string | null>(null);
 
   useEffect(()=>{ applyTheme(theme); }, [theme]);
   
-  // Vérifier la configuration au démarrage
+  // Vérifier la configuration au démarrage et récupérer l'org_id depuis le display_token
   useEffect(() => {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-    
+
     if (!supabaseUrl || !supabaseKey) {
       setEnvError('Configuration Supabase manquante');
       return;
     }
-    
+
     if (supabaseUrl.includes('your_supabase') || supabaseKey.includes('your_supabase')) {
       setEnvError('Configuration Supabase invalide');
       return;
     }
-    
+
     setDebugInfo(`Config OK - URL: ${supabaseUrl.substring(0, 30)}...`);
-    
+
     // Créer le client Supabase
-    const supabaseClient = createClient(supabaseUrl, supabaseKey, { 
-      auth: { persistSession: false } 
+    const supabaseClient = createClient(supabaseUrl, supabaseKey, {
+      auth: { persistSession: false }
     });
     setSupa(supabaseClient);
-  }, []);
+
+    // Si un display_token est fourni, récupérer l'organisation correspondante
+    if (displayToken && displayToken !== 'display') {
+      console.log('Display - Token détecté:', displayToken);
+      setConnectionStatus(`Identification de l'Espace via token...`);
+
+      supabaseClient
+        .from('orgs')
+        .select('id, name, slug')
+        .eq('display_token', displayToken)
+        .single()
+        .then(({ data, error }) => {
+          if (error || !data) {
+            console.error('Display - Erreur token invalide:', error);
+            setEnvError(`Token d'affichage invalide. Vérifiez l'URL.`);
+            setDebugInfo(`Token invalide: ${displayToken}`);
+          } else {
+            console.log('Display - Organisation trouvée:', data);
+            setOrgId(data.id);
+            setDebugInfo(`Espace: ${data.name}`);
+            setConnectionStatus(`Connecté à l'Espace: ${data.name}`);
+          }
+        });
+    }
+  }, [displayToken]);
 
   // Écouter les matchs actifs depuis la base de données (sans authentification)
   useEffect(()=>{
     if (envError || !supa) return;
-    
+
+    // Si un display_token est fourni, attendre que l'org_id soit récupéré
+    if (displayToken && displayToken !== 'display' && !orgId) {
+      console.log('Display - En attente de l\'identification de l\'Espace...');
+      return;
+    }
+
     setConnectionStatus('Recherche de match actif...');
-    
+
     // Vérifier s'il y a un match actif périodiquement
     checkForActiveMatch();
     const interval = setInterval(checkForActiveMatch, 5000); // Vérifier toutes les 5 secondes
@@ -64,13 +99,21 @@ function App(){
       try {
         console.log('Display - Recherche de match actif...');
         setDebugInfo('Recherche de matchs sélectionnés...');
-        
-        // Chercher tous les matchs avec public_display = true (accessible sans auth)
-        let { data: matches, error } = await supa
+
+        // Construire la requête de base
+        let query = supa
           .from('matches')
           .select('*')
           .eq('public_display', true)
-          .in('status', ['live', 'scheduled'])
+          .in('status', ['live', 'scheduled']);
+
+        // Si un orgId est défini (via display_token), filtrer uniquement les matchs de cet Espace
+        if (orgId) {
+          console.log('Display - Filtrage par organisation:', orgId);
+          query = query.eq('org_id', orgId);
+        }
+
+        const { data: matches, error } = await query
           .order('updated_at', { ascending: false })
           .limit(10);
         
@@ -176,7 +219,7 @@ function App(){
         displayConnection.close();
       }
     };
-  }, [displayConnection, supa, currentMatch]);
+  }, [displayConnection, supa, currentMatch, orgId]);
 
   // Fonctions utilitaires pour l'initialisation des états
   function getDefaultDuration(sport: string): number {

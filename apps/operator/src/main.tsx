@@ -11,6 +11,7 @@ console.log('🚀 Operator - Démarrage de l\'application');
 function App() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
+  const [userRole, setUserRole] = useState<'super_admin' | 'operator' | null>(null);
   const [org, setOrg] = useState<any>(null);
   const [matches, setMatches] = useState<MatchInfo[]>([]);
   const [selectedMatch, setSelectedMatch] = useState<MatchInfo | null>(null);
@@ -117,20 +118,27 @@ function App() {
         return;
       }
 
-      // Prendre la première organisation
+      // Prendre la première organisation et détecter le rôle
       const firstOrg = orgMembers[0];
+      const role = firstOrg.role as 'super_admin' | 'operator';
+
+      console.log('👤 User - Rôle détecté:', role);
+      setUserRole(role);
+
       const orgData = {
         id: firstOrg.org_id,
         slug: firstOrg.org_slug,
-        name: firstOrg.org_name
+        name: firstOrg.org_name,
+        display_token: firstOrg.org_display_token
       };
-      
+
       console.log('🏢 Org - Sélectionnée:', orgData.name);
+      console.log('🔗 Display URL:', `/display/${orgData.display_token}`);
       setOrg(orgData);
 
       // Charger les matchs de cette organisation
       await loadMatches(orgData.id);
-      
+
       setLoading(false);
     } catch (err) {
       console.error('💥 User - Erreur inattendue:', err);
