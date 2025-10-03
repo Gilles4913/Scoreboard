@@ -21,7 +21,7 @@ function App() {
   // Un match est actif seulement s'il a le statut 'live' (chronomètre démarré)
   const activeMatch = matches.find(m => m.status === 'live') || null;
 
-  // Vérifier la session au démarrage
+  // Vérifier la session au démarrage et écouter les changements d'état
   useEffect(() => {
     console.log('🔐 Auth - Vérification de la session');
     checkSession();
@@ -34,7 +34,34 @@ function App() {
       }
     }, 10000);
 
-    return () => clearTimeout(timeout);
+    // Écouter les changements d'état d'authentification
+    const { data: { subscription } } = supa.auth.onAuthStateChange((event, session) => {
+      (async () => {
+        console.log('🔄 Auth - Changement d\'état:', event);
+
+        if (event === 'SIGNED_OUT') {
+          console.log('👋 Auth - Déconnexion détectée');
+          setUser(null);
+          setOrg(null);
+          setMatches([]);
+          setSelectedMatch(null);
+          setError('');
+          setLoading(false);
+        } else if (event === 'SIGNED_IN' && session?.user) {
+          console.log('✅ Auth - Connexion détectée');
+          setUser(session.user);
+          await loadUserData(session.user);
+        } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+          console.log('🔄 Auth - Token rafraîchi');
+          setUser(session.user);
+        }
+      })();
+    });
+
+    return () => {
+      clearTimeout(timeout);
+      subscription.unsubscribe();
+    };
   }, []);
 
   async function checkSession() {
