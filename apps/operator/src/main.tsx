@@ -25,24 +25,24 @@ function App() {
   // Vérifier la session au démarrage et écouter les changements d'état
   useEffect(() => {
     console.log('🔐 Auth - Vérification de la session');
-    checkSession();
 
-    // Timeout de sécurité : si après 10s on est toujours en chargement, on affiche la page de connexion
-    const timeout = setTimeout(() => {
-      if (loading) {
-        console.warn('⚠️ Auth - Timeout de la vérification de session, affichage de la page de connexion');
-        setLoading(false);
-      }
-    }, 10000);
+    let isInitialLoad = true;
 
     // Écouter les changements d'état d'authentification
     const { data: { subscription } } = supa.auth.onAuthStateChange((event, session) => {
       (async () => {
         console.log('🔄 Auth - Changement d\'état:', event);
 
+        // Ignorer INITIAL_SESSION pour éviter les doubles chargements
+        if (event === 'INITIAL_SESSION') {
+          console.log('ℹ️ Auth - Session initiale, traitement via checkSession()');
+          return;
+        }
+
         if (event === 'SIGNED_OUT') {
           console.log('👋 Auth - Déconnexion détectée');
           setUser(null);
+          setUserRole(null);
           setOrg(null);
           setMatches([]);
           setSelectedMatch(null);
@@ -58,6 +58,18 @@ function App() {
         }
       })();
     });
+
+    // Vérifier la session une seule fois au démarrage
+    if (isInitialLoad) {
+      checkSession();
+      isInitialLoad = false;
+    }
+
+    // Timeout de sécurité
+    const timeout = setTimeout(() => {
+      setLoading(false);
+      console.warn('⚠️ Auth - Timeout, affichage de la page de connexion');
+    }, 10000);
 
     return () => {
       clearTimeout(timeout);
