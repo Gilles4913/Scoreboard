@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lanceur Scoreboard Pro</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px; 
+            background: #0b0b0c; 
+            color: #eaeaea; 
+        }
+        .container { 
+            max-width: 800px; 
+            margin: 0 auto; 
+            background: #111214; 
+            border: 1px solid #1b1c1f; 
+            border-radius: 14px; 
+            padding: 40px; 
+        }
+        h1 { 
+            text-align: center; 
+            background: linear-gradient(135deg, #36ffb5, #2563eb);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 30px;
+        }
+        .app-link { 
+            display: block; 
+            background: #2563eb; 
+            color: white; 
+            padding: 15px 20px; 
+            margin: 10px 0; 
+            text-decoration: none; 
+            border-radius: 8px; 
+            text-align: center; 
+            transition: background 0.3s;
+        }
+        .app-link:hover { 
+            background: #1976d2; 
+        }
+        .description { 
+            background: #1a1b1e; 
+            padding: 15px; 
+            border-radius: 8px; 
+            margin: 10px 0; 
+            border-left: 4px solid #2563eb;
+        }
+        .test-section { 
+            background: #1a1b1e; 
+            padding: 20px; 
+            border-radius: 8px; 
+            margin: 20px 0; 
+            border: 1px solid #2a2b2e;
+        }
+        .credentials { 
+            background: #2a2b2e; 
+            padding: 15px; 
+            border-radius: 8px; 
+            margin: 10px 0; 
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚽ Scoreboard Pro - Lanceur</h1>
+        
+        <div class="description">
+            <h3>🚀 Applications disponibles</h3>
+            <p>Choisissez l'application que vous souhaitez tester :</p>
+        </div>
+
+        <a href="http://localhost:3001" class="app-link" target="_blank">
+            🎮 Interface Operator (Port 3001)
+            <br><small>Interface principale pour gérer les matchs</small>
+        </a>
+
+        <a href="http://localhost:3002" class="app-link" target="_blank">
+            📺 Interface Display (Port 3002)
+            <br><small>Affichage public des matchs</small>
+        </a>
+
+        <a href="http://localhost:3000" class="app-link" target="_blank">
+            🏠 Interface Home (Port 3000)
+            <br><small>Page d'accueil du système</small>
+        </a>
+
+        <div class="test-section">
+            <h3>🔧 Tests et vérifications</h3>
+            <a href="test_super_admin.html" class="app-link">
+                🧪 Test Super Admin
+                <br><small>Vérifier les permissions du Super Admin</small>
+            </a>
+            
+            <a href="check_database.html" class="app-link">
+                📊 Vérification Base de Données
+                <br><small>Consulter les données de la base</small>
+            </a>
+        </div>
+
+        <div class="test-section">
+            <h3>👤 Comptes de test</h3>
+            <div class="credentials">
+                <strong>Super Admin:</strong><br>
+                Email: gilles.guerrin@a2display.fr<br>
+                Rôle: super_admin (accès à toutes les organisations)
+            </div>
+            
+            <div class="credentials">
+                <strong>Operator:</strong><br>
+                Email: gilles.guerrin49@gmail.com<br>
+                Rôle: operator (accès limité à orgA)
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>📋 Instructions de test</h3>
+            <ol>
+                <li><strong>Démarrez les applications</strong> : Utilisez <code>pnpm dev</code> dans le terminal</li>
+                <li><strong>Testez la connexion Super Admin</strong> : Utilisez le bouton "Test Super Admin" ci-dessus</li>
+                <li><strong>Connectez-vous à l'interface Operator</strong> : Utilisez les identifiants Super Admin</li>
+                <li><strong>Vérifiez les permissions</strong> : Le Super Admin devrait voir toutes les organisations et tous les matchs</li>
+                <li><strong>Testez la création de matchs</strong> : Créez des matchs dans différentes organisations</li>
+                <li><strong>Testez l'affichage public</strong> : Utilisez l'interface Display pour voir les matchs</li>
+            </ol>
+        </div>
+
+        <div class="test-section">
+            <h3>🔍 Points de vérification Super Admin</h3>
+            <ul>
+                <li>✅ Connexion réussie avec gilles.guerrin@a2display.fr</li>
+                <li>✅ Accès à toutes les organisations (orgA et orgB)</li>
+                <li>✅ Accès à tous les matchs de toutes les organisations</li>
+                <li>✅ Possibilité de créer des matchs dans n'importe quelle organisation</li>
+                <li>✅ Possibilité de modifier/supprimer tous les matchs</li>
+                <li>✅ Accès aux informations des autres utilisateurs</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

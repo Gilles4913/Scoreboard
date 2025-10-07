@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Super Admin</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .result { background: #f5f5f5; padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .error { background: #ffebee; color: #c62828; }
+        .success { background: #e8f5e8; color: #2e7d32; }
+        .info { background: #e3f2fd; color: #1565c0; }
+        pre { white-space: pre-wrap; }
+        button { padding: 10px 20px; margin: 5px; background: #2196f3; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #1976d2; }
+        .test-section { border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>🔧 Test Super Admin - Vérification des permissions</h1>
+    <div id="results"></div>
+    
+    <div class="test-section">
+        <h3>1. Connexion Super Admin</h3>
+        <input type="email" id="email" placeholder="Email Super Admin" value="gilles.guerrin@a2display.fr" style="width: 300px; padding: 8px; margin: 5px;">
+        <input type="password" id="password" placeholder="Mot de passe" style="width: 300px; padding: 8px; margin: 5px;">
+        <button onclick="testSuperAdminLogin()">Se connecter</button>
+    </div>
+
+    <div class="test-section">
+        <h3>2. Tests de permissions</h3>
+        <button onclick="testSuperAdminPermissions()" id="testPermsBtn" disabled>Tester les permissions</button>
+        <button onclick="testAllOrganizations()" id="testOrgsBtn" disabled>Tester accès toutes organisations</button>
+        <button onclick="testCreateMatch()" id="testCreateBtn" disabled>Créer un match test</button>
+        <button onclick="testDeleteMatch()" id="testDeleteBtn" disabled>Supprimer match test</button>
+    </div>
+
+    <div class="test-section">
+        <h3>3. Comparaison avec Operator</h3>
+        <button onclick="testOperatorLogin()">Tester connexion Operator</button>
+        <button onclick="comparePermissions()" id="compareBtn" disabled>Comparer permissions</button>
+    </div>
+
+    <script>
+        // Configuration Supabase
+        const supabaseUrl = 'https://opwjfpybcgtgcvldizar.supabase.co';
+        const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wd2pmcHliY2d0Z2N2bGRpemFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc0OTQ5MTksImV4cCI6MjA3MzA3MDkxOX0.8yrYMlhFmjAF5_LG9FtCx8XrJ1sFOz2YejDDupbhgpY';
+
+        const supabase = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
+        const resultsDiv = document.getElementById('results');
+        let currentUser = null;
+        let testMatchId = null;
+
+        function addResult(title, content, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.innerHTML = `<h3>${title}</h3><pre>${content}</pre>`;
+            resultsDiv.appendChild(div);
+        }
+
+        async function testSuperAdminLogin() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            if (!email || !password) {
+                addResult('❌ Erreur', 'Email et mot de passe requis', 'error');
+                return;
+            }
+
+            try {
+                addResult('🔐 Connexion Super Admin', `Tentative de connexion avec ${email}...`, 'info');
+
+                const { data, error } = await supabase.auth.signInWithPassword({
+                    email: email,
+                    password: password
+                });
+
+                if (error) {
+                    addResult('❌ Erreur de connexion', error.message, 'error');
+                    return;
+                }
+
+                if (data.user) {
+                    currentUser = data.user;
+                    addResult('✅ Connexion réussie', 
+                        `Utilisateur connecté: ${data.user.email}\n` +
+                        `ID: ${data.user.id}\n` +
+                        `Email confirmé: ${data.user.email_confirmed_at ? 'Oui' : 'Non'}`, 
+                        'success');
+                    
+                    // Activer les boutons de test
+                    document.getElementById('testPermsBtn').disabled = false;
+                    document.getElementById('testOrgsBtn').disabled = false;
+                    document.getElementById('testCreateBtn').disabled = false;
+                    document.getElementById('testDeleteBtn').disabled = false;
+                    document.getElementById('compareBtn').disabled = false;
+                }
+            } catch (err) {
+                addResult('❌ Erreur inattendue', err.message, 'error');
+            }
+        }
+
+        async function testSuperAdminPermissions() {
+            if (!currentUser) {
+                addResult('❌ Erreur', 'Veuillez d\'abord vous connecter', 'error');
+                return;
+            }
+
+            try {
+                addResult('🔍 Test des permissions Super Admin', 'Vérification des accès...', 'info');
+
+                // 1. Vérifier les organisations accessibles
+                const { data: orgMembers, error: orgError } = await supabase
+                    .from('org_members_with_org')
+                    .select('*')
+                    .eq('user_id', currentUser.id);
+
+                if (orgError) {
+                    addResult('❌ Erreur organisations', orgError.message, 'error');
+                    return;
+                }
+
+                addResult('🏢 Organisations accessibles', 
+                    `Nombre: ${orgMembers.length}\n` +
+                    orgMembers.map(om => `- ${om.org_name} (${om.org_slug}) - Rôle: ${om.role}`).join('\n'), 
+                    'success');
+
+                // 2. Vérifier les matchs accessibles
+                const { data: matches, error: matchesError } = await supabase
+                    .from('matches')
+                    .select('*');
+
+                if (matchesError) {
+                    addResult('❌ Erreur matchs', matchesError.message, 'error');
+                    return;
+                }
+
+                addResult('⚽ Matchs accessibles', 
+                    `Nombre total: ${matches.length}\n` +
+                    matches.map(m => `- ${m.name} (${m.sport}) - Org: ${m.org_id} - Statut: ${m.status}`).join('\n'), 
+                    'success');
+
+                // 3. Vérifier les profils accessibles
+                const { data: profiles, error: profilesError } = await supabase
+                    .from('profiles')
+                    .select('*');
+
+                if (profilesError) {
+                    addResult('❌ Erreur profils', profilesError.message, 'error');
+                    return;
+                }
+
+                addResult('👤 Profils accessibles', 
+                    `Nombre: ${profiles.length}\n` +
+                    profiles.map(p => `- ${p.email} (${p.id})`).join('\n'), 
+                    'success');
+
+            } catch (err) {
+                addResult('❌ Erreur inattendue', err.message, 'error');
+            }
+        }
+
+        async function testAllOrganizations() {
+            if (!currentUser) {
+                addResult('❌ Erreur', 'Veuillez d\'abord vous connecter', 'error');
+                return;
+            }
+
+            try {
+                addResult('🌐 Test accès toutes organisations', 'Vérification des permissions globales...', 'info');
+
+                // Tenter d'accéder à toutes les organisations
+                const { data: allOrgs, error: allOrgsError } = await supabase
+                    .from('orgs')
+                    .select('*');
+
+                if (allOrgsError) {
+                    addResult('❌ Erreur accès organisations', allOrgsError.message, 'error');
+                    return;
+                }
+
+                addResult('✅ Accès toutes organisations', 
+                    `Organisations accessibles: ${allOrgs.length}\n` +
+                    allOrgs.map(org => `- ${org.name} (${org.slug}) - ID: ${org.id}`).join('\n'), 
+                    'success');
+
+                // Tenter d'accéder aux membres de toutes les organisations
+                const { data: allMembers, error: allMembersError } = await supabase
+                    .from('org_members')
+                    .select('*');
+
+                if (allMembersError) {
+                    addResult('❌ Erreur accès membres', allMembersError.message, 'error');
+                    return;
+                }
+
+                addResult('✅ Accès tous les membres', 
+                    `Membres accessibles: ${allMembers.length}\n` +
+                    allMembers.map(m => `- User ${m.user_id} dans org ${m.org_id} (${m.role})`).join('\n'), 
+                    'success');
+
+            } catch (err) {
+                addResult('❌ Erreur inattendue', err.message, 'error');
+            }
+        }
+
+        async function testCreateMatch() {
+            if (!currentUser) {
+                addResult('❌ Erreur', 'Veuillez d\'abord vous connecter', 'error');
+                return;
+            }
+
+            try {
+                addResult('➕ Test création match', 'Création d\'un match test...', 'info');
+
+                // Récupérer une organisation
+                const { data: orgs, error: orgsError } = await supabase
+                    .from('orgs')
+                    .select('*')
+                    .limit(1);
+
+                if (orgsError || !orgs.length) {
+                    addResult('❌ Erreur organisation', 'Aucune organisation trouvée', 'error');
+                    return;
+                }
+
+                const org = orgs[0];
+                const testMatchData = {
+                    org_id: org.id,
+                    name: 'Test Super Admin Match',
+                    sport: 'football',
+                    home_name: 'Test Home',
+                    away_name: 'Test Away',
+                    scheduled_at: new Date().toISOString(),
+                    status: 'scheduled',
+                    public_display: true,
+                    display_token: Math.random().toString(36).substring(2, 15)
+                };
+
+                const { data: match, error: matchError } = await supabase
+                    .from('matches')
+                    .insert(testMatchData)
+                    .select('*')
+                    .single();
+
+                if (matchError) {
+                    addResult('❌ Erreur création match', matchError.message, 'error');
+                    return;
+                }
+
+                testMatchId = match.id;
+                addResult('✅ Match créé avec succès', 
+                    `Match ID: ${match.id}\n` +
+                    `Nom: ${match.name}\n` +
+                    `Organisation: ${org.name}\n` +
+                    `Sport: ${match.sport}\n` +
+                    `Statut: ${match.status}`, 
+                    'success');
+
+            } catch (err) {
+                addResult('❌ Erreur inattendue', err.message, 'error');
+            }
+        }
+
+        async function testDeleteMatch() {
+            if (!currentUser) {
+                addResult('❌ Erreur', 'Veuillez d\'abord vous connecter', 'error');
+                return;
+            }
+
+            if (!testMatchId) {
+                addResult('❌ Erreur', 'Aucun match test à supprimer. Créez d\'abord un match.', 'error');
+                return;
+            }
+
+            try {
+                addResult('🗑️ Test suppression match', `Suppression du match ${testMatchId}...`, 'info');
+
+                const { error: deleteError } = await supabase
+                    .from('matches')
+                    .delete()
+                    .eq('id', testMatchId);
+
+                if (deleteError) {
+                    addResult('❌ Erreur suppression match', deleteError.message, 'error');
+                    return;
+                }
+
+                addResult('✅ Match supprimé avec succès', 
+                    `Match ID ${testMatchId} supprimé`, 
+                    'success');
+
+                testMatchId = null;
+
+            } catch (err) {
+                addResult('❌ Erreur inattendue', err.message, 'error');
+            }
+        }
+
+        async function testOperatorLogin() {
+            try {
+                addResult('🔐 Test connexion Operator', 'Tentative de connexion avec gilles.guerrin49@gmail.com...', 'info');
+
+                const { data, error } = await supabase.auth.signInWithPassword({
+                    email: 'gilles.guerrin49@gmail.com',
+                    password: 'test123' // Vous devrez fournir le vrai mot de passe
+                });
+
+                if (error) {
+                    addResult('❌ Erreur connexion Operator', error.message, 'error');
+                    return;
+                }
+
+                if (data.user) {
+                    addResult('✅ Connexion Operator réussie', 
+                        `Utilisateur: ${data.user.email}\n` +
+                        `ID: ${data.user.id}`, 
+                        'success');
+                }
+            } catch (err) {
+                addResult('❌ Erreur inattendue', err.message, 'error');
+            }
+        }
+
+        async function comparePermissions() {
+            addResult('📊 Comparaison des permissions', 
+                'Super Admin vs Operator:\n\n' +
+                'Super Admin devrait avoir:\n' +
+                '- Accès à toutes les organisations\n' +
+                '- Accès à tous les matchs\n' +
+                '- Accès à tous les profils\n' +
+                '- Permissions de création/suppression globales\n\n' +
+                'Operator devrait avoir:\n' +
+                '- Accès limité à ses organisations\n' +
+                '- Accès limité aux matchs de ses organisations\n' +
+                '- Pas d\'accès aux profils d\'autres utilisateurs', 
+                'info');
+        }
+    </script>
+</body>
+</html>

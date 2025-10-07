@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mise à jour des rôles utilisateurs</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .result { background: #f5f5f5; padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .error { background: #ffebee; color: #c62828; }
+        .success { background: #e8f5e8; color: #2e7d32; }
+        .info { background: #e3f2fd; color: #1565c0; }
+        pre { white-space: pre-wrap; }
+        button { padding: 10px 20px; margin: 5px; background: #2196f3; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #1976d2; }
+    </style>
+</head>
+<body>
+    <h1>👥 Mise à jour des rôles utilisateurs</h1>
+    <div id="results"></div>
+    <button onclick="updateUserRoles()">Mettre à jour les rôles</button>
+
+    <script>
+        // Configuration Supabase
+        const supabaseUrl = 'https://opwjfpybcgtgcvldizar.supabase.co';
+        const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wd2pmcHliY2d0Z2N2bGRpemFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc0OTQ5MTksImV4cCI6MjA3MzA3MDkxOX0.8yrYMlhFmjAF5_LG9FtCx8XrJ1sFOz2YejDDupbhgpY';
+
+        const supabase = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
+        const resultsDiv = document.getElementById('results');
+
+        function addResult(title, content, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.innerHTML = `<h3>${title}</h3><pre>${content}</pre>`;
+            resultsDiv.appendChild(div);
+        }
+
+        async function updateUserRoles() {
+            try {
+                addResult('🚀 Démarrage de la mise à jour', 'Récupération des informations utilisateurs...', 'info');
+
+                // 1. Récupérer tous les profils pour trouver les UUIDs
+                const { data: profiles, error: profilesError } = await supabase
+                    .from('profiles')
+                    .select('*');
+
+                if (profilesError) {
+                    addResult('❌ Erreur - Profils', profilesError.message, 'error');
+                    return;
+                }
+
+                addResult('👤 Profils trouvés', 
+                    `Nombre: ${profiles.length}\n` +
+                    profiles.map(profile => `- ${profile.email} (${profile.id})`).join('\n'), 
+                    'success');
+
+                // 2. Identifier les utilisateurs cibles
+                const superAdminEmail = 'gilles.guerrin@a2display.fr';
+                const operatorEmail = 'gilles.guerrin49@gmail.com';
+
+                const superAdminProfile = profiles.find(p => p.email === superAdminEmail);
+                const operatorProfile = profiles.find(p => p.email === operatorEmail);
+
+                if (!superAdminProfile) {
+                    addResult('❌ Utilisateur super_admin non trouvé', `Email: ${superAdminEmail}`, 'error');
+                    return;
+                }
+
+                if (!operatorProfile) {
+                    addResult('❌ Utilisateur operator non trouvé', `Email: ${operatorEmail}`, 'error');
+                    return;
+                }
+
+                addResult('✅ Utilisateurs identifiés', 
+                    `Super Admin: ${superAdminProfile.email} (${superAdminProfile.id})\n` +
+                    `Operator: ${operatorProfile.email} (${operatorProfile.id})`, 
+                    'success');
+
+                // 3. Récupérer les organisations
+                const { data: orgs, error: orgsError } = await supabase
+                    .from('orgs')
+                    .select('*');
+
+                if (orgsError) {
+                    addResult('❌ Erreur - Organisations', orgsError.message, 'error');
+                    return;
+                }
+
+                addResult('🏢 Organisations disponibles', 
+                    orgs.map(org => `- ${org.name} (${org.slug}) - ID: ${org.id}`).join('\n'), 
+                    'info');
+
+                // 4. Récupérer les membres actuels
+                const { data: currentMembers, error: membersError } = await supabase
+                    .from('org_members')
+                    .select('*');
+
+                if (membersError) {
+                    addResult('❌ Erreur - Membres actuels', membersError.message, 'error');
+                    return;
+                }
+
+                addResult('👥 Membres actuels', 
+                    `Nombre: ${currentMembers.length}\n` +
+                    currentMembers.map(member => `- User ${member.user_id} dans org ${member.org_id} (${member.role})`).join('\n'), 
+                    'info');
+
+                // 5. Mettre à jour les rôles
+                const updates = [];
+
+                // Supprimer les anciens rôles pour ces utilisateurs
+                for (const member of currentMembers) {
+                    if (member.user_id === superAdminProfile.id || member.user_id === operatorProfile.id) {
+                        const { error: deleteError } = await supabase
+                            .from('org_members')
+                            .delete()
+                            .eq('user_id', member.user_id)
+                            .eq('org_id', member.org_id);
+                        
+                        if (deleteError) {
+                            addResult('⚠️ Erreur suppression ancien rôle', 
+                                `User ${member.user_id}: ${deleteError.message}`, 'error');
+                        } else {
+                            addResult('🗑️ Ancien rôle supprimé', 
+                                `User ${member.user_id} (${member.role})`, 'info');
+                        }
+                    }
+                }
+
+                // Ajouter le super_admin à toutes les organisations
+                for (const org of orgs) {
+                    const { error: insertError } = await supabase
+                        .from('org_members')
+                        .insert({
+                            org_id: org.id,
+                            user_id: superAdminProfile.id,
+                            role: 'super_admin'
+                        });
+
+                    if (insertError) {
+                        addResult('❌ Erreur ajout super_admin', 
+                            `Org ${org.name}: ${insertError.message}`, 'error');
+                    } else {
+                        addResult('✅ Super_admin ajouté', 
+                            `${superAdminProfile.email} dans ${org.name}`, 'success');
+                    }
+                }
+
+                // Ajouter l'operator à orgA seulement
+                const orgA = orgs.find(org => org.slug === 'orgA');
+                if (orgA) {
+                    const { error: insertError } = await supabase
+                        .from('org_members')
+                        .insert({
+                            org_id: orgA.id,
+                            user_id: operatorProfile.id,
+                            role: 'operator'
+                        });
+
+                    if (insertError) {
+                        addResult('❌ Erreur ajout operator', 
+                            `Org ${orgA.name}: ${insertError.message}`, 'error');
+                    } else {
+                        addResult('✅ Operator ajouté', 
+                            `${operatorProfile.email} dans ${orgA.name}`, 'success');
+                    }
+                }
+
+                // 6. Vérification finale
+                const { data: finalMembers, error: finalError } = await supabase
+                    .from('org_members')
+                    .select('*');
+
+                if (finalError) {
+                    addResult('❌ Erreur vérification finale', finalError.message, 'error');
+                } else {
+                    addResult('🎉 Vérification finale', 
+                        `Nombre total de membres: ${finalMembers.length}\n` +
+                        finalMembers.map(member => {
+                            const profile = profiles.find(p => p.id === member.user_id);
+                            return `- ${profile?.email || 'Unknown'} dans org ${member.org_id} (${member.role})`;
+                        }).join('\n'), 
+                        'success');
+                }
+
+            } catch (error) {
+                addResult('❌ Erreur générale', error.message, 'error');
+            }
+        }
+
+        // Démarrer automatiquement
+        updateUserRoles();
+    </script>
+</body>
+</html>

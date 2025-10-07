@@ -1,0 +1,203 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset='utf-8'/>
+  <meta name='viewport' content='width=device-width, initial-scale=1'/>
+  <title>Scoreboard Pro - Accueil</title>
+  <style>
+    :root {
+      --bg: #0b0b0c;
+      --panel: #111214;
+      --text: #eaeaea;
+      --muted: #9aa0a6;
+      --primary: #2563eb;
+      --success: #16a34a;
+    }
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, Segoe UI, Roboto, Helvetica, Arial;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .container {
+      max-width: 800px;
+      padding: 40px;
+      text-align: center;
+    }
+    
+    .logo {
+      font-size: 48px;
+      font-weight: 900;
+      margin-bottom: 16px;
+      background: linear-gradient(135deg, #36ffb5, #2563eb);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    .subtitle {
+      font-size: 20px;
+      color: var(--muted);
+      margin-bottom: 48px;
+    }
+    
+    .apps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+      margin-bottom: 48px;
+    }
+    
+    .app-card {
+      background: var(--panel);
+      border: 1px solid #1b1c1f;
+      border-radius: 16px;
+      padding: 32px;
+      transition: all 0.3s ease;
+      text-decoration: none;
+      color: inherit;
+    }
+    
+    .app-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+      border-color: #2a2f36;
+    }
+    
+    .app-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+    
+    .app-title {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    
+    .app-description {
+      color: var(--muted);
+      line-height: 1.5;
+      margin-bottom: 16px;
+    }
+    
+    .app-port {
+      font-family: ui-monospace, monospace;
+      font-size: 14px;
+      color: var(--primary);
+      background: rgba(37, 99, 235, 0.1);
+      padding: 4px 8px;
+      border-radius: 6px;
+    }
+    
+    .operator-card {
+      border-left: 4px solid var(--primary);
+    }
+    
+    .display-card {
+      border-left: 4px solid var(--success);
+    }
+    
+    .features {
+      text-align: left;
+      background: var(--panel);
+      border: 1px solid #1b1c1f;
+      border-radius: 16px;
+      padding: 32px;
+    }
+    
+    .features h3 {
+      font-size: 20px;
+      margin-bottom: 16px;
+      color: var(--text);
+    }
+    
+    .features ul {
+      list-style: none;
+      display: grid;
+      gap: 8px;
+    }
+    
+    .features li {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--muted);
+    }
+    
+    .features li::before {
+      content: '✓';
+      color: var(--success);
+      font-weight: bold;
+      font-size: 16px;
+    }
+    
+    @media (max-width: 768px) {
+      .container {
+        padding: 20px;
+      }
+      
+      .logo {
+        font-size: 36px;
+      }
+      
+      .apps {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1 class="logo">⚽ Scoreboard Pro</h1>
+    <p class="subtitle">Système de tableau de bord sportif professionnel</p>
+    
+    <div class="apps">
+      <a href="http://localhost:5173" class="app-card operator-card" target="_blank">
+        <div class="app-icon">🎮</div>
+        <h2 class="app-title">Operator</h2>
+        <p class="app-description">
+          Interface de gestion pour créer et contrôler les matchs en temps réel.
+          Gestion des scores, temps, cartons, et événements sportifs.
+        </p>
+        <span class="app-port">:5173</span>
+      </a>
+      
+      <a href="http://localhost:5174" class="app-card display-card" target="_blank">
+        <div class="app-icon">📺</div>
+        <h2 class="app-title">Display</h2>
+        <p class="app-description">
+          Affichage public du tableau de bord pour les spectateurs.
+          Interface élégante avec thèmes personnalisables et plein écran.
+        </p>
+        <span class="app-port">:5174</span>
+      </a>
+    </div>
+    
+    <div class="features">
+      <h3>🏆 Fonctionnalités</h3>
+      <ul>
+        <li>Support multi-sports (Football, Handball, Basketball, Hockey, Volleyball)</li>
+        <li>Gestion en temps réel avec Supabase</li>
+        <li>Interface opérateur intuitive</li>
+        <li>Affichage public avec thèmes personnalisables</li>
+        <li>Gestion des organisations et utilisateurs</li>
+        <li>Contrôles avancés par sport (cartons, pénalités, temps morts)</li>
+        <li>Mode plein écran pour l'affichage</li>
+        <li>Architecture monorepo avec TypeScript</li>
+      </ul>
+    </div>
+  </div>
+</body>
+</html>

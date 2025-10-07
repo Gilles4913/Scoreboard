@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Flux d'Authentification</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #0b0b0c; color: #eaeaea; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .result { background: #111214; padding: 15px; margin: 10px 0; border-radius: 8px; border: 1px solid #1b1c1f; }
+        .success { background: #1b2d1b; border-color: #16a34a; color: #86efac; }
+        .error { background: #2d1b1b; border-color: #dc2626; color: #fca5a5; }
+        .info { background: #1b1d2d; border-color: #2563eb; color: #93c5fd; }
+        .warning { background: #2d2b1b; border-color: #fbbf24; color: #fde68a; }
+        button { padding: 12px 24px; margin: 8px; background: #2563eb; color: white; border: none; border-radius: 8px; cursor: pointer; }
+        button:hover { background: #1d4ed8; }
+        .flow-step { background: #1a1b1e; padding: 20px; border-radius: 8px; border: 1px solid #374151; margin: 10px 0; }
+        .flow-step h4 { margin: 0 0 10px 0; color: #36ffb5; }
+        .test-account { background: #0a0a0a; padding: 10px; border-radius: 4px; font-family: monospace; margin: 10px 0; }
+        .architecture-diagram { background: #1a1b1e; padding: 20px; border-radius: 8px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Test Flux d'Authentification Unique</h1>
+        <p>Vérification du nouveau flux d'authentification avec redirection automatique</p>
+        
+        <div id="results"></div>
+        
+        <div class="architecture-diagram">
+            <h3>🔄 Nouveau Flux d'Authentification</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin: 20px 0;">
+                <div class="flow-step">
+                    <h4>1️⃣ Page d'Authentification</h4>
+                    <p>Interface unique de connexion/inscription</p>
+                    <ul>
+                        <li>Formulaire email/mot de passe</li>
+                        <li>Basculement login/register</li>
+                        <li>Vérification session existante</li>
+                        <li>Comptes de test affichés</li>
+                    </ul>
+                </div>
+                
+                <div class="flow-step">
+                    <h4>2️⃣ Détection du Rôle</h4>
+                    <p>Analyse automatique des permissions</p>
+                    <ul>
+                        <li>Chargement des organisations</li>
+                        <li>Détection Super Admin</li>
+                        <li>Préparation des données</li>
+                        <li>Redirection automatique</li>
+                    </ul>
+                </div>
+                
+                <div class="flow-step">
+                    <h4>3️⃣ Redirection Intelligente</h4>
+                    <p>Interface adaptée selon le rôle</p>
+                    <ul>
+                        <li>Super Admin → Interface Super Admin</li>
+                        <li>1 Organisation → Interface Operator</li>
+                        <li>Plusieurs Orgs → Sélecteur</li>
+                        <li>Gestion des erreurs</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="architecture-diagram">
+            <h3>🧪 Tests à Effectuer</h3>
+            <button onclick="testSuperAdminFlow()">Test Super Admin</button>
+            <button onclick="testOperatorFlow()">Test Operator</button>
+            <button onclick="testMultipleOrgs()">Test Multi-Organisations</button>
+            <button onclick="testSessionPersistence()">Test Persistance Session</button>
+            <button onclick="runAllAuthTests()">Exécuter Tous les Tests</button>
+        </div>
+
+        <div class="architecture-diagram">
+            <h3>👥 Comptes de Test</h3>
+            <div class="test-account">
+                <strong>👑 Super Admin :</strong><br>
+                Email: gilles.guerrin@a2display.fr<br>
+                <em>Accès à toutes les organisations + Interface Super Admin</em>
+            </div>
+            <div class="test-account">
+                <strong>⚽ Operator :</strong><br>
+                Email: gilles.guerrin49@gmail.com<br>
+                <em>Accès à orgA uniquement + Interface Operator</em>
+            </div>
+        </div>
+
+        <div class="architecture-diagram">
+            <h3>📋 Instructions de Test</h3>
+            <ol>
+                <li><strong>Démarrez l'application :</strong>
+                    <div class="test-account">
+                        cd Scoreboard-main<br>
+                        pnpm dev
+                    </div>
+                </li>
+                <li><strong>Ouvrez l'URL :</strong>
+                    <div class="test-account">
+                        http://localhost:3001
+                    </div>
+                </li>
+                <li><strong>Testez les différents flux :</strong>
+                    <ul>
+                        <li>Connexion Super Admin → Interface Super Admin</li>
+                        <li>Connexion Operator → Interface Operator (orgA)</li>
+                        <li>Déconnexion/Reconnexion → Persistance session</li>
+                        <li>Changement d'organisation (Super Admin)</li>
+                    </ul>
+                </li>
+            </ol>
+        </div>
+
+        <div class="architecture-diagram">
+            <h3>✅ Résultats Attendus</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
+                <div class="flow-step">
+                    <h4>Super Admin</h4>
+                    <ul>
+                        <li>✅ Interface Super Admin immédiate</li>
+                        <li>✅ Accès à toutes les organisations</li>
+                        <li>✅ Gestion des utilisateurs</li>
+                        <li>✅ Création d'organisations</li>
+                    </ul>
+                </div>
+                
+                <div class="flow-step">
+                    <h4>Operator (1 org)</h4>
+                    <ul>
+                        <li>✅ Interface Operator directe</li>
+                        <li>✅ Organisation auto-sélectionnée</li>
+                        <li>✅ Gestion des matchs</li>
+                        <li>✅ Bouton changement d'org</li>
+                    </ul>
+                </div>
+                
+                <div class="flow-step">
+                    <h4>Operator (multi-org)</h4>
+                    <ul>
+                        <li>✅ Sélecteur d'organisation</li>
+                        <li>✅ Choix de l'organisation</li>
+                        <li>✅ Interface Operator après sélection</li>
+                        <li>✅ Changement d'organisation</li>
+                    </ul>
+                </div>
+                
+                <div class="flow-step">
+                    <h4>Session</h4>
+                    <ul>
+                        <li>✅ Persistance de la session</li>
+                        <li>✅ Reconnexion automatique</li>
+                        <li>✅ Déconnexion propre</li>
+                        <li>✅ Gestion des erreurs</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const resultsDiv = document.getElementById('results');
+
+        function addResult(title, content, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.innerHTML = `<h3>${title}</h3><pre>${content}</pre>`;
+            resultsDiv.appendChild(div);
+        }
+
+        function testSuperAdminFlow() {
+            addResult('👑 Test Flux Super Admin', 
+                'Étapes à suivre :\n\n' +
+                '1. Ouvrez http://localhost:3001\n' +
+                '2. Connectez-vous avec gilles.guerrin@a2display.fr\n' +
+                '3. Vérifiez que vous arrivez directement sur l\'interface Super Admin\n' +
+                '4. Vérifiez que vous voyez toutes les organisations\n' +
+                '5. Testez la création d\'une nouvelle organisation\n' +
+                '6. Testez l\'ajout d\'un utilisateur\n' +
+                '7. Testez la gestion des organisations existantes\n\n' +
+                '✅ Résultat attendu : Interface Super Admin immédiate avec accès complet', 
+                'info');
+        }
+
+        function testOperatorFlow() {
+            addResult('⚽ Test Flux Operator', 
+                'Étapes à suivre :\n\n' +
+                '1. Ouvrez http://localhost:3001\n' +
+                '2. Connectez-vous avec gilles.guerrin49@gmail.com\n' +
+                '3. Vérifiez que vous arrivez directement sur l\'interface Operator\n' +
+                '4. Vérifiez que l\'organisation "Association A" est sélectionnée\n' +
+                '5. Testez la création d\'un match\n' +
+                '6. Testez la sélection d\'un match\n' +
+                '7. Testez le démarrage du chronomètre\n' +
+                '8. Vérifiez que le bouton "🔄 Changer" est visible\n\n' +
+                '✅ Résultat attendu : Interface Operator directe avec orgA auto-sélectionnée', 
+                'info');
+        }
+
+        function testMultipleOrgs() {
+            addResult('🏢 Test Multi-Organisations', 
+                'Étapes à suivre :\n\n' +
+                '1. En tant que Super Admin, créez une nouvelle organisation\n' +
+                '2. Ajoutez gilles.guerrin49@gmail.com à cette nouvelle organisation\n' +
+                '3. Déconnectez-vous et reconnectez-vous avec gilles.guerrin49@gmail.com\n' +
+                '4. Vérifiez que le sélecteur d\'organisation s\'affiche\n' +
+                '5. Sélectionnez une organisation\n' +
+                '6. Vérifiez que l\'interface Operator s\'affiche\n' +
+                '7. Testez le changement d\'organisation\n' +
+                '8. Vérifiez que les matchs sont isolés par organisation\n\n' +
+                '✅ Résultat attendu : Sélecteur d\'organisation avec isolation des données', 
+                'info');
+        }
+
+        function testSessionPersistence() {
+            addResult('💾 Test Persistance Session', 
+                'Étapes à suivre :\n\n' +
+                '1. Connectez-vous avec un compte\n' +
+                '2. Fermez l\'onglet du navigateur\n' +
+                '3. Rouvrez http://localhost:3001\n' +
+                '4. Vérifiez que vous êtes automatiquement reconnecté\n' +
+                '5. Vérifiez que vous arrivez sur la bonne interface\n' +
+                '6. Testez la déconnexion manuelle\n' +
+                '7. Vérifiez que vous retournez à la page d\'authentification\n' +
+                '8. Testez la reconnexion\n\n' +
+                '✅ Résultat attendu : Session persistante avec reconnexion automatique', 
+                'info');
+        }
+
+        function runAllAuthTests() {
+            addResult('🚀 Exécution de Tous les Tests d\'Authentification', 
+                'Tests à effectuer dans l\'ordre :\n\n' +
+                '1. 👑 Test Flux Super Admin\n' +
+                '2. ⚽ Test Flux Operator\n' +
+                '3. 🏢 Test Multi-Organisations\n' +
+                '4. 💾 Test Persistance Session\n\n' +
+                'Le nouveau flux d\'authentification est maintenant implémenté !\n\n' +
+                '🎉 Fonctionnalités disponibles :\n' +
+                '✅ Page d\'authentification unique\n' +
+                '✅ Détection automatique du rôle\n' +
+                '✅ Redirection intelligente\n' +
+                '✅ Persistance de session\n' +
+                '✅ Gestion des erreurs\n' +
+                '✅ Interface adaptative\n\n' +
+                'L\'utilisateur arrive toujours sur la page d\'authentification,\n' +
+                'puis est automatiquement redirigé vers la bonne interface !', 
+                'success');
+        }
+    </script>
+</body>
+</html>

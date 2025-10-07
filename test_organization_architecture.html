@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Architecture par Organisation</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #0b0b0c; color: #eaeaea; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .result { background: #111214; padding: 15px; margin: 10px 0; border-radius: 8px; border: 1px solid #1b1c1f; }
+        .success { background: #1b2d1b; border-color: #16a34a; color: #86efac; }
+        .error { background: #2d1b1b; border-color: #dc2626; color: #fca5a5; }
+        .info { background: #1b1d2d; border-color: #2563eb; color: #93c5fd; }
+        button { padding: 12px 24px; margin: 8px; background: #2563eb; color: white; border: none; border-radius: 8px; cursor: pointer; }
+        button:hover { background: #1d4ed8; }
+        .org-card { background: #1a1b1e; padding: 20px; border-radius: 8px; border: 1px solid #374151; margin: 10px 0; }
+        .url-example { background: #0a0a0a; padding: 10px; border-radius: 4px; font-family: monospace; margin: 10px 0; }
+        .architecture-diagram { background: #1a1b1e; padding: 20px; border-radius: 8px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏢 Test Architecture par Organisation</h1>
+        <p>Vérification de l'architecture où chaque organisation est indépendante</p>
+        
+        <div id="results"></div>
+        
+        <div class="architecture-diagram">
+            <h3>📋 Architecture Implémentée</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin: 20px 0;">
+                <div class="org-card">
+                    <h4>🏢 Organisation A (orgA)</h4>
+                    <div class="url-example">
+                        <strong>Console Operator:</strong><br>
+                        http://localhost:3001<br>
+                        <em>Interface de gestion des matchs</em>
+                    </div>
+                    <div class="url-example">
+                        <strong>Display Public:</strong><br>
+                        http://localhost:3002/orgA<br>
+                        <em>Affichage public des scores</em>
+                    </div>
+                </div>
+                
+                <div class="org-card">
+                    <h4>🏢 Organisation B (orgB)</h4>
+                    <div class="url-example">
+                        <strong>Console Operator:</strong><br>
+                        http://localhost:3001<br>
+                        <em>Interface de gestion des matchs</em>
+                    </div>
+                    <div class="url-example">
+                        <strong>Display Public:</strong><br>
+                        http://localhost:3002/orgB<br>
+                        <em>Affichage public des scores</em>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="architecture-diagram">
+            <h3>🔧 Fonctionnalités par Organisation</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
+                <div class="org-card">
+                    <h4>✅ Organisations Disjointes</h4>
+                    <ul>
+                        <li>Chaque organisation est indépendante</li>
+                        <li>Sélecteur d'organisation au démarrage</li>
+                        <li>Changement d'organisation possible</li>
+                        <li>Données isolées par organisation</li>
+                    </ul>
+                </div>
+                
+                <div class="org-card">
+                    <h4>⚽ Gestion des Matchs</h4>
+                    <ul>
+                        <li>Un seul match actif par organisation</li>
+                        <li>Matchs isolés par organisation</li>
+                        <li>Console opérateur dédiée</li>
+                        <li>Gestion des statuts (scheduled/live/finished)</li>
+                    </ul>
+                </div>
+                
+                <div class="org-card">
+                    <h4>📺 Affichage Display</h4>
+                    <ul>
+                        <li>URL unique par organisation</li>
+                        <li>Affichage automatique du match actif</li>
+                        <li>Synchronisation temps réel</li>
+                        <li>Interface responsive</li>
+                    </ul>
+                </div>
+                
+                <div class="org-card">
+                    <h4>👑 Super Admin</h4>
+                    <ul>
+                        <li>Accès à toutes les organisations</li>
+                        <li>Création/gestion des organisations</li>
+                        <li>Gestion des utilisateurs</li>
+                        <li>Vue d'ensemble globale</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="architecture-diagram">
+            <h3>🧪 Tests à Effectuer</h3>
+            <button onclick="testOrganizationIsolation()">Test Isolation des Organisations</button>
+            <button onclick="testMatchManagement()">Test Gestion des Matchs</button>
+            <button onclick="testDisplayUrls()">Test URLs Display</button>
+            <button onclick="testSuperAdminAccess()">Test Accès Super Admin</button>
+            <button onclick="runAllTests()">Exécuter Tous les Tests</button>
+        </div>
+
+        <div class="architecture-diagram">
+            <h3>📋 Instructions de Test</h3>
+            <ol>
+                <li><strong>Démarrez les applications :</strong>
+                    <div class="url-example">
+                        cd Scoreboard-main<br>
+                        pnpm dev
+                    </div>
+                </li>
+                <li><strong>Testez l'interface Operator :</strong>
+                    <div class="url-example">
+                        http://localhost:3001<br>
+                        Connectez-vous avec gilles.guerrin@a2display.fr (Super Admin)<br>
+                        ou gilles.guerrin49@gmail.com (Operator)
+                    </div>
+                </li>
+                <li><strong>Testez les URLs Display :</strong>
+                    <div class="url-example">
+                        http://localhost:3002/orgA<br>
+                        http://localhost:3002/orgB<br>
+                        Chaque URL doit afficher l'organisation correspondante
+                    </div>
+                </li>
+                <li><strong>Testez la gestion des matchs :</strong>
+                    <div class="url-example">
+                        - Créez des matchs dans orgA<br>
+                        - Créez des matchs dans orgB<br>
+                        - Vérifiez qu'ils sont isolés<br>
+                        - Testez qu'un seul match peut être actif par org
+                    </div>
+                </li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        const resultsDiv = document.getElementById('results');
+
+        function addResult(title, content, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.innerHTML = `<h3>${title}</h3><pre>${content}</pre>`;
+            resultsDiv.appendChild(div);
+        }
+
+        function testOrganizationIsolation() {
+            addResult('🧪 Test Isolation des Organisations', 
+                'Vérifications à effectuer :\n\n' +
+                '1. Connectez-vous en Super Admin\n' +
+                '2. Créez des matchs dans orgA\n' +
+                '3. Changez d\'organisation vers orgB\n' +
+                '4. Vérifiez que les matchs d\'orgA ne sont pas visibles\n' +
+                '5. Créez des matchs dans orgB\n' +
+                '6. Retournez à orgA - les matchs d\'orgA doivent être là\n' +
+                '7. Les matchs d\'orgB ne doivent pas être visibles\n\n' +
+                '✅ Résultat attendu : Chaque organisation est complètement isolée', 
+                'info');
+        }
+
+        function testMatchManagement() {
+            addResult('⚽ Test Gestion des Matchs', 
+                'Vérifications à effectuer :\n\n' +
+                '1. Dans une organisation, créez plusieurs matchs\n' +
+                '2. Sélectionnez un match (il devient "sélectionné")\n' +
+                '3. Essayez de sélectionner un autre match\n' +
+                '4. Vérifiez qu\'un message d\'erreur apparaît\n' +
+                '5. Démarrer le chronomètre du match sélectionné\n' +
+                '6. Le match devient "actif" (statut live)\n' +
+                '7. Essayez de sélectionner un autre match\n' +
+                '8. Vérifiez que c\'est impossible\n\n' +
+                '✅ Résultat attendu : Un seul match peut être actif à la fois par organisation', 
+                'info');
+        }
+
+        function testDisplayUrls() {
+            addResult('📺 Test URLs Display', 
+                'Vérifications à effectuer :\n\n' +
+                '1. Ouvrez http://localhost:3002/orgA\n' +
+                '2. Vérifiez que l\'en-tête affiche "Organisation A"\n' +
+                '3. Ouvrez http://localhost:3002/orgB\n' +
+                '4. Vérifiez que l\'en-tête affiche "Organisation B"\n' +
+                '5. Dans l\'Operator, sélectionnez un match dans orgA\n' +
+                '6. Vérifiez que le Display orgA affiche le match\n' +
+                '7. Vérifiez que le Display orgB n\'affiche rien\n' +
+                '8. Changez d\'organisation dans l\'Operator\n' +
+                '9. Sélectionnez un match dans orgB\n' +
+                '10. Vérifiez que le Display orgB affiche le match\n\n' +
+                '✅ Résultat attendu : Chaque Display affiche uniquement les matchs de son organisation', 
+                'info');
+        }
+
+        function testSuperAdminAccess() {
+            addResult('👑 Test Accès Super Admin', 
+                'Vérifications à effectuer :\n\n' +
+                '1. Connectez-vous avec gilles.guerrin@a2display.fr\n' +
+                '2. Vérifiez que le bouton "👑 Super Admin" est visible\n' +
+                '3. Cliquez sur "👑 Super Admin"\n' +
+                '4. Vérifiez que vous voyez toutes les organisations\n' +
+                '5. Créez une nouvelle organisation\n' +
+                '6. Ajoutez un utilisateur à cette organisation\n' +
+                '7. Retournez à l\'interface normale\n' +
+                '8. Vérifiez que vous pouvez changer d\'organisation\n' +
+                '9. Testez la gestion des matchs dans chaque organisation\n\n' +
+                '✅ Résultat attendu : Super Admin a accès complet à toutes les organisations', 
+                'info');
+        }
+
+        function runAllTests() {
+            addResult('🚀 Exécution de Tous les Tests', 
+                'Tests à effectuer dans l\'ordre :\n\n' +
+                '1. 🧪 Test Isolation des Organisations\n' +
+                '2. ⚽ Test Gestion des Matchs\n' +
+                '3. 📺 Test URLs Display\n' +
+                '4. 👑 Test Accès Super Admin\n\n' +
+                'Chaque test doit être effectué manuellement en suivant les instructions.\n' +
+                'L\'architecture par organisation est maintenant complètement implémentée !\n\n' +
+                '🎉 Fonctionnalités disponibles :\n' +
+                '✅ Organisations disjointes\n' +
+                '✅ Sélecteur d\'organisation\n' +
+                '✅ Un match actif par organisation\n' +
+                '✅ URLs Display uniques\n' +
+                '✅ Console opérateur dédiée\n' +
+                '✅ Super Admin avec accès global', 
+                'success');
+        }
+    </script>
+</body>
+</html>

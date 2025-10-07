@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vérification Base de Données</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .result { background: #f5f5f5; padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .error { background: #ffebee; color: #c62828; }
+        .success { background: #e8f5e8; color: #2e7d32; }
+        .info { background: #e3f2fd; color: #1565c0; }
+        pre { white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Vérification de la Base de Données</h1>
+    <div id="results"></div>
+
+    <script>
+        // Configuration Supabase
+        const supabaseUrl = 'https://opwjfpybcgtgcvldizar.supabase.co';
+        const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wd2pmcHliY2d0Z2N2bGRpemFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc0OTQ5MTksImV4cCI6MjA3MzA3MDkxOX0.8yrYMlhFmjAF5_LG9FtCx8XrJ1sFOz2YejDDupbhgpY';
+
+        const supabase = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
+        const resultsDiv = document.getElementById('results');
+
+        function addResult(title, content, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.innerHTML = `<h3>${title}</h3><pre>${content}</pre>`;
+            resultsDiv.appendChild(div);
+        }
+
+        async function checkDatabase() {
+            try {
+                addResult('🚀 Démarrage de la vérification', 'Connexion à la base de données...', 'info');
+
+                // 1. Vérifier les organisations
+                const { data: orgs, error: orgsError } = await supabase
+                    .from('orgs')
+                    .select('*');
+
+                if (orgsError) {
+                    addResult('❌ Erreur - Organisations', orgsError.message, 'error');
+                } else {
+                    addResult('🏢 Organisations', 
+                        `Nombre: ${orgs.length}\n` +
+                        orgs.map(org => `- ${org.name} (${org.slug}) - ID: ${org.id}`).join('\n'), 
+                        'success');
+                }
+
+                // 2. Vérifier les membres d'organisations
+                const { data: members, error: membersError } = await supabase
+                    .from('org_members')
+                    .select('*');
+
+                if (membersError) {
+                    addResult('❌ Erreur - Membres', membersError.message, 'error');
+                } else {
+                    addResult('👥 Membres d\'organisations', 
+                        `Nombre: ${members.length}\n` +
+                        members.map(member => `- User ${member.user_id} dans org ${member.org_id} (${member.role})`).join('\n'), 
+                        'success');
+                }
+
+                // 3. Vérifier les profils
+                const { data: profiles, error: profilesError } = await supabase
+                    .from('profiles')
+                    .select('*');
+
+                if (profilesError) {
+                    addResult('❌ Erreur - Profils', profilesError.message, 'error');
+                } else {
+                    addResult('👤 Profils utilisateurs', 
+                        `Nombre: ${profiles.length}\n` +
+                        profiles.map(profile => `- ${profile.email} (${profile.id})`).join('\n'), 
+                        'success');
+                }
+
+                // 4. Vérifier les matchs
+                const { data: matches, error: matchesError } = await supabase
+                    .from('matches')
+                    .select('*');
+
+                if (matchesError) {
+                    addResult('❌ Erreur - Matchs', matchesError.message, 'error');
+                } else {
+                    addResult('⚽ Matchs', 
+                        `Nombre: ${matches.length}\n` +
+                        matches.map(match => `- ${match.name} (${match.sport}) - ${match.home_name} vs ${match.away_name} - Statut: ${match.status}`).join('\n'), 
+                        'success');
+                }
+
+                // 5. Résumé global
+                const totalRecords = (orgs?.length || 0) + (members?.length || 0) + (profiles?.length || 0) + (matches?.length || 0);
+                addResult('📊 Résumé Global', 
+                    `Nombre total de tables vérifiées: 4\n` +
+                    `Nombre total d'enregistrements: ${totalRecords}\n\n` +
+                    `Détail:\n` +
+                    `- Organisations: ${orgs?.length || 0}\n` +
+                    `- Membres: ${members?.length || 0}\n` +
+                    `- Profils: ${profiles?.length || 0}\n` +
+                    `- Matchs: ${matches?.length || 0}`, 
+                    'info');
+
+                // 6. Vérifier les super_admins
+                const superAdmins = members?.filter(m => m.role === 'super_admin') || [];
+                if (superAdmins.length === 0) {
+                    addResult('⚠️ Super Administrateurs', 'Aucun super_admin trouvé dans la base de données', 'error');
+                } else {
+                    addResult('👑 Super Administrateurs', 
+                        `Nombre: ${superAdmins.length}\n` +
+                        superAdmins.map(admin => `- User ${admin.user_id} dans org ${admin.org_id}`).join('\n'), 
+                        'success');
+                }
+
+            } catch (error) {
+                addResult('❌ Erreur générale', error.message, 'error');
+            }
+        }
+
+        // Démarrer la vérification
+        checkDatabase();
+    </script>
+</body>
+</html>

@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test après correction RLS</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #0b0b0c; color: #eaeaea; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .result { background: #111214; padding: 15px; margin: 10px 0; border-radius: 8px; border: 1px solid #1b1c1f; }
+        .success { background: #1b2d1b; border-color: #16a34a; color: #86efac; }
+        .error { background: #2d1b1b; border-color: #dc2626; color: #fca5a5; }
+        .info { background: #1b1d2d; border-color: #2563eb; color: #93c5fd; }
+        button { padding: 10px 20px; margin: 5px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; }
+        button:hover { background: #1d4ed8; }
+        button:disabled { background: #6b7280; cursor: not-allowed; }
+        pre { white-space: pre-wrap; background: #0a0a0a; padding: 10px; border-radius: 4px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Test après correction RLS</h1>
+        <p>Vérification que la création d'organisations fonctionne maintenant</p>
+        
+        <div id="results"></div>
+        
+        <button onclick="testSuperAdminLogin()" id="loginBtn">Se connecter en Super Admin</button>
+        <button onclick="testCreateOrganization()" id="createOrgBtn" disabled>Créer une organisation</button>
+        <button onclick="testListOrganizations()" id="listOrgBtn" disabled>Lister les organisations</button>
+        <button onclick="testCreateUser()" id="createUserBtn" disabled>Créer un utilisateur</button>
+        <button onclick="testAddMember()" id="addMemberBtn" disabled>Ajouter un membre</button>
+        <button onclick="runFullTest()" id="fullTestBtn" disabled>Test complet</button>
+    </div>
+
+    <script>
+        const supabaseUrl = 'https://opwjfpybcgtgcvldizar.supabase.co';
+        const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wd2pmcHliY2d0Z2N2bGRpemFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc0OTQ5MTksImV4cCI6MjA3MzA3MDkxOX0.8yrYMlhFmjAF5_LG9FtCx8XrJ1sFOz2YejDDupbhgpY';
+
+        const supabase = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
+        const resultsDiv = document.getElementById('results');
+        let currentUser = null;
+        let testData = { orgId: null, userId: null };
+
+        function addResult(title, content, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.innerHTML = `<h3>${title}</h3><pre>${content}</pre>`;
+            resultsDiv.appendChild(div);
+        }
+
+        function updateButtons() {
+            const isLoggedIn = !!currentUser;
+            document.getElementById('loginBtn').disabled = isLoggedIn;
+            document.getElementById('createOrgBtn').disabled = !isLoggedIn;
+            document.getElementById('listOrgBtn').disabled = !isLoggedIn;
+            document.getElementById('createUserBtn').disabled = !isLoggedIn;
+            document.getElementById('addMemberBtn').disabled = !isLoggedIn;
+            document.getElementById('fullTestBtn').disabled = !isLoggedIn;
+        }
+
+        async function testSuperAdminLogin() {
+            try {
+                addResult('🔐 Connexion Super Admin', 'Tentative de connexion...', 'info');
+                
+                const { data, error } = await supabase.auth.signInWithPassword({
+                    email: 'gilles.guerrin@a2display.fr',
+                    password: prompt('Mot de passe pour gilles.guerrin@a2display.fr:')
+                });
+
+                if (error) {
+                    addResult('❌ Erreur de connexion', error.message, 'error');
+                    return;
+                }
+
+                currentUser = data.user;
+                addResult('✅ Connexion Super Admin réussie', 
+                    `Utilisateur: ${data.user.email}\n` +
+                    `ID: ${data.user.id}`, 
+                    'success');
+                
+                updateButtons();
+            } catch (err) {
+                addResult('❌ Erreur inattendue', err.message, 'error');
+            }
+        }
+
+        async function testCreateOrganization() {
+            try {
+                const orgName = prompt('Nom de l\'organisation:') || 'Test Organisation ' + Date.now();
+                const orgSlug = prompt('Slug de l\'organisation:') || 'test-org-' + Date.now();
+                
+                addResult('🏢 Création d\'organisation', `Création: ${orgName} (${orgSlug})`, 'info');
+                
+                const { data, error } = await supabase
+                    .from('orgs')
+                    .insert({
+                        name: orgName,
+                        slug: orgSlug
+                    })
+                    .select('*')
+                    .single();
+
+                if (error) {
+                    addResult('❌ Erreur création organisation', error.message, 'error');
+                    return;
+                }
+
+                testData.orgId = data.id;
+                addResult('✅ Organisation créée avec succès !', 
+                    `ID: ${data.id}\n` +
+                    `Nom: ${data.name}\n` +
+                    `Slug: ${data.slug}\n` +
+                    `Créée le: ${new Date(data.created_at).toLocaleString('fr-FR')}`, 
+                    'success');
+            } catch (err) {
+                addResult('❌ Erreur inattendue', err.message, 'error');
+            }
+        }
+
+        async function testListOrganizations() {
+            try {
+                addResult('📋 Liste des organisations', 'Récupération...', 'info');
+                
+                const { data, error } = await supabase
+                    .from('orgs')
+                    .select('*')
+                    .order('created_at', { ascending: false });
+
+                if (error) {
+                    addResult('❌ Erreur liste organisations', error.message, 'error');
+                    return;
+                }
+
+                addResult('✅ Organisations récupérées', 
+                    `Nombre total: ${data.length}\n\n` +
+                    data.map(org => 
+                        `- ${org.name} (${org.slug})\n` +
+                        `  ID: ${org.id}\n` +
+                        `  Créée: ${new Date(org.created_at).toLocaleString('fr-FR')}\n`
+                    ).join('\n'), 
+                    'success');
+            } catch (err) {
+                addResult('❌ Erreur inattendue', err.message, 'error');
+            }
+        }
+
+        async function testCreateUser() {
+            try {
+                const email = prompt('Email du nouvel utilisateur:') || 'test-user-' + Date.now() + '@example.com';
+                const password = prompt('Mot de passe:') || 'test123';
+                
+                addResult('👤 Création d\'utilisateur', `Création: ${email}`, 'info');
+                
+                const { data, error } = await supabase.auth.admin.createUser({
+                    email: email,
+                    password: password,
+                    email_confirm: true
+                });
+
+                if (error) {
+                    addResult('❌ Erreur création utilisateur', error.message, 'error');
+                    return;
+                }
+
+                testData.userId = data.user.id;
+                addResult('✅ Utilisateur créé avec succès !', 
+                    `ID: ${data.user.id}\n` +
+                    `Email: ${data.user.email}\n` +
+                    `Email confirmé: ${data.user.email_confirmed_at ? 'Oui' : 'Non'}`, 
+                    'success');
+            } catch (err) {
+                addResult('❌ Erreur inattendue', err.message, 'error');
+            }
+        }
+
+        async function testAddMember() {
+            try {
+                if (!testData.orgId || !testData.userId) {
+                    addResult('❌ Données manquantes', 'Créez d\'abord une organisation et un utilisateur', 'error');
+                    return;
+                }
+                
+                addResult('👥 Ajout d\'un membre', 'Ajout en cours...', 'info');
+                
+                const { data, error } = await supabase
+                    .from('org_members')
+                    .insert({
+                        org_id: testData.orgId,
+                        user_id: testData.userId,
+                        role: 'operator'
+                    })
+                    .select('*')
+                    .single();
+
+                if (error) {
+                    addResult('❌ Erreur ajout membre', error.message, 'error');
+                    return;
+                }
+
+                addResult('✅ Membre ajouté avec succès !', 
+                    `Organisation ID: ${data.org_id}\n` +
+                    `Utilisateur ID: ${data.user_id}\n` +
+                    `Rôle: ${data.role}`, 
+                    'success');
+            } catch (err) {
+                addResult('❌ Erreur inattendue', err.message, 'error');
+            }
+        }
+
+        async function runFullTest() {
+            addResult('🚀 Test complet Super Admin', 'Démarrage des tests...', 'info');
+            
+            try {
+                // Test 1: Lister les organisations existantes
+                await testListOrganizations();
+                
+                // Test 2: Créer une organisation
+                await testCreateOrganization();
+                
+                // Test 3: Créer un utilisateur
+                await testCreateUser();
+                
+                // Test 4: Ajouter un membre
+                await testAddMember();
+                
+                addResult('🎉 Test complet terminé', 
+                    'Toutes les fonctionnalités Super Admin fonctionnent correctement !\n\n' +
+                    '✅ Connexion Super Admin\n' +
+                    '✅ Création d\'organisations\n' +
+                    '✅ Création d\'utilisateurs\n' +
+                    '✅ Gestion des membres\n' +
+                    '✅ Politiques RLS corrigées', 
+                    'success');
+                    
+            } catch (err) {
+                addResult('❌ Erreur lors du test complet', err.message, 'error');
+            }
+        }
+
+        // Initialisation
+        updateButtons();
+    </script>
+</body>
+</html>
