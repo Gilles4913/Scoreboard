@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Setup Initial Data - Scoreboard Pro</title>
+  <script type="module">
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/+esm';
+
+    const SUPABASE_URL = 'https://llxfckxziquaxvhnafjv.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxseGZja3h6aXF1YXh2aG5hZmp2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEwMzUwMTMsImV4cCI6MjA3NjYxMTAxM30.Y6ZFDb0-MGmP5qi_JnxQOX6v9mWjjO7ru7_fskr8m-I';
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    async function setupInitialData() {
+      const output = document.getElementById('output');
+
+      try {
+        output.innerHTML += '<div>🚀 Début de la configuration...</div>';
+
+        // Étape 1: Créer le Super Admin
+        output.innerHTML += '<div>👑 Création du Super Admin: gilles.guerrin@a2display.fr</div>';
+
+        const { data: superAdminSignUp, error: superAdminError } = await supabase.auth.signUp({
+          email: 'gilles.guerrin@a2display.fr',
+          password: 'SuperAdmin2024!'
+        });
+
+        if (superAdminError) {
+          output.innerHTML += `<div style="color: red">❌ Erreur Super Admin: ${superAdminError.message}</div>`;
+          throw superAdminError;
+        }
+
+        const superAdminId = superAdminSignUp.user.id;
+        output.innerHTML += `<div style="color: green">✅ Super Admin créé: ${superAdminId}</div>`;
+
+        // Attendre un peu pour que le trigger profile soit exécuté
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Étape 2: Créer l'Opérateur
+        output.innerHTML += '<div>👤 Création de l\'Opérateur: gilles.guerrin49@gmail.com</div>';
+
+        const { data: operatorSignUp, error: operatorError } = await supabase.auth.signUp({
+          email: 'gilles.guerrin49@gmail.com',
+          password: 'Operator2024!'
+        });
+
+        if (operatorError) {
+          output.innerHTML += `<div style="color: red">❌ Erreur Opérateur: ${operatorError.message}</div>`;
+          throw operatorError;
+        }
+
+        const operatorId = operatorSignUp.user.id;
+        output.innerHTML += `<div style="color: green">✅ Opérateur créé: ${operatorId}</div>`;
+
+        // Attendre un peu
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Se connecter en tant que Super Admin pour créer les données
+        output.innerHTML += '<div>🔐 Connexion en tant que Super Admin...</div>';
+        const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
+          email: 'gilles.guerrin@a2display.fr',
+          password: 'SuperAdmin2024!'
+        });
+
+        if (loginError) {
+          output.innerHTML += `<div style="color: red">❌ Erreur connexion: ${loginError.message}</div>`;
+          throw loginError;
+        }
+
+        output.innerHTML += '<div style="color: green">✅ Connecté en tant que Super Admin</div>';
+
+        // Étape 3: Créer une organisation de test
+        output.innerHTML += '<div>🏢 Création d\'une organisation de test...</div>';
+
+        const { data: org, error: orgError } = await supabase
+          .from('orgs')
+          .insert({
+            name: 'Club Sportif Test',
+            slug: 'club-test',
+            sport: 'football'
+          })
+          .select()
+          .single();
+
+        if (orgError) {
+          output.innerHTML += `<div style="color: red">❌ Erreur organisation: ${orgError.message}</div>`;
+          throw orgError;
+        }
+
+        output.innerHTML += `<div style="color: green">✅ Organisation créée: ${org.name} (${org.id})</div>`;
+
+        // Étape 4: Ajouter le Super Admin à l'organisation
+        output.innerHTML += '<div>👑 Ajout du Super Admin à l\'organisation...</div>';
+
+        const { error: superAdminMemberError } = await supabase
+          .from('org_members')
+          .insert({
+            org_id: org.id,
+            user_id: superAdminId,
+            role: 'super_admin'
+          });
+
+        if (superAdminMemberError) {
+          output.innerHTML += `<div style="color: red">❌ Erreur ajout Super Admin: ${superAdminMemberError.message}</div>`;
+          throw superAdminMemberError;
+        }
+
+        output.innerHTML += '<div style="color: green">✅ Super Admin ajouté à l\'organisation</div>';
+
+        // Étape 5: Ajouter l'Opérateur à l'organisation
+        output.innerHTML += '<div>👤 Ajout de l\'Opérateur à l\'organisation...</div>';
+
+        const { error: operatorMemberError } = await supabase
+          .from('org_members')
+          .insert({
+            org_id: org.id,
+            user_id: operatorId,
+            role: 'operator'
+          });
+
+        if (operatorMemberError) {
+          output.innerHTML += `<div style="color: red">❌ Erreur ajout Opérateur: ${operatorMemberError.message}</div>`;
+          throw operatorMemberError;
+        }
+
+        output.innerHTML += '<div style="color: green">✅ Opérateur ajouté à l\'organisation</div>';
+
+        // Étape 6: Créer un match de test
+        output.innerHTML += '<div>⚽ Création d\'un match de test...</div>';
+
+        const { data: match, error: matchError } = await supabase
+          .from('matches')
+          .insert({
+            org_id: org.id,
+            name: 'Match de Test',
+            sport: 'football',
+            home_name: 'Équipe A',
+            away_name: 'Équipe B',
+            scheduled_at: new Date().toISOString(),
+            status: 'scheduled',
+            public_display: true,
+            created_by: superAdminId
+          })
+          .select()
+          .single();
+
+        if (matchError) {
+          output.innerHTML += `<div style="color: red">❌ Erreur match: ${matchError.message}</div>`;
+          throw matchError;
+        }
+
+        output.innerHTML += `<div style="color: green">✅ Match créé: ${match.name} (${match.id})</div>`;
+
+        // Résumé final
+        output.innerHTML += '<div style="margin-top: 20px; padding: 20px; background: #e8f5e9; border: 2px solid #4caf50; border-radius: 8px;">';
+        output.innerHTML += '<h2 style="margin: 0 0 10px 0; color: #2e7d32;">✅ Configuration terminée avec succès!</h2>';
+        output.innerHTML += '<div><strong>Super Admin:</strong></div>';
+        output.innerHTML += '<div>Email: gilles.guerrin@a2display.fr</div>';
+        output.innerHTML += '<div>Mot de passe: SuperAdmin2024!</div>';
+        output.innerHTML += '<div style="margin-top: 10px;"><strong>Opérateur:</strong></div>';
+        output.innerHTML += '<div>Email: gilles.guerrin49@gmail.com</div>';
+        output.innerHTML += '<div>Mot de passe: Operator2024!</div>';
+        output.innerHTML += '<div style="margin-top: 10px;"><strong>Organisation:</strong></div>';
+        output.innerHTML += `<div>Nom: ${org.name}</div>`;
+        output.innerHTML += `<div>Slug: ${org.slug}</div>`;
+        output.innerHTML += `<div>Sport: ${org.sport}</div>`;
+        output.innerHTML += '<div style="margin-top: 15px; color: #1976d2;"><strong>Vous pouvez maintenant vous connecter à l\'application!</strong></div>';
+        output.innerHTML += '</div>';
+
+        // Se déconnecter
+        await supabase.auth.signOut();
+
+      } catch (error) {
+        output.innerHTML += `<div style="color: red; margin-top: 20px; padding: 15px; background: #ffebee; border: 2px solid #f44336; border-radius: 8px;">`;
+        output.innerHTML += `<strong>❌ Erreur:</strong> ${error.message}`;
+        output.innerHTML += `</div>`;
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('setupBtn').addEventListener('click', setupInitialData);
+    });
+  </script>
+  <style>
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    h1 {
+      color: #1976d2;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    #output {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      min-height: 200px;
+      margin-top: 20px;
+    }
+    #output div {
+      padding: 5px 0;
+      font-size: 14px;
+    }
+    button {
+      width: 100%;
+      padding: 15px;
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #1d4ed8;
+    }
+    button:disabled {
+      background: #9ca3af;
+      cursor: not-allowed;
+    }
+    .info-box {
+      background: #e3f2fd;
+      border: 1px solid #2196f3;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 20px;
+    }
+    .info-box h3 {
+      margin: 0 0 10px 0;
+      color: #1976d2;
+    }
+    .info-box ul {
+      margin: 5px 0;
+      padding-left: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>⚽ Scoreboard Pro - Configuration Initiale</h1>
+
+  <div class="info-box">
+    <h3>📋 Ce script va créer:</h3>
+    <ul>
+      <li><strong>Super Admin:</strong> gilles.guerrin@a2display.fr (SuperAdmin2024!)</li>
+      <li><strong>Opérateur:</strong> gilles.guerrin49@gmail.com (Operator2024!)</li>
+      <li><strong>Organisation:</strong> Club Sportif Test (sport: football)</li>
+      <li><strong>Match de test:</strong> Équipe A vs Équipe B</li>
+    </ul>
+  </div>
+
+  <button id="setupBtn">🚀 Lancer la configuration</button>
+
+  <div id="output"></div>
+</body>
+</html>

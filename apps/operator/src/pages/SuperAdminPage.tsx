@@ -5,6 +5,7 @@ interface Organization {
   id: string;
   slug: string;
   name: string;
+  sport: string;
   created_at: string;
 }
 
@@ -43,7 +44,7 @@ export function SuperAdminPage({ user, onBack }: SuperAdminPageProps) {
   const [editingUser, setEditingUser] = useState<User | null>(null);
 
   // États pour les formulaires
-  const [orgForm, setOrgForm] = useState({ name: '', slug: '' });
+  const [orgForm, setOrgForm] = useState({ name: '', slug: '', sport: 'football' });
   const [userForm, setUserForm] = useState({ email: '', password: '' });
   const [memberForm, setMemberForm] = useState({ org_id: '', user_id: '', role: 'operator' as 'super_admin' | 'operator' });
 
@@ -100,8 +101,8 @@ export function SuperAdminPage({ user, onBack }: SuperAdminPageProps) {
 
   // Gestion des organisations
   const handleCreateOrg = useCallback(async () => {
-    if (!orgForm.name.trim() || !orgForm.slug.trim()) {
-      showMessage('Nom et slug requis', 'error');
+    if (!orgForm.name.trim() || !orgForm.slug.trim() || !orgForm.sport.trim()) {
+      showMessage('Nom, slug et sport requis', 'error');
       return;
     }
 
@@ -110,7 +111,8 @@ export function SuperAdminPage({ user, onBack }: SuperAdminPageProps) {
         .from('orgs')
         .insert({
           name: orgForm.name.trim(),
-          slug: orgForm.slug.trim().toLowerCase()
+          slug: orgForm.slug.trim().toLowerCase(),
+          sport: orgForm.sport
         })
         .select('*')
         .single();
@@ -120,7 +122,7 @@ export function SuperAdminPage({ user, onBack }: SuperAdminPageProps) {
       setOrganizations(prev => [data, ...prev]);
       showMessage('Organisation créée avec succès', 'success');
       setShowOrgModal(false);
-      setOrgForm({ name: '', slug: '' });
+      setOrgForm({ name: '', slug: '', sport: 'football' });
 
     } catch (err) {
       console.error('Erreur création organisation:', err);
@@ -129,8 +131,8 @@ export function SuperAdminPage({ user, onBack }: SuperAdminPageProps) {
   }, [orgForm, showMessage]);
 
   const handleEditOrg = useCallback(async () => {
-    if (!editingOrg || !orgForm.name.trim() || !orgForm.slug.trim()) {
-      showMessage('Nom et slug requis', 'error');
+    if (!editingOrg || !orgForm.name.trim() || !orgForm.slug.trim() || !orgForm.sport.trim()) {
+      showMessage('Nom, slug et sport requis', 'error');
       return;
     }
 
@@ -139,7 +141,8 @@ export function SuperAdminPage({ user, onBack }: SuperAdminPageProps) {
         .from('orgs')
         .update({
           name: orgForm.name.trim(),
-          slug: orgForm.slug.trim().toLowerCase()
+          slug: orgForm.slug.trim().toLowerCase(),
+          sport: orgForm.sport
         })
         .eq('id', editingOrg.id)
         .select('*')
@@ -151,7 +154,7 @@ export function SuperAdminPage({ user, onBack }: SuperAdminPageProps) {
       showMessage('Organisation modifiée avec succès', 'success');
       setShowOrgModal(false);
       setEditingOrg(null);
-      setOrgForm({ name: '', slug: '' });
+      setOrgForm({ name: '', slug: '', sport: 'football' });
 
     } catch (err) {
       console.error('Erreur modification organisation:', err);
@@ -272,10 +275,10 @@ export function SuperAdminPage({ user, onBack }: SuperAdminPageProps) {
   const openOrgModal = useCallback((org?: Organization) => {
     if (org) {
       setEditingOrg(org);
-      setOrgForm({ name: org.name, slug: org.slug });
+      setOrgForm({ name: org.name, slug: org.slug, sport: org.sport });
     } else {
       setEditingOrg(null);
-      setOrgForm({ name: '', slug: '' });
+      setOrgForm({ name: '', slug: '', sport: 'football' });
     }
     setShowOrgModal(true);
   }, []);
@@ -385,7 +388,8 @@ export function SuperAdminPage({ user, onBack }: SuperAdminPageProps) {
                   <div className="match-name">{org.name}</div>
                   <div className="match-teams">Slug: {org.slug}</div>
                   <div className="match-sport">
-                    <span className="sport-badge">ID: {org.id}</span>
+                    <span className="sport-badge">{org.sport}</span>
+                    <span style={{ marginLeft: '8px', fontSize: '12px', color: '#9aa0a6' }}>ID: {org.id}</span>
                   </div>
                 </div>
                 <div className="match-datetime">
@@ -586,22 +590,48 @@ export function SuperAdminPage({ user, onBack }: SuperAdminPageProps) {
                 <div className="form-grid">
                   <div className="form-row">
                     <label>Nom de l'organisation</label>
-                    <input 
-                      className="input" 
-                      placeholder="Ex: Association Sportive" 
-                      value={orgForm.name} 
+                    <input
+                      className="input"
+                      placeholder="Ex: Association Sportive"
+                      value={orgForm.name}
                       onChange={e => setOrgForm(prev => ({ ...prev, name: e.target.value }))}
                     />
                   </div>
-                  
+
                   <div className="form-row">
                     <label>Slug (identifiant unique)</label>
-                    <input 
-                      className="input" 
-                      placeholder="Ex: as-sport" 
-                      value={orgForm.slug} 
+                    <input
+                      className="input"
+                      placeholder="Ex: as-sport"
+                      value={orgForm.slug}
                       onChange={e => setOrgForm(prev => ({ ...prev, slug: e.target.value.toLowerCase() }))}
                     />
+                  </div>
+
+                  <div className="form-row">
+                    <label>Sport</label>
+                    <select
+                      className="input"
+                      value={orgForm.sport}
+                      onChange={e => setOrgForm(prev => ({ ...prev, sport: e.target.value }))}
+                      style={{
+                        width: '100%',
+                        padding: '12px',
+                        background: '#1a1b1e',
+                        border: '1px solid #374151',
+                        borderRadius: '8px',
+                        color: '#eaeaea',
+                        fontSize: '14px'
+                      }}
+                    >
+                      <option value="basic">Basic</option>
+                      <option value="football">Football</option>
+                      <option value="handball">Handball</option>
+                      <option value="basket">Basket</option>
+                      <option value="hockey_ice">Hockey sur glace</option>
+                      <option value="hockey_field">Hockey sur gazon</option>
+                      <option value="volleyball">Volleyball</option>
+                    </select>
                   </div>
                 </div>
               </div>
@@ -613,10 +643,10 @@ export function SuperAdminPage({ user, onBack }: SuperAdminPageProps) {
                 >
                   Annuler
                 </button>
-                <button 
+                <button
                   onClick={editingOrg ? handleEditOrg : handleCreateOrg}
                   className="primary"
-                  disabled={!orgForm.name.trim() || !orgForm.slug.trim()}
+                  disabled={!orgForm.name.trim() || !orgForm.slug.trim() || !orgForm.sport.trim()}
                 >
                   {editingOrg ? '✅ Sauvegarder' : '✅ Créer'}
                 </button>
