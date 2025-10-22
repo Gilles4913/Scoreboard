@@ -1,332 +1,356 @@
-// apps/operator/src/pages/SuperAdminPage.tsx
-import React, { useEffect, useMemo, useState } from 'react';
+
+import React, { useEffect, useState } from 'react';
 import { supa } from '../supabase';
 
-type Org = {
+interface Org {
   id: string;
-  slug: string;
   name: string;
-  sport: 'football' | 'basket' | 'handball' | 'hockey' | 'hockey_ice' | 'hockey_field' | 'volleyball' | 'unknown';
-  archived_at: string | null;
-  created_at?: string;
-};
+  sport: string;
+  archived: boolean;
+  created_at: string;
+}
 
-type Member = {
-  org_id: string;
-  user_id: string;
-  role: 'super_admin' | 'operator';
-  email?: string; // pour l’affichage si tu veux enrichir via auth.users
-};
-
-const SPORTS: Org['sport'][] = ['football','basket','handball','hockey','hockey_ice','hockey_field','volleyball','unknown'];
+interface Operator {
+  id: string;
+  email: string;
+}
 
 export default function SuperAdminPage() {
-  const [loading, setLoading] = useState(false);
   const [orgs, setOrgs] = useState<Org[]>([]);
-  const [error, setError] = useState<string>('');
-  const [form, setForm] = useState<Partial<Org>>({ slug: '', name: '', sport: 'football' });
-  const [membersByOrg, setMembersByOrg] = useState<Record<string, Member[]>>({});
-  const [ops, setOps] = useState({ userEmail: '', orgId: '' });
+  const [selectedOrg, setSelectedOrg] = useState<Org | null>(null);
+  const [operators, setOperators] = useState<Operator[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [newOrgName, setNewOrgName] = useState('');
+  const [newSport, setNewSport] = useState('');
+  const [newOperatorEmail, setNewOperatorEmail] = useState('');
 
-  const activeOrgs = useMemo(() => orgs.filter(o => !o.archived_at), [orgs]);
-  const archivedOrgs = useMemo(() => orgs.filter(o => !!o.archived_at), [orgs]);
+  // Chargement initial des organisations
+  useEffect(() => {
+    loadOrgs();
+  }, []);
 
   async function loadOrgs() {
-    setLoading(true);
-    setError('');
-    const { data, error } = await supa
-      .from('orgs')
-      .select('*')
-      .order('created_at', { ascending: true });
-    if (error) setError(error.message);
-    setOrgs((data as Org[]) || []);
-    setLoading(false);
+    try {
+      setLoading(true);
+      const { data, error } = await supa
+        .from('orgs')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setOrgs(data || []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur inconnue');
+    } finally {
+      setLoading(false);
+    }
   }
 
-  async function loadMembers(orgId: string) {
-    const { data, error } = await supa
-      .from('org_members')
-      .select('org_id,user_id,role')
-      .eq('org_id', orgId);
-    if (error) {
-      setError(error.message);
-      return;
-    }
-    setMembersByOrg(prev => ({ ...prev, [orgId]: (data as Member[]) || [] }));
+  async function selectOrg(org: Org) {
+    setSelectedOrg(org);
+    await loadOperators(org.id);
   }
 
-  useEffect(() => { loadOrgs(); }, []);
+  async function loadOperators(orgId: string) {
+    try {
+      const { data, error } = await supa
+        .from('org_members')
+        .select('user_id, email')
+        .eq('org_id', orgId);
 
-  async function handleCreateOrg() {
-    setError('');
-    if (!form.slug || !form.name || !form.sport) {
-      setError('slug, name et sport sont requis.');
-      return;
+      if (error) throw error;
+      setOperators(data?.map((op: any) => ({ id: op.user_id, email: op.email })) || []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur inconnue');
     }
-    const { error } = await supa.from('orgs').insert({
-      slug: form.slug,
-      name: form.name,
-      sport: form.sport
-    });
-    if (error) {
-      setError(error.message);
-      return;
-    }
-    setForm({ slug: '', name: '', sport: 'football' });
-    await loadOrgs();
   }
 
-  async function handleUpdateOrg(id: string, patch: Partial<Org>) {
-    setError('');
-    const { error } = await supa.from('orgs').update(patch).eq('id', id);
-    if (error) {
-      setError(error.message);
+  async function createOrg() {
+    if (!newOrgName || !newSport) {
+      alert('Veuillez renseigner un nom et un sport.');
       return;
     }
-    await loadOrgs();
+    try {
+      const { error } = await supa
+        .from('orgs')
+        .insert([{ name: newOrgName, sport: newSport }]);
+      if (error) throw error;
+      setNewOrgName('');
+      setNewSport('');
+      await loadOrgs();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erreur création organisation');
+    }
   }
 
-  async function handleArchiveOrg(id: string) {
-    setError('');
-    const { error } = await supa.from('orgs').update({ archived_at: new Date().toISOString() }).eq('id', id);
-    if (error) {
-      setError(error.message);
-      return;
+  async function toggleArchive(org: Org) {
+    const confirmMsg = org.archived
+      ? `Désarchiver ${org.name} ?`
+      : `Archiver ${org.name} ?`;
+    if (!window.confirm(confirmMsg)) return;
+    try {
+      const { error } = await supa
+        .from('orgs')
+        .update({ archived: !org.archived })
+        .eq('id', org.id);
+      if (error) throw error;
+      await loadOrgs();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erreur archivage organisation');
     }
-    await loadOrgs();
   }
 
-  async function handleUnarchiveOrg(id: string) {
-    setError('');
-    const { error } = await supa.from('orgs').update({ archived_at: null }).eq('id', id);
-    if (error) {
-      setError(error.message);
-      return;
+  async function deleteOrg(org: Org) {
+    if (!window.confirm(`Supprimer définitivement ${org.name} ?`)) return;
+    try {
+      const { error } = await supa.from('orgs').delete().eq('id', org.id);
+      if (error) throw error;
+      setSelectedOrg(null);
+      await loadOrgs();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erreur suppression organisation');
     }
-    await loadOrgs();
   }
 
-  async function handleDeleteOrg(id: string) {
-    if (!confirm('Supprimer définitivement cette organisation ?')) return;
-    setError('');
-    const { error } = await supa.from('orgs').delete().eq('id', id);
-    if (error) {
-      setError(error.message);
+  async function addOperator() {
+    if (!selectedOrg) return;
+    if (!newOperatorEmail) {
+      alert('Entrez un email.');
       return;
     }
-    await loadOrgs();
+
+    try {
+      // 1. Chercher l’utilisateur existant
+      const { data: userData, error: rpcError } = await supa.rpc(
+        'admin_get_user_id_by_email',
+        { p_email: newOperatorEmail }
+      );
+
+      if (rpcError) throw rpcError;
+      const userId = userData || null;
+
+      if (!userId) {
+        alert("Cet utilisateur n'existe pas encore dans la base Supabase.");
+        return;
+      }
+
+      // 2. Lier l’utilisateur à l’organisation
+      const { error } = await supa.from('org_members').insert([
+        { org_id: selectedOrg.id, user_id: userId, role: 'operator' }
+      ]);
+      if (error) throw error;
+
+      setNewOperatorEmail('');
+      await loadOperators(selectedOrg.id);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erreur ajout opérateur');
+    }
   }
 
-  // Helpers pour opérateurs
-  async function getUserIdByEmail(email: string): Promise<string | null> {
-    // ⚠️ En vanilla Supabase (sans admin API), tu ne peux pas lister auth.users côté client.
-    // Stratégie simple: tu maintiens un mapping côté app (invitation par magic link), ou tu crées un RPC sécurisé.
-    // Ici on suppose que tu as un RPC sécurisé qui retourne l’uid par email (réservé aux super_admin).
-    const { data, error } = await supa.rpc('admin_get_user_id_by_email', { p_email: email });
-    if (error) {
-      setError(error.message);
-      return null;
+  async function removeOperator(op: Operator) {
+    if (!selectedOrg) return;
+    if (!window.confirm(`Retirer ${op.email} de ${selectedOrg.name} ?`)) return;
+    try {
+      const { error } = await supa
+        .from('org_members')
+        .delete()
+        .eq('org_id', selectedOrg.id)
+        .eq('user_id', op.id);
+      if (error) throw error;
+      await loadOperators(selectedOrg.id);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erreur suppression opérateur');
     }
-    return data as string | null;
-  }
-
-  async function handleAddOperator() {
-    setError('');
-    if (!ops.orgId || !ops.userEmail) {
-      setError('Sélectionne une organisation et saisis un email utilisateur.');
-      return;
-    }
-    const uid = await getUserIdByEmail(ops.userEmail);
-    if (!uid) {
-      setError('Utilisateur introuvable (vérifie l’email ou implémente la création/invitation).');
-      return;
-    }
-    const { error } = await supa.from('org_members').insert({
-      org_id: ops.orgId,
-      user_id: uid,
-      role: 'operator'
-    });
-    if (error) {
-      // L’index uq_operator_single_org remontera une erreur si l’utilisateur est déjà opérateur ailleurs
-      setError(error.message);
-      return;
-    }
-    setOps({ userEmail: '', orgId: ops.orgId });
-    await loadMembers(ops.orgId);
-  }
-
-  async function handleRemoveOperator(orgId: string, userId: string) {
-    setError('');
-    const { error } = await supa.from('org_members').delete()
-      .eq('org_id', orgId).eq('user_id', userId).eq('role', 'operator');
-    if (error) {
-      setError(error.message);
-      return;
-    }
-    await loadMembers(orgId);
   }
 
   return (
-    <div style={{ padding: 24, color: '#eaeaea', background: '#0b0b0c', minHeight: '100vh', fontFamily: 'Inter, system-ui' }}>
-      <h1 style={{ fontSize: 28, marginBottom: 12 }}>🛠️ Super Admin</h1>
-      <p style={{ color: '#9aa0a6', marginBottom: 24 }}>
-        Gestion des organisations et des opérateurs (invariants DB appliqués).
-      </p>
+    <div style={container}>
+      <div style={sidebar}>
+        <h2 style={{ color: 'white' }}>Organisations</h2>
 
-      {error && (
-        <div style={{ background: 'rgba(255, 107, 107, 0.1)', border: '1px solid rgba(255, 107, 107, 0.3)', color: '#ff6b6b', padding: 12, borderRadius: 8, marginBottom: 16 }}>
-          {error}
-        </div>
-      )}
-
-      {/* Création d’organisation */}
-      <div style={{ border: '1px solid #1b1c1f', background: '#111214', borderRadius: 12, padding: 16, marginBottom: 24 }}>
-        <h2 style={{ fontSize: 18, margin: '0 0 12px 0' }}>Créer une organisation</h2>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <input placeholder="slug" value={form.slug ?? ''} onChange={e => setForm(f => ({ ...f, slug: e.target.value }))} style={inputStyle}/>
-          <input placeholder="name" value={form.name ?? ''} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inputStyle}/>
-          <select value={form.sport ?? 'football'} onChange={e => setForm(f => ({ ...f, sport: e.target.value as Org['sport'] }))} style={selectStyle}>
-            {SPORTS.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <button onClick={handleCreateOrg} style={btnPrimary}>Créer</button>
-        </div>
-      </div>
-
-      {/* Orgs actives */}
-      <section style={{ marginBottom: 24 }}>
-        <h2 style={{ fontSize: 18, margin: '0 0 12px 0' }}>Organisations actives</h2>
-        {loading ? <div>Chargement…</div> : (
-          activeOrgs.length === 0 ? <div>Aucune organisation.</div> : (
-            <div style={{ display: 'grid', gap: 12 }}>
-              {activeOrgs.map(org => (
-                <OrgCard
-                  key={org.id}
-                  org={org}
-                  onEdit={(patch) => handleUpdateOrg(org.id, patch)}
-                  onArchive={() => handleArchiveOrg(org.id)}
-                  onDelete={() => handleDeleteOrg(org.id)}
-                  onLoadMembers={() => loadMembers(org.id)}
-                  members={membersByOrg[org.id] || []}
-                  onAddOperator={(email) => setOps({ userEmail: email, orgId: org.id })}
-                  onRemoveOperator={(userId) => handleRemoveOperator(org.id, userId)}
-                />
-              ))}
-            </div>
-          )
-        )}
-      </section>
-
-      {/* Orgs archivées */}
-      <section>
-        <h2 style={{ fontSize: 18, margin: '0 0 12px 0' }}>Organisations archivées</h2>
-        {archivedOrgs.length === 0 ? <div>—</div> : (
-          <div style={{ display: 'grid', gap: 12 }}>
-            {archivedOrgs.map(org => (
-              <div key={org.id} style={cardStyle}>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div>
-                    <div style={{ fontWeight: 600 }}>{org.name}</div>
-                    <div style={{ fontSize: 12, color: '#9aa0a6' }}>{org.slug} — {org.sport}</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={() => handleUnarchiveOrg(org.id)} style={btnGhost}>Désarchiver</button>
-                    <button onClick={() => handleDeleteOrg(org.id)} style={btnDanger}>Supprimer</button>
-                  </div>
+        {loading && <div>Chargement…</div>}
+        {!loading && (
+          <>
+            {orgs.map((org) => (
+              <div
+                key={org.id}
+                onClick={() => selectOrg(org)}
+                style={{
+                  ...orgItem,
+                  background: selectedOrg?.id === org.id ? '#2563eb' : '#1b1c1f'
+                }}
+              >
+                <div style={{ fontWeight: 600 }}>{org.name}</div>
+                <div style={{ fontSize: 12, opacity: 0.8 }}>
+                  {org.sport} {org.archived ? '(Archivé)' : ''}
                 </div>
               </div>
             ))}
-          </div>
+
+            <div style={divider}></div>
+
+            <input
+              placeholder="Nom organisation"
+              value={newOrgName}
+              onChange={(e) => setNewOrgName(e.target.value)}
+              style={input}
+            />
+            <input
+              placeholder="Sport"
+              value={newSport}
+              onChange={(e) => setNewSport(e.target.value)}
+              style={input}
+            />
+            <button onClick={createOrg} style={btnPrimary}>
+              ➕ Créer
+            </button>
+          </>
         )}
-      </section>
-
-      {/* Drawer simple pour ajouter un opérateur à l’org sélectionnée */}
-      {ops.orgId && (
-        <div style={{ marginTop: 24, borderTop: '1px dashed #333', paddingTop: 16 }}>
-          <h3 style={{ fontSize: 16, marginBottom: 8 }}>Ajouter un opérateur</h3>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <input placeholder="email opérateur" value={ops.userEmail} onChange={e => setOps(p => ({ ...p, userEmail: e.target.value }))} style={inputStyle}/>
-            <button onClick={handleAddOperator} style={btnPrimary}>Ajouter</button>
-            <button onClick={() => setOps({ userEmail: '', orgId: '' })} style={btnGhost}>Annuler</button>
-          </div>
-          <div style={{ fontSize: 12, color: '#9aa0a6', marginTop: 4 }}>
-            L’unicité “un opérateur → une org” est appliquée en base (index partiel).
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-const inputStyle: React.CSSProperties = {
-  background: '#121316', border: '1px solid #202327', color: '#eaeaea',
-  padding: '10px 12px', borderRadius: 8, minWidth: 160
-};
-const selectStyle = { ...inputStyle };
-const btnPrimary: React.CSSProperties = { padding: '10px 12px', borderRadius: 8, border: '1px solid #2563eb', background: '#2563eb', color: '#fff', cursor: 'pointer' };
-const btnGhost: React.CSSProperties   = { padding: '10px 12px', borderRadius: 8, border: '1px solid #374151', background: '#1f2937', color: '#eaeaea', cursor: 'pointer' };
-const btnDanger: React.CSSProperties  = { padding: '10px 12px', borderRadius: 8, border: '1px solid #ef4444', background: '#b91c1c', color: '#fff', cursor: 'pointer' };
-const cardStyle: React.CSSProperties  = { border: '1px solid #1b1c1f', background: '#111214', borderRadius: 12, padding: 16 };
-
-function OrgCard(props: {
-  org: Org;
-  members: Member[];
-  onEdit: (patch: Partial<Org>) => void;
-  onArchive: () => void;
-  onDelete: () => void;
-  onLoadMembers: () => void;
-  onAddOperator: (email: string) => void;
-  onRemoveOperator: (userId: string) => void;
-}) {
-  const { org, members, onEdit, onArchive, onDelete, onLoadMembers, onAddOperator, onRemoveOperator } = props;
-  const [edit, setEdit] = useState<Partial<Org>>({ name: org.name, sport: org.sport });
-
-  return (
-    <div style={cardStyle}>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <div style={{ fontWeight: 600 }}>{org.name}</div>
-          <div style={{ fontSize: 12, color: '#9aa0a6' }}>{org.slug} — {org.sport}</div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => onArchive()} style={btnGhost}>Archiver</button>
-          <button onClick={() => onDelete()} style={btnDanger}>Supprimer</button>
-        </div>
       </div>
 
-      <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <input value={edit.name ?? ''} onChange={e => setEdit(p => ({ ...p, name: e.target.value }))} style={inputStyle}/>
-        <select value={edit.sport ?? 'football'} onChange={e => setEdit(p => ({ ...p, sport: e.target.value as Org['sport'] }))} style={selectStyle}>
-          {SPORTS.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <button onClick={() => onEdit(edit)} style={btnPrimary}>Enregistrer</button>
-      </div>
+      <div style={content}>
+        {selectedOrg ? (
+          <>
+            <h2 style={{ color: 'white' }}>{selectedOrg.name}</h2>
+            <p style={{ color: '#9aa0a6' }}>Sport : {selectedOrg.sport}</p>
 
-      <div style={{ marginTop: 12, borderTop: '1px dashed #333', paddingTop: 12 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-          <h3 style={{ fontSize: 16, margin: 0 }}>Opérateurs</h3>
-          <button onClick={onLoadMembers} style={btnGhost}>Actualiser</button>
-        </div>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+              <button onClick={() => toggleArchive(selectedOrg)} style={btnSecondary}>
+                {selectedOrg.archived ? 'Désarchiver' : 'Archiver'}
+              </button>
+              <button onClick={() => deleteOrg(selectedOrg)} style={btnDanger}>
+                Supprimer
+              </button>
+            </div>
 
-        {members.length === 0 ? (
-          <div style={{ color: '#9aa0a6', marginTop: 8 }}>— Aucun opérateur —</div>
+            <h3 style={{ color: 'white' }}>Opérateurs</h3>
+            <div style={{ marginBottom: 12 }}>
+              {operators.length === 0 && <p style={{ color: '#9aa0a6' }}>Aucun opérateur.</p>}
+              {operators.map((op) => (
+                <div
+                  key={op.id}
+                  style={{
+                    ...opItem,
+                    background: '#1b1c1f',
+                    border: '1px solid #2c2d31'
+                  }}
+                >
+                  <span>{op.email}</span>
+                  <button onClick={() => removeOperator(op)} style={btnSmallDanger}>
+                    ❌
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                placeholder="Email opérateur"
+                value={newOperatorEmail}
+                onChange={(e) => setNewOperatorEmail(e.target.value)}
+                style={input}
+              />
+              <button onClick={addOperator} style={btnPrimary}>
+                ➕
+              </button>
+            </div>
+          </>
         ) : (
-          <ul style={{ marginTop: 8 }}>
-            {members.map(m => (
-              <li key={m.user_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0' }}>
-                <div><code>{m.user_id}</code> — {m.role}</div>
-                {m.role === 'operator' && (
-                  <button onClick={() => onRemoveOperator(m.user_id)} style={btnDanger}>Retirer</button>
-                )}
-              </li>
-            ))}
-          </ul>
+          <div style={{ color: '#9aa0a6' }}>Sélectionnez une organisation</div>
         )}
-
-        <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-          <button onClick={() => onAddOperator(prompt('Email de l’opérateur à ajouter ?') || '')} style={btnPrimary}>+ Ajouter un opérateur</button>
-        </div>
       </div>
     </div>
   );
 }
+
+// 🎨 Styles inline cohérents
+const container: React.CSSProperties = {
+  display: 'flex',
+  minHeight: 'calc(100vh - 60px)',
+  background: '#0c0d10',
+  color: 'white'
+};
+
+const sidebar: React.CSSProperties = {
+  width: 280,
+  background: '#111214',
+  padding: 20,
+  borderRight: '1px solid #1b1c1f',
+  overflowY: 'auto'
+};
+
+const content: React.CSSProperties = {
+  flex: 1,
+  padding: 30,
+  overflowY: 'auto'
+};
+
+const orgItem: React.CSSProperties = {
+  padding: 12,
+  borderRadius: 8,
+  cursor: 'pointer',
+  marginBottom: 6
+};
+
+const input: React.CSSProperties = {
+  width: '100%',
+  padding: 8,
+  marginBottom: 8,
+  background: '#121316',
+  border: '1px solid #2c2d31',
+  borderRadius: 6,
+  color: 'white'
+};
+
+const btnPrimary: React.CSSProperties = {
+  background: '#2563eb',
+  border: 'none',
+  padding: '8px 14px',
+  color: 'white',
+  borderRadius: 6,
+  cursor: 'pointer'
+};
+
+const btnSecondary: React.CSSProperties = {
+  background: '#374151',
+  border: 'none',
+  padding: '8px 14px',
+  color: 'white',
+  borderRadius: 6,
+  cursor: 'pointer'
+};
+
+const btnDanger: React.CSSProperties = {
+  background: '#dc2626',
+  border: 'none',
+  padding: '8px 14px',
+  color: 'white',
+  borderRadius: 6,
+  cursor: 'pointer'
+};
+
+const btnSmallDanger: React.CSSProperties = {
+  background: '#dc2626',
+  border: 'none',
+  padding: '2px 8px',
+  color: 'white',
+  borderRadius: 6,
+  cursor: 'pointer'
+};
+
+const opItem: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  padding: '6px 8px',
+  borderRadius: 6,
+  marginBottom: 4
+};
+
+const divider: React.CSSProperties = {
+  height: 1,
+  background: '#1b1c1f',
+  margin: '16px 0'
+};
 
