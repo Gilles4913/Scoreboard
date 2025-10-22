@@ -3,11 +3,13 @@ import { createRoot } from 'react-dom/client';
 import { supa } from './supabase';
 import { SpacePage } from './pages/SpacePage';
 import { MatchPage } from './pages/MatchPage';
-import SuperAdminPage from './pages/SuperAdminPage'; // ← à créer si pas encore fait
+import SuperAdminPage from './pages/SuperAdminPage';
 import type { MatchInfo } from '@pkg/types';
 import './theme.css';
 
 console.log('🚀 Operator - Démarrage de l’application');
+
+type AdminView = 'admin' | 'operator';
 
 function App() {
   // ---- État global appli ----
@@ -16,6 +18,10 @@ function App() {
 
   // Rôle / routage
   const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
+  const [adminView, setAdminView] = useState<AdminView>(() => {
+    const saved = localStorage.getItem('adminView');
+    return (saved === 'operator' || saved === 'admin') ? (saved as AdminView) : 'admin';
+  });
 
   // Contexte opérateur
   const [org, setOrg] = useState<any>(null);
@@ -76,54 +82,59 @@ function App() {
       const admin = !!isAdmin;
       setIsSuperAdmin(admin);
 
-      // 2) Pour un super admin, on peut s’arrêter là (routage direct vers page Admin)
-      if (admin) {
-        console.log('🛡️ Rôle - Super Admin détecté → routage /admin');
+      // 2) Si super admin et vue = admin → rien à charger côté opérateur
+      if (admin && adminView === 'admin') {
+        console.log('🛡️ Rôle - Super Admin → vue admin');
         setLoading(false);
         return;
       }
 
-      // 3) Sinon, charger les organisations de l’opérateur
-      console.log('🏢 Orgs - Chargement des organisations de l’utilisateur');
-      const { data: orgMembers, error: orgError } = await supa
-        .from('org_members_with_org')
-        .select('*')
-        .eq('user_id', currentUser.id);
-
-      if (orgError) {
-        console.error('❌ Orgs - Erreur:', orgError);
-        setError(`Erreur organisations: ${orgError.message}`);
-        setLoading(false);
-        return;
-      }
-
-      console.log('🏢 Orgs - Trouvées:', orgMembers?.length || 0);
-
-      if (!orgMembers || orgMembers.length === 0) {
-        setError('Aucune organisation trouvée pour cet utilisateur. Contactez un administrateur.');
-        setLoading(false);
-        return;
-      }
-
-      // Prendre la première organisation (ou afficher un picker si besoin)
-      const firstOrg = orgMembers[0];
-      const orgData = {
-        id: firstOrg.org_id,
-        slug: firstOrg.org_slug,
-        name: firstOrg.org_name
-      };
-
-      console.log('🏢 Org - Sélectionnée:', orgData.name);
-      setOrg(orgData);
-
-      // 4) Charger les matchs de cette organisation (opérateur)
-      await loadMatches(orgData.id);
+      // 3) Sinon garantir le contexte opérateur
+      await ensureOperatorContext(currentUser.id);
       setLoading(false);
     } catch (err) {
       console.error('💥 User - Erreur inattendue:', err);
       setError(`Erreur chargement utilisateur: ${err instanceof Error ? err.message : 'Erreur inconnue'}`);
       setLoading(false);
     }
+  }
+
+  // Garantir que org + matches sont chargés pour l’utilisateur
+  async function ensureOperatorContext(userId: string) {
+    // Si on a déjà org & matches, ne rien refaire
+    if (org && matches.length > 0) return;
+
+    console.log('🏢 Orgs - Chargement des organisations de l’utilisateur (ensureOperatorContext)');
+    const { data: orgMembers, error: orgError } = await supa
+      .from('org_members_with_org')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (orgError) {
+      console.error('❌ Orgs - Erreur:', orgError);
+      setError(`Erreur organisations: ${orgError.message}`);
+      return;
+    }
+
+    console.log('🏢 Orgs - Trouvées:', orgMembers?.length || 0);
+
+    if (!orgMembers || orgMembers.length === 0) {
+      setError('Aucune organisation trouvée pour cet utilisateur. Contactez un administrateur.');
+      return;
+    }
+
+    // Prendre la première organisation (ou afficher un picker si besoin)
+    const firstOrg = orgMembers[0];
+    const orgData = {
+      id: firstOrg.org_id,
+      slug: firstOrg.org_slug,
+      name: firstOrg.org_name
+    };
+
+    console.log('🏢 Org - Sélectionnée:', orgData.name);
+    setOrg(orgData);
+
+    await loadMatches(orgData.id);
   }
 
   async function loadMatches(orgId: string) {
@@ -217,7 +228,6 @@ function App() {
     console.log('🔙 Retour à la liste des matchs');
     console.log('🔙 Main - Avant setSelectedMatch(null), selectedMatch actuel:', selectedMatch?.name || 'null');
 
-    // Si un match est actif, on peut revenir à la liste mais on garde la contrainte de blocage
     if (activeMatch) {
       console.log('ℹ️ Match actif détecté - Retour à la liste (autres matchs restent bloqués)');
     }
@@ -230,6 +240,51 @@ function App() {
     console.log('📋 Mise à jour des matchs:', updatedMatches.length);
     setMatches(updatedMatches);
   }, []);
+
+  // ---- Switch Admin ↔ Opérateur ----
+  useEffect(() => {
+    localStorage.setItem('adminView', adminView);
+  }, [adminView]);
+
+  const onSwitchView = async (view: AdminView) => {
+    if (view === adminView) return;
+    setAdminView(view);
+    if (view === 'operator' && user) {
+      // S’assurer que le contexte opérateur est prêt au moment du switch
+      await ensureOperatorContext(user.id);
+    }
+  };
+
+  // ---- Header avec switch (affiché seulement pour super_admin connecté) ----
+  const HeaderBar = () => {
+    if (!isSuperAdmin || !user) return null;
+    return (
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 40,
+        background: '#0c0d10', borderBottom: '1px solid #1b1c1f',
+        padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+      }}>
+        <div style={{ fontWeight: 600 }}>⚽ Scoreboard Pro</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={() => onSwitchView('admin')}
+            style={tabBtn(adminView === 'admin')}
+            title="Super Admin"
+          >
+            Admin
+          </button>
+          <button
+            onClick={() => onSwitchView('operator')}
+            style={tabBtn(adminView === 'operator')}
+            title="Opérateur"
+          >
+            Opérateur
+          </button>
+        </div>
+        <div style={{ fontSize: 12, color: '#9aa0a6' }}>{user.email}</div>
+      </div>
+    );
+  };
 
   // ---- Rendu ----
 
@@ -255,18 +310,8 @@ function App() {
 
           <div style={{ marginBottom: 24 }}>
             <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-              <button
-                onClick={() => setAuthStep('login')}
-                style={tabBtn(authStep === 'login')}
-              >
-                Connexion
-              </button>
-              <button
-                onClick={() => setAuthStep('register')}
-                style={tabBtn(authStep === 'register')}
-              >
-                Inscription
-              </button>
+              <button onClick={() => setAuthStep('login')} style={tabBtn(authStep === 'login')}>Connexion</button>
+              <button onClick={() => setAuthStep('register')} style={tabBtn(authStep === 'register')}>Inscription</button>
             </div>
 
             <input
@@ -297,11 +342,7 @@ function App() {
             </button>
           </div>
 
-          {error && (
-            <div style={errorBox}>
-              {error}
-            </div>
-          )}
+          {error && <div style={errorBox}>{error}</div>}
 
           <div style={smallMuted}>
             {authStep === 'login' ? 'Pas de compte ?' : 'Déjà un compte ?'}
@@ -317,39 +358,61 @@ function App() {
     );
   }
 
-  // 3) Rôle : Super Admin → page d’admin
+  // 3) Super Admin
   if (isSuperAdmin) {
-    console.log('🛠️ Main - Affichage de SuperAdminPage');
-    return <SuperAdminPage />;
+    if (adminView === 'admin') {
+      console.log('🛠️ Main - Affichage de SuperAdminPage');
+      return (
+        <>
+          <HeaderBar />
+          <SuperAdminPage />
+        </>
+      );
+    }
+    // Sinon, adminView === 'operator' → forcer le contexte opérateur
+    if (!org) {
+      return (
+        <>
+          <HeaderBar />
+          <div style={screenStyle}><div style={cardStyle}>Préparation du contexte opérateur…</div></div>
+        </>
+      );
+    }
   }
 
   // 4) Flux opérateur
   if (selectedMatch) {
     console.log('🎮 Main - Affichage de MatchPage pour:', selectedMatch.name);
     return (
-      <MatchPage
-        match={selectedMatch}
-        onBack={handleBackToList}
-        activeMatch={activeMatch}
-        onMatchesUpdate={handleMatchesUpdate}
-      />
+      <>
+        {isSuperAdmin && <HeaderBar />}
+        <MatchPage
+          match={selectedMatch}
+          onBack={handleBackToList}
+          activeMatch={activeMatch}
+          onMatchesUpdate={handleMatchesUpdate}
+        />
+      </>
     );
   }
 
   console.log('🏠 Main - Affichage de SpacePage');
   return (
-    <SpacePage
-      user={user}
-      org={org}
-      matches={matches}
-      onMatchSelect={handleMatchSelect}
-      onMatchesUpdate={handleMatchesUpdate}
-      activeMatch={activeMatch}
-    />
+    <>
+      {isSuperAdmin && <HeaderBar />}
+      <SpacePage
+        user={user}
+        org={org}
+        matches={matches}
+        onMatchSelect={handleMatchSelect}
+        onMatchesUpdate={handleMatchesUpdate}
+        activeMatch={activeMatch}
+      />
+    </>
   );
 }
 
-// ---- Styles inline (cohérents avec le reste du projet) ----
+// ---- Styles inline ----
 const screenStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
@@ -362,7 +425,7 @@ const screenStyle: React.CSSProperties = {
 
 const cardStyle: React.CSSProperties = {
   background: '#111214',
-  border: '1px solid #1b1c1f',
+  border: '1px solid '#1b1c1f',
   borderRadius: 14,
   padding: 40,
   textAlign: 'center',
@@ -392,7 +455,6 @@ const inputStyle: React.CSSProperties = {
 };
 
 const tabBtn = (active: boolean): React.CSSProperties => ({
-  flex: 1,
   padding: '8px 16px',
   background: active ? '#2563eb' : '#374151',
   border: `1px solid ${active ? '#2563eb' : '#374151'}`,
@@ -443,3 +505,4 @@ console.log('🎯 Main - Création du root React');
 const root = createRoot(document.getElementById('root')!);
 root.render(<App />);
 console.log('🚀 Main - Application React montée');
+
