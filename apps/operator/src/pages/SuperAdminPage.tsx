@@ -1,356 +1,337 @@
-
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { supa } from '../supabase';
 
-interface Org {
-  id: string;
-  name: string;
-  sport: string;
-  archived: boolean;
-  created_at: string;
-}
+type Org = { id: string; slug: string; name: string };
+type Member = { user_id: string; role: 'operator' | 'admin' | 'super_admin'; org_id: string };
+type Profile = { id: string; email?: string | null };
 
-interface Operator {
-  id: string;
-  email: string;
+function slugify(input: string) {
+  return input
+    .normalize('NFKD')
+    .replace(/[^\w\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .toLowerCase();
 }
 
 export default function SuperAdminPage() {
+  const [me, setMe] = useState<any>(null);
   const [orgs, setOrgs] = useState<Org[]>([]);
-  const [selectedOrg, setSelectedOrg] = useState<Org | null>(null);
-  const [operators, setOperators] = useState<Operator[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [newOrgName, setNewOrgName] = useState('');
-  const [newSport, setNewSport] = useState('');
+  const [currentOrgId, setCurrentOrgId] = useState<string | null>(null);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [profilesById, setProfilesById] = useState<Record<string, Profile>>({});
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  // Création org
+  const [orgName, setOrgName] = useState('');
+  const orgSlug = useMemo(() => slugify(orgName || ''), [orgName]);
+
+  // Ajout opérateur par email
   const [newOperatorEmail, setNewOperatorEmail] = useState('');
 
-  // Chargement initial des organisations
   useEffect(() => {
-    loadOrgs();
+    (async () => {
+      const { data: { session } } = await supa.auth.getSession();
+      setMe(session?.user ?? null);
+    })();
   }, []);
 
-  async function loadOrgs() {
-    try {
-      setLoading(true);
-      const { data, error } = await supa
-        .from('orgs')
-        .select('*')
-        .order('created_at', { ascending: false });
+  // Charger mes orgs (où je suis membre super_admin) + toutes visibles (mode proto)
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supa.from('orgs').select('id, slug, name').order('created_at', { ascending: false });
+      if (!error && data) {
+        setOrgs(data);
+        if (!currentOrgId && data.length) setCurrentOrgId(data[0].id);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-      if (error) throw error;
-      setOrgs(data || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur inconnue');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function selectOrg(org: Org) {
-    setSelectedOrg(org);
-    await loadOperators(org.id);
-  }
-
-  async function loadOperators(orgId: string) {
-    try {
-      const { data, error } = await supa
+  // Charger membres de l’org + leurs profils (pour afficher email)
+  useEffect(() => {
+    (async () => {
+      if (!currentOrgId) return;
+      const { data: mems, error } = await supa
         .from('org_members')
-        .select('user_id, email')
-        .eq('org_id', orgId);
+        .select('user_id, role, org_id')
+        .eq('org_id', currentOrgId);
 
-      if (error) throw error;
-      setOperators(data?.map((op: any) => ({ id: op.user_id, email: op.email })) || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur inconnue');
-    }
-  }
+      if (!error && mems) {
+        setMembers(mems);
+        const ids = Array.from(new Set(mems.map(m => m.user_id)));
+        if (ids.length) {
+          const { data: profs } = await supa
+            .from('profiles')
+            .select('id, email')
+            .in('id', ids);
+          const map: Record<string, Profile> = {};
+          (profs || []).forEach(p => { map[p.id] = p; });
+          setProfilesById(map);
+        } else {
+          setProfilesById({});
+        }
+      }
+    })();
+  }, [currentOrgId]);
 
-  async function createOrg() {
-    if (!newOrgName || !newSport) {
-      alert('Veuillez renseigner un nom et un sport.');
-      return;
-    }
+  const onLogout = async () => {
+    await supa.auth.signOut();
+    window.location.href = '/login';
+  };
+
+  const createOrganization = async () => {
+    setBusy(true); setMessage(null);
     try {
-      const { error } = await supa
+      if (!orgName.trim()) { setMessage('Nom requis'); return; }
+      if (!me?.id) { setMessage('Session requise'); return; }
+
+      // 1) créer l’org
+      const { data: org, error: orgErr } = await supa
         .from('orgs')
-        .insert([{ name: newOrgName, sport: newSport }]);
-      if (error) throw error;
-      setNewOrgName('');
-      setNewSport('');
-      await loadOrgs();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erreur création organisation');
-    }
-  }
+        .insert({ name: orgName.trim(), slug: orgSlug || slugify(orgName) })
+        .select()
+        .single();
 
-  async function toggleArchive(org: Org) {
-    const confirmMsg = org.archived
-      ? `Désarchiver ${org.name} ?`
-      : `Archiver ${org.name} ?`;
-    if (!window.confirm(confirmMsg)) return;
-    try {
-      const { error } = await supa
-        .from('orgs')
-        .update({ archived: !org.archived })
-        .eq('id', org.id);
-      if (error) throw error;
-      await loadOrgs();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erreur archivage organisation');
-    }
-  }
-
-  async function deleteOrg(org: Org) {
-    if (!window.confirm(`Supprimer définitivement ${org.name} ?`)) return;
-    try {
-      const { error } = await supa.from('orgs').delete().eq('id', org.id);
-      if (error) throw error;
-      setSelectedOrg(null);
-      await loadOrgs();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erreur suppression organisation');
-    }
-  }
-
-  async function addOperator() {
-    if (!selectedOrg) return;
-    if (!newOperatorEmail) {
-      alert('Entrez un email.');
-      return;
-    }
-
-    try {
-      // 1. Chercher l’utilisateur existant
-      const { data: userData, error: rpcError } = await supa.rpc(
-        'admin_get_user_id_by_email',
-        { p_email: newOperatorEmail }
-      );
-
-      if (rpcError) throw rpcError;
-      const userId = userData || null;
-
-      if (!userId) {
-        alert("Cet utilisateur n'existe pas encore dans la base Supabase.");
+      if (orgErr || !org) {
+        setMessage(`Erreur création Organisation : ${orgErr?.message || 'inconnue'}`);
         return;
       }
 
-      // 2. Lier l’utilisateur à l’organisation
-      const { error } = await supa.from('org_members').insert([
-        { org_id: selectedOrg.id, user_id: userId, role: 'operator' }
-      ]);
-      if (error) throw error;
+      // 2) ajouter le créateur comme super_admin (mode proto : pas de RLS)
+      await supa.from('org_members').insert({
+        user_id: me.id,
+        org_id: org.id,
+        role: 'super_admin'
+      });
 
-      setNewOperatorEmail('');
-      await loadOperators(selectedOrg.id);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erreur ajout opérateur');
+      setOrgs(prev => [org as Org, ...prev]);
+      setCurrentOrgId(org.id);
+      setOrgName('');
+      setMessage('Organisation créée ✅');
+    } catch (e: any) {
+      setMessage(`Erreur création Organisation : ${e?.message || e}`);
+    } finally {
+      setBusy(false);
     }
-  }
+  };
 
-  async function removeOperator(op: Operator) {
-    if (!selectedOrg) return;
-    if (!window.confirm(`Retirer ${op.email} de ${selectedOrg.name} ?`)) return;
+  const addOperatorByEmail = async () => {
+    setBusy(true); setMessage(null);
     try {
-      const { error } = await supa
+      if (!currentOrgId) { setMessage('Sélectionne une organisation'); return; }
+      if (!newOperatorEmail.trim()) { setMessage('Email requis'); return; }
+
+      // On lit le profil via la table profiles (publiques), pas auth.users (restreint côté client)
+      const { data: prof } = await supa
+        .from('profiles')
+        .select('id, email')
+        .eq('email', newOperatorEmail.trim().toLowerCase())
+        .maybeSingle();
+
+      if (!prof) {
+        setMessage(`Cet utilisateur n'existe pas encore dans la base Supabase.`);
+        return;
+      }
+
+      // upsert membership operator
+      const { error: upErr } = await supa
+        .from('org_members')
+        .upsert({ user_id: prof.id, org_id: currentOrgId, role: 'operator' }, { onConflict: 'user_id,org_id' });
+
+      if (upErr) {
+        setMessage(`Erreur ajout opérateur : ${upErr.message}`);
+        return;
+      }
+
+      // refresh list
+      setNewOperatorEmail('');
+      // recharge les membres
+      const { data: mems } = await supa
+        .from('org_members')
+        .select('user_id, role, org_id')
+        .eq('org_id', currentOrgId);
+      setMembers(mems || []);
+
+      // cache profil
+      setProfilesById(prev => ({ ...prev, [prof.id]: prof as Profile }));
+      setMessage('Opérateur ajouté ✅');
+    } catch (e: any) {
+      setMessage(`Erreur ajout opérateur : ${e?.message || e}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeMember = async (userId: string) => {
+    if (!currentOrgId) return;
+    setBusy(true); setMessage(null);
+    try {
+      await supa
         .from('org_members')
         .delete()
-        .eq('org_id', selectedOrg.id)
-        .eq('user_id', op.id);
-      if (error) throw error;
-      await loadOperators(selectedOrg.id);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erreur suppression opérateur');
+        .eq('org_id', currentOrgId)
+        .eq('user_id', userId);
+      setMembers(prev => prev.filter(m => m.user_id !== userId));
+      setMessage('Membre retiré ✅');
+    } catch (e: any) {
+      setMessage(`Erreur suppression : ${e?.message || e}`);
+    } finally {
+      setBusy(false);
     }
-  }
+  };
+  // --- Création de compte utilisateur via API admin ---
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
+  const [newUserRole, setNewUserRole] = useState('operator');
 
+  const createNewUser = async () => {
+    setBusy(true); setMessage(null);
+    try {
+      if (!newUserEmail.trim() || !newUserPassword.trim()) {
+        setMessage('Email et mot de passe requis');
+        return;
+      }
+
+      // ⚠️ Ton backend admin doit tourner sur http://localhost:3000
+      const response = await fetch('http://localhost:3000/api/admin/create-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-token': 'changeme-very-secret', // même valeur que ton .env du backend
+        },
+        body: JSON.stringify({
+          email: newUserEmail,
+          password: newUserPassword,
+          org_slug: orgs.find(o => o.id === currentOrgId)?.slug,
+          role: newUserRole,
+        }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Erreur inconnue');
+
+      setMessage(`Utilisateur créé : ${result.user.email}`);
+      setNewUserEmail('');
+      setNewUserPassword('');
+    } catch (e: any) {
+      setMessage(`Erreur création utilisateur : ${e.message || e}`);
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
-    <div style={container}>
-      <div style={sidebar}>
-        <h2 style={{ color: 'white' }}>Organisations</h2>
-
-        {loading && <div>Chargement…</div>}
-        {!loading && (
-          <>
-            {orgs.map((org) => (
-              <div
-                key={org.id}
-                onClick={() => selectOrg(org)}
-                style={{
-                  ...orgItem,
-                  background: selectedOrg?.id === org.id ? '#2563eb' : '#1b1c1f'
-                }}
-              >
-                <div style={{ fontWeight: 600 }}>{org.name}</div>
-                <div style={{ fontSize: 12, opacity: 0.8 }}>
-                  {org.sport} {org.archived ? '(Archivé)' : ''}
-                </div>
-              </div>
-            ))}
-
-            <div style={divider}></div>
-
-            <input
-              placeholder="Nom organisation"
-              value={newOrgName}
-              onChange={(e) => setNewOrgName(e.target.value)}
-              style={input}
-            />
-            <input
-              placeholder="Sport"
-              value={newSport}
-              onChange={(e) => setNewSport(e.target.value)}
-              style={input}
-            />
-            <button onClick={createOrg} style={btnPrimary}>
-              ➕ Créer
-            </button>
-          </>
-        )}
+    <div className="space-page">
+      <div className="space-header">
+        <h1>Super Admin — Gestion des organisations</h1>
+        <div className="row">
+          <span>{me?.email}</span>
+          <button className="secondary" onClick={onLogout}>Déconnexion</button>
+        </div>
       </div>
 
-      <div style={content}>
-        {selectedOrg ? (
-          <>
-            <h2 style={{ color: 'white' }}>{selectedOrg.name}</h2>
-            <p style={{ color: '#9aa0a6' }}>Sport : {selectedOrg.sport}</p>
+      {message && <div className="form-message" style={{ marginBottom: 12 }}>{message}</div>}
 
-            <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
-              <button onClick={() => toggleArchive(selectedOrg)} style={btnSecondary}>
-                {selectedOrg.archived ? 'Désarchiver' : 'Archiver'}
-              </button>
-              <button onClick={() => deleteOrg(selectedOrg)} style={btnDanger}>
-                Supprimer
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="form-grid">
+          <div className="form-row-split">
+            <div className="form-field">
+              <label>Créer une organisation</label>
+              <input placeholder="Nom de l'organisation"
+                     value={orgName} onChange={e => setOrgName(e.target.value)} />
+              <div className="small">Slug proposé : <code>{orgSlug || '—'}</code></div>
+            </div>
+            <div className="form-field" style={{ alignSelf: 'end' }}>
+              <button className="primary" disabled={busy} onClick={createOrganization}>
+                Créer
               </button>
             </div>
+          </div>
+        </div>
+      </div>
 
-            <h3 style={{ color: 'white' }}>Opérateurs</h3>
-            <div style={{ marginBottom: 12 }}>
-              {operators.length === 0 && <p style={{ color: '#9aa0a6' }}>Aucun opérateur.</p>}
-              {operators.map((op) => (
-                <div
-                  key={op.id}
-                  style={{
-                    ...opItem,
-                    background: '#1b1c1f',
-                    border: '1px solid #2c2d31'
-                  }}
-                >
-                  <span>{op.email}</span>
-                  <button onClick={() => removeOperator(op)} style={btnSmallDanger}>
-                    ❌
-                  </button>
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="form-row">
+          <label>Organisation active</label>
+          <select value={currentOrgId ?? ''} onChange={e => setCurrentOrgId(e.target.value)}>
+            {orgs.map(o => <option key={o.id} value={o.id}>{o.name} ({o.slug})</option>)}
+          </select>
+        </div>
+      </div>
+      <hr style={{ margin: '20px 0', borderColor: '#1b1c1f' }} />
+      <h2 className="h1">Créer un nouvel utilisateur (Super Admin)</h2>
+      <div className="form-grid" style={{ marginTop: 8 }}>
+        <div className="form-row">
+          <label>Email</label>
+          <input
+            placeholder="exemple@domaine.com"
+            value={newUserEmail}
+            onChange={e => setNewUserEmail(e.target.value)}
+          />
+        </div>
+        <div className="form-row">
+          <label>Mot de passe</label>
+          <input
+            type="password"
+            placeholder="Mot de passe"
+            value={newUserPassword}
+            onChange={e => setNewUserPassword(e.target.value)}
+          />
+        </div>
+        <div className="form-row">
+          <label>Rôle</label>
+          <select
+            value={newUserRole}
+            onChange={e => setNewUserRole(e.target.value)}
+          >
+            <option value="operator">Operator</option>
+            <option value="admin">Admin</option>
+            <option value="super_admin">Super Admin</option>
+          </select>
+        </div>
+        <button className="primary" disabled={busy} onClick={createNewUser}>
+          Créer l’utilisateur
+        </button>
+      </div>
+
+      <div className="card">
+        <h2 className="h1">Opérateurs de l’organisation</h2>
+        <div className="form-row-split" style={{ marginTop: 8 }}>
+          <div className="form-field">
+            <label>Ajouter un opérateur par email Supabase</label>
+            <input placeholder="email@domaine.tld"
+                   value={newOperatorEmail}
+                   onChange={e => setNewOperatorEmail(e.target.value)} />
+          </div>
+          <div className="form-field" style={{ alignSelf: 'end' }}>
+            <button className="primary" disabled={busy} onClick={addOperatorByEmail}>
+              Ajouter
+            </button>
+          </div>
+        </div>
+
+        <div className="matches-list" style={{ marginTop: 16 }}>
+          {members.length === 0 ? (
+            <div className="empty-list">Aucun membre pour cette organisation.</div>
+          ) : (
+            members.map(m => {
+              const p = profilesById[m.user_id];
+              return (
+                <div className="match-row" key={m.user_id}>
+                  <div className="match-details">
+                    <div className="match-name">{p?.email || m.user_id}</div>
+                    <div className="match-teams">Rôle : {m.role}</div>
+                  </div>
+                  <div className="match-actions">
+                    <button className="danger" onClick={() => removeMember(m.user_id)}>Retirer</button>
+                  </div>
                 </div>
-              ))}
-            </div>
-
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input
-                placeholder="Email opérateur"
-                value={newOperatorEmail}
-                onChange={(e) => setNewOperatorEmail(e.target.value)}
-                style={input}
-              />
-              <button onClick={addOperator} style={btnPrimary}>
-                ➕
-              </button>
-            </div>
-          </>
-        ) : (
-          <div style={{ color: '#9aa0a6' }}>Sélectionnez une organisation</div>
-        )}
+              );
+            })
+          )}
+        </div>
       </div>
     </div>
   );
 }
-
-// 🎨 Styles inline cohérents
-const container: React.CSSProperties = {
-  display: 'flex',
-  minHeight: 'calc(100vh - 60px)',
-  background: '#0c0d10',
-  color: 'white'
-};
-
-const sidebar: React.CSSProperties = {
-  width: 280,
-  background: '#111214',
-  padding: 20,
-  borderRight: '1px solid #1b1c1f',
-  overflowY: 'auto'
-};
-
-const content: React.CSSProperties = {
-  flex: 1,
-  padding: 30,
-  overflowY: 'auto'
-};
-
-const orgItem: React.CSSProperties = {
-  padding: 12,
-  borderRadius: 8,
-  cursor: 'pointer',
-  marginBottom: 6
-};
-
-const input: React.CSSProperties = {
-  width: '100%',
-  padding: 8,
-  marginBottom: 8,
-  background: '#121316',
-  border: '1px solid #2c2d31',
-  borderRadius: 6,
-  color: 'white'
-};
-
-const btnPrimary: React.CSSProperties = {
-  background: '#2563eb',
-  border: 'none',
-  padding: '8px 14px',
-  color: 'white',
-  borderRadius: 6,
-  cursor: 'pointer'
-};
-
-const btnSecondary: React.CSSProperties = {
-  background: '#374151',
-  border: 'none',
-  padding: '8px 14px',
-  color: 'white',
-  borderRadius: 6,
-  cursor: 'pointer'
-};
-
-const btnDanger: React.CSSProperties = {
-  background: '#dc2626',
-  border: 'none',
-  padding: '8px 14px',
-  color: 'white',
-  borderRadius: 6,
-  cursor: 'pointer'
-};
-
-const btnSmallDanger: React.CSSProperties = {
-  background: '#dc2626',
-  border: 'none',
-  padding: '2px 8px',
-  color: 'white',
-  borderRadius: 6,
-  cursor: 'pointer'
-};
-
-const opItem: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  padding: '6px 8px',
-  borderRadius: 6,
-  marginBottom: 4
-};
-
-const divider: React.CSSProperties = {
-  height: 1,
-  background: '#1b1c1f',
-  margin: '16px 0'
-};
-

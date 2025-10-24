@@ -365,5 +365,3 @@ console.log('🎯 Main - Création du root React');
 const root = createRoot(document.getElementById('root')!);
 root.render(<App />);
 console.log('🚀 Main - Application React montée');
-
-
