@@ -200,13 +200,12 @@ function App(){
   // Fonctions utilitaires pour l'initialisation des états
   function getDefaultDuration(sport: string): number {
     switch(sport) {
-      case 'football': return 45 * 60; // 45 minutes
-      case 'handball': return 30 * 60; // 30 minutes
-      case 'basket': return 10 * 60; // 10 minutes
-      case 'hockey_ice': return 20 * 60; // 20 minutes
-      case 'hockey_field': return 15 * 60; // 15 minutes
-      case 'volleyball': return 0; // Pas de temps
-      default: return 10 * 60; // 10 minutes par défaut
+      case 'football': return 45 * 60;
+      case 'handball': return 30 * 60;
+      case 'basket': return 10 * 60;
+      case 'volleyball': return 0;
+      case 'rugby': return 40 * 60;
+      default: return 10 * 60;
     }
   }
 
@@ -254,12 +253,14 @@ function App(){
             ]
           }
         };
-      case 'hockey_ice':
-        return { penalties: { home: [], away: [] } };
-      case 'hockey_field':
+      case 'rugby':
         return {
-          cards: { home: { green: 0, yellow: 0, red: 0 }, away: { green: 0, yellow: 0, red: 0 } },
-          suspensions: { home: [], away: [] }
+          cards: { home: { yellow: 0, red: 0 }, away: { yellow: 0, red: 0 } },
+          sinBin: { home: [], away: [] },
+          tries: { home: 0, away: 0 },
+          conversions: { home: 0, away: 0 },
+          penalties: { home: 0, away: 0 },
+          dropGoals: { home: 0, away: 0 }
         };
       default:
         return {};

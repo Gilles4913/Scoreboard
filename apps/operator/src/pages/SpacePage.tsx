@@ -1,8 +1,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import type { MatchInfo, Sport } from '@pkg/types';
+import { SPORTS } from '@pkg/types';
 import { supa } from '../supabase';
-
-const SPORTS: Sport[] = ['basic','football','handball','basket','hockey_ice','hockey_field','volleyball'];
 
 interface SpacePageProps {
   user: any;
@@ -29,7 +28,7 @@ interface MatchFormData {
 
 const initialFormData: MatchFormData = {
   name: 'Match',
-  sport: 'basic',
+  sport: 'football',
   home_name: 'HOME',
   away_name: 'AWAY',
   home_logo: '',
