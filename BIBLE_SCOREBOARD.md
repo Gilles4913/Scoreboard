@@ -48,6 +48,8 @@ interface Org {
   slug: string;
   sport: 'football' | 'basket' | 'volleyball' | 'handball' | 'rugby';
   display_defaults: OrgDisplayDefaults;  // JSON
+  is_master: boolean;  // true pour l'organisation MASTER système
+  is_system: boolean;  // flag système additionnel
   created_at: timestamptz;
 }
 ```
@@ -55,6 +57,32 @@ interface Org {
 **Rôle** : Définit les règles globales d'affichage pour toutes ses équipes.
 
 **Règle** : `sport` est **immutable** après création (ou migration manuelle uniquement).
+
+---
+
+### 3.1.1 Organisation MASTER (SB2)
+
+**Concept** : Organisation spéciale servant de racine d'administration globale.
+
+**Caractéristiques** :
+- **Non supprimable** — Protégée par trigger DB
+- **Non modifiable** (sauf nom/logo)
+- **Non visible** par les utilisateurs standards
+- **Accessible uniquement** aux super_admin
+- **Ne contient pas de matchs** opérationnels
+- **Slug fixe** : `master`
+- **Unique** : Une seule organisation MASTER existe
+
+**Utilité** :
+- Créer les organisations clientes
+- Superviser globalement la plateforme
+- Gérer les super_admin
+
+**Règles** :
+- `is_master = true` et `is_system = true`
+- Ne peut pas être supprimée (trigger `prevent_master_delete`)
+- Les super_admin sont membres de cette organisation
+- Sert de point d'entrée pour l'administration globale
 
 ---
 
@@ -331,11 +359,23 @@ displayFinal = deepMerge(org.display_defaults, team.display_overrides)
 - **Accès public** : uniquement si `public_display = true`
 - **Display** : accès via `display_token` (anonymous)
 
-### Rôles :
+### Rôles (SB2) :
 
-- **Super Admin** : Accès global toutes organisations
-- **Admin** : Gestion organisation + membres
-- **Operator** : Gestion matchs de son organisation
+| Rôle | Accès | Permissions |
+|------|-------|-------------|
+| **super_admin** | Toutes organisations + MASTER | Créer/supprimer organisations, voir toutes les données, gérer tous les membres |
+| **admin** | Son organisation uniquement | Gérer organisation, équipes, membres, matchs de son org |
+| **operator** | Son organisation uniquement | Gérer matchs de son organisation |
+| **viewer** | Son organisation uniquement | Lecture seule |
+
+**Règles** :
+- Seuls les **super_admin** peuvent :
+  - Voir toutes les organisations
+  - Créer des organisations
+  - Supprimer des organisations (sauf MASTER)
+  - Accéder à l'organisation MASTER
+- Les membres standards ne voient que leur organisation
+- Un utilisateur peut avoir des rôles différents dans différentes organisations
 
 ### Policies clés :
 
@@ -427,6 +467,34 @@ USING (
 - ⚠️ État perdu si tous clients déconnectés
 
 **Évolution future** : Snapshots périodiques optionnels
+
+---
+
+### ADR-005 — Organisation MASTER Système
+
+**Date** : 2026-03-02
+**Statut** : Accepté (SB2)
+
+**Raison** :
+- Besoin d'un point d'entrée pour l'administration globale
+- Permettre aux super_admin de gérer toutes les organisations
+- Séparer l'administration système des organisations clientes
+
+**Décision** :
+- Introduction d'une organisation MASTER spéciale
+- Flags `is_master` et `is_system` sur table `orgs`
+- Trigger DB empêchant suppression MASTER
+- Nouveau rôle `super_admin` avec accès global
+- RLS policies adaptées pour super_admin
+
+**Impact** :
+- ✅ Administration centralisée
+- ✅ Isolation claire admin vs clients
+- ✅ Sécurité renforcée (super_admin explicite)
+- ⚠️ Complexité RLS accrue
+- ⚠️ Nouveaux rôles à gérer
+
+**Évolution** : Interface super_admin dédiée
 
 ---
 
