@@ -1,0 +1,185 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    📚 SCOREBOARD PRO v3.0 — DOCUMENTATION MAP              ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+┌─ 🚀 START_HERE.md ────────────────────────────────────────────────────────┐
+│  Point d'entrée — 2 minutes pour comprendre le projet                     │
+│  → Aperçu rapide, checklist premier jour, liens essentiels                │
+└────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                    ┌───────────────┴───────────────┐
+                    │                               │
+         ┌──────────▼────────┐            ┌────────▼────────┐
+         │  📖 README.md     │            │  📚 INDEX_      │
+         │                   │            │  DOCUMENTATION  │
+         │  Vue d'ensemble   │            │                 │
+         │  Quick Start      │            │  Recherche par  │
+         │  Stack technique  │            │  sujet/profil   │
+         └──────────┬────────┘            └────────┬────────┘
+                    │                              │
+                    └──────────┬───────────────────┘
+                               │
+                    ┌──────────▼──────────────────────────────────────┐
+                    │  🏛️ BIBLE_SCOREBOARD.md ⭐⭐⭐                   │
+                    │                                                  │
+                    │  SOURCE DE VÉRITÉ OFFICIELLE                     │
+                    │  • Vision Produit                                │
+                    │  • 7 Invariants Structurels (NON NÉGOCIABLES)   │
+                    │  • 5 Sports détaillés (Football→Rugby)          │
+                    │  • Display Settings (33 paramètres)             │
+                    │  • 4 ADRs (décisions architecturales)           │
+                    │  • Règles de contribution + Checklists          │
+                    │                                                  │
+                    │  📏 200+ lignes • 10 sections • À LIRE d'abord   │
+                    └──────────┬───────────────────────────────────────┘
+                               │
+            ┌──────────────────┼──────────────────┐
+            │                  │                  │
+   ┌────────▼────────┐  ┌──────▼──────┐  ┌──────▼──────────┐
+   │ 🤖 PROMPT_BOLT_ │  │ 🔧 MIGRATION │  │ 📝 GUIDE_MISE_  │
+   │    OFFICIEL     │  │ _MULTI_SPORTS│  │    A_JOUR       │
+   │                 │  │              │  │                 │
+   │ Pour Bolt       │  │ Détails tech │  │ Guide user      │
+   │ 300+ lignes     │  │ DB/Types/    │  │ Migration       │
+   │ Checklists      │  │ Logic        │  │ Exemples        │
+   │ Réponses types  │  │              │  │ Dépannage       │
+   └─────────────────┘  └──────────────┘  └─────────────────┘
+
+┌─ 📊 RECAP_IMPLEMENTATION.md ──────────────────────────────────────────────┐
+│  Récapitulatif complet de ce qui a été livré                              │
+│  • Métriques (code, doc, DB)                                             │
+│  • Checklist validation                                                   │
+│  • Points d'attention                                                     │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ 🗄️ SCRIPTS & DATA ───────────────────────────────────────────────────────┐
+│  • seed_sample_data.sql — Données de test (2 orgs, 4 équipes, 2 matchs)  │
+└────────────────────────────────────────────────────────────────────────────┘
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                            🎯 WORKFLOW RECOMMANDÉ                          ║
+╠════════════════════════════════════════════════════════════════════════════╣
+║                                                                            ║
+║  1️⃣  START_HERE.md                    → 2 min   (aperçu rapide)         ║
+║  2️⃣  README.md                         → 10 min  (vue d'ensemble)        ║
+║  3️⃣  BIBLE_SCOREBOARD.md (Sect. 1-2)  → 20 min  (vision + modèle)       ║
+║  4️⃣  INDEX_DOCUMENTATION.md            → 5 min   (navigation)            ║
+║                                                                            ║
+║  ✅ Total : 37 minutes pour maîtriser les bases                           ║
+║                                                                            ║
+╠════════════════════════════════════════════════════════════════════════════╣
+║                         🤖 SI VOUS UTILISEZ BOLT                           ║
+╠════════════════════════════════════════════════════════════════════════════╣
+║                                                                            ║
+║  ⚠️  COPIER PROMPT_BOLT_OFFICIEL.md DANS BOLT AU DÉBUT DE CHAQUE SESSION  ║
+║                                                                            ║
+║  Effet :                                                                   ║
+║    ✅ Bolt connaît les 7 invariants                                       ║
+║    ✅ Refuse modifications non conformes                                  ║
+║    ✅ Suit automatiquement les checklists                                 ║
+║    ✅ Documente les ADRs si modification structurelle                     ║
+║                                                                            ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃                        🔑 7 INVARIANTS (À CONNAÎTRE)                      ┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+┃                                                                            ┃
+┃  I-001  │  1 Organisation = 1 Sport                                       ┃
+┃  I-002  │  Sport match = Sport org (jamais choisi au niveau match)        ┃
+┃  I-003  │  Héritage : deepMerge(org.defaults, team.overrides)             ┃
+┃  I-004  │  Score + Temps toujours affichés                                ┃
+┃  I-005  │  Isolation stricte organisations (RLS)                           ┃
+┃  I-006  │  1 Org = N Équipes                                              ┃
+┃  I-007  │  Logo équipe optionnel                                          ┃
+┃                                                                            ┃
+┃  → Détails : BIBLE_SCOREBOARD.md Section 2.1                              ┃
+┃                                                                            ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃                          🏀 5 SPORTS SUPPORTÉS                             ┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+┃                                                                            ┃
+┃  ⚽ Football      │  2×45 min  │  5 paramètres spécifiques                ┃
+┃  🏀 Basketball   │  4×10 min  │  6 paramètres spécifiques                ┃
+┃  🏐 Volleyball   │  5 sets    │  6 paramètres spécifiques                ┃
+┃  🤾 Handball     │  2×30 min  │  4 paramètres spécifiques                ┃
+┃  🏉 Rugby        │  2×40 min  │  5 paramètres spécifiques                ┃
+┃                                                                            ┃
+┃  + 7 paramètres communs (tous sports)                                     ┃
+┃  = 33 paramètres d'affichage configurables au total                       ┃
+┃                                                                            ┃
+┃  → Détails : BIBLE_SCOREBOARD.md Section 3                                ┃
+┃                                                                            ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                         📊 STATISTIQUES PROJET                             ║
+╠════════════════════════════════════════════════════════════════════════════╣
+║                                                                            ║
+║  Documentation                                                             ║
+║    • 8 fichiers principaux                                                ║
+║    • ~15,000 mots                                                         ║
+║    • 4 ADRs documentés                                                    ║
+║    • 7 checklists                                                         ║
+║                                                                            ║
+║  Code                                                                      ║
+║    • 1 migration DB (teams + display settings)                            ║
+║    • 15+ types TypeScript                                                 ║
+║    • 8 fonctions defaults                                                 ║
+║    • 1 composant React (TeamsPage)                                        ║
+║                                                                            ║
+║  Base de Données                                                           ║
+║    • 5 tables (dont 1 nouvelle)                                           ║
+║    • 2 vues (dont 1 nouvelle)                                             ║
+║    • 15+ policies RLS                                                     ║
+║    • 3 fonctions utilitaires                                              ║
+║                                                                            ║
+║  Builds                                                                    ║
+║    • ✅ Root project                                                      ║
+║    • ✅ Operator app                                                      ║
+║    • ✅ Display app                                                       ║
+║    • ✅ Tous packages                                                     ║
+║                                                                            ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│                         💡 CONSEILS PRATIQUES                              │
+├────────────────────────────────────────────────────────────────────────────┤
+│                                                                            │
+│  ✅ DO                                      │  ❌ DON'T                    │
+│  ───────────────────────────────────────── │  ─────────────────────────── │
+│  • Lire Bible avant modification           │  • Modifier sans lire Bible  │
+│  • Respecter invariants                    │  • Violer invariants         │
+│  • Utiliser Bolt avec prompt               │  • Utiliser Bolt sans prompt │
+│  • Documenter décisions (ADR)              │  • Changer sans doc          │
+│  • Tester RLS                              │  • Désactiver RLS            │
+│  • Migration avec IF EXISTS                │  • Migration destructive     │
+│  • Compatibilité ascendante                │  • Breaking changes          │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                            🎓 FORMATION EXPRESS                             ║
+╠════════════════════════════════════════════════════════════════════════════╣
+║                                                                            ║
+║  Niveau 1 : Découverte (30 min)                                           ║
+║    → START_HERE.md + README.md + BIBLE Sections 1-2                       ║
+║                                                                            ║
+║  Niveau 2 : Développeur (1h)                                              ║
+║    → + MIGRATION_MULTI_SPORTS.md + packages/types/src/index.ts            ║
+║                                                                            ║
+║  Niveau 3 : Architecte (2h)                                               ║
+║    → + BIBLE Sections 6-8 (ADRs + Règles) + PROMPT_BOLT_OFFICIEL.md       ║
+║                                                                            ║
+║  Niveau 4 : Expert (4h)                                                   ║
+║    → Lire toute la documentation + code source complet                    ║
+║                                                                            ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+Version : 3.0.0
+Date    : 2026-02-26
+Statut  : ✅ Production-ready
+
+Pour commencer → START_HERE.md
