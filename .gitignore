@@ -1,2 +1,16 @@
+# build outputs
+dist/
+**/dist/
+
+# deps
 node_modules/
+**/node_modules/
+
+# vercel
+.vercel/
+
+# env
 .env
+.env.local
+**/.env
+**/.env.local
