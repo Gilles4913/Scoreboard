@@ -1,68 +1,87 @@
-import React, { useState } from "react";
-import { supa } from "../supabase";
+import React, { useEffect, useState } from "react";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { useNavigate } from "react-router-dom";
 
-export function LoginPage() {
+export default function LoginPage({ supabase }: { supabase: SupabaseClient }) {
   const nav = useNavigate();
   const [email, setEmail] = useState("");
-  const [pwd, setPwd] = useState("");
-  const [err, setErr] = useState("");
+  const [password, setPassword] = useState("");
+  const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function onLogin(e: React.FormEvent) {
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) nav("/", { replace: true });
+    })();
+  }, [nav, supabase]);
+
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setErr("");
+    setErr(null);
     setBusy(true);
-    try {
-      const { error } = await supa.auth.signInWithPassword({ email, password: pwd });
-      if (error) throw error;
-      nav("/app", { replace: true });
-    } catch (e: any) {
-      setErr(e?.message ?? "Erreur login");
-    } finally {
-      setBusy(false);
+
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+
+    setBusy(false);
+    if (error) {
+      setErr(error.message);
+      return;
     }
+
+    nav("/", { replace: true });
   }
 
   return (
-    <div style={{ maxWidth: 420, margin: "40px auto", padding: 18 }}>
-      <h2 style={{ marginTop: 0 }}>Scoreboard</h2>
-      <div style={{ color: "#9aa0a6", marginBottom: 16 }}>Connexion</div>
+    <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#0b0d10", color: "#e5e7eb", fontFamily: "Inter, system-ui" }}>
+      <form onSubmit={onSubmit} style={{ width: 420, padding: 24, border: "1px solid #1b2230", borderRadius: 14, background: "rgba(255,255,255,.03)" }}>
+        <h1 style={{ margin: 0, fontSize: 22 }}>Connexion</h1>
+        <p style={{ marginTop: 8, opacity: 0.8 }}>Scoreboard Home</p>
 
-      {err ? (
-        <div style={{ background: "#1a0f10", border: "1px solid #3a1c1f", padding: 12, borderRadius: 12, marginBottom: 12 }}>
-          ❌ {err}
-        </div>
-      ) : null}
-
-      <form onSubmit={onLogin} style={{ display: "grid", gap: 10 }}>
+        <label style={{ display: "block", marginTop: 16, fontSize: 12, opacity: 0.9 }}>Email</label>
         <input
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="email"
+          autoComplete="email"
           type="email"
           required
-          style={{ padding: 12, borderRadius: 10, border: "1px solid #2a2d33", background: "#0f1114", color: "#e5e7eb" }}
+          style={{ width: "100%", marginTop: 6, padding: "10px 12px", borderRadius: 10, border: "1px solid #1d2636", background: "#0b0f1a", color: "#e5e7eb" }}
         />
+
+        <label style={{ display: "block", marginTop: 14, fontSize: 12, opacity: 0.9 }}>Mot de passe</label>
         <input
-          value={pwd}
-          onChange={(e) => setPwd(e.target.value)}
-          placeholder="mot de passe"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
           type="password"
           required
-          style={{ padding: 12, borderRadius: 10, border: "1px solid #2a2d33", background: "#0f1114", color: "#e5e7eb" }}
+          style={{ width: "100%", marginTop: 6, padding: "10px 12px", borderRadius: 10, border: "1px solid #1d2636", background: "#0b0f1a", color: "#e5e7eb" }}
         />
+
+        {err && (
+          <div style={{ marginTop: 12, padding: 10, borderRadius: 10, background: "rgba(220,38,38,.12)", border: "1px solid rgba(220,38,38,.35)", color: "#fecaca" }}>
+            {err}
+          </div>
+        )}
+
         <button
           disabled={busy}
-          style={{ padding: 12, borderRadius: 10, border: "1px solid #2a2d33", background: "#14161a", color: "#e5e7eb" }}
+          type="submit"
+          style={{
+            width: "100%",
+            marginTop: 16,
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: "1px solid #2563eb",
+            background: busy ? "#1f3c85" : "#2563eb",
+            color: "white",
+            fontWeight: 800,
+            cursor: busy ? "not-allowed" : "pointer",
+          }}
         >
-          {busy ? "…" : "Se connecter"}
+          {busy ? "Connexion..." : "Se connecter"}
         </button>
       </form>
-
-      <div style={{ marginTop: 14, fontSize: 12, color: "#6b7280" }}>
-        Super admin : <code>gilles.guerrin@a2display.fr</code>
-      </div>
     </div>
   );
 }
