@@ -1,60 +1,64 @@
-import { supa } from './supabase';
-import type { MatchState } from '@pkg/types';
-import type { BroadcastPayload } from '@pkg/logic';
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { supa } from "./supabase";
 
-export function channelKey(org: string, matchId: string, token: string){ return `match:${org}:${matchId}:${token}`; }
-  
-export function createOperatorChannel(org: string, matchId: string, token: string, onHello:()=>void, onAck?:()=>void){
-  const channelName = channelKey(org, matchId, token);
-  console.log('Operator - Création du canal:', channelName);
-  
-  const ch = supa.channel(channelKey(org, matchId, token), { config: { broadcast: { ack: true }, presence: { key: 'operator' } } });
-  
-  let stateUpdateCallback: ((state: any) => void) | null = null;
-  
-  ch.on('broadcast', { event: 'hello' }, (p) => { 
-    console.log('Operator - Message hello reçu:', p);
-    onHello(); 
+/**
+ * Room naming convention (Pro)
+ * - org room: sb2:org:<org_id>
+ * - match room fallback: sb2:match:<match_id>
+ */
+const orgChannels = new Map<string, ReturnType<SupabaseClient["channel"]>>();
+
+async function ensureOrgChannel(orgId: string) {
+  const key = `sb2:org:${orgId}`;
+  const existing = orgChannels.get(key);
+  if (existing) return existing;
+
+  const ch = supa.channel(key, { config: { broadcast: { self: true } } });
+
+  // subscribe once
+  const { error } = await ch.subscribe();
+  if (error) throw error;
+
+  orgChannels.set(key, ch);
+  return ch;
+}
+
+/**
+ * Broadcast full match payload (recommended).
+ * Display listens to event: "match_update" and replaces state.
+ */
+export async function broadcastMatchUpdate(orgId: string, match: any) {
+  const ch = await ensureOrgChannel(orgId);
+  const { error } = await ch.send({
+    type: "broadcast",
+    event: "match_update",
+    payload: { match },
   });
-  
-  ch.on('broadcast', { event: 'request_state' }, (p) => { 
-    console.log('Operator - Demande d\'état reçue:', p);
-    onHello(); 
+  if (error) throw error;
+}
+
+/**
+ * Broadcast partial patch (optional).
+ * Display listens to event: "score_update" and merges patch.
+ */
+export async function broadcastScorePatch(orgId: string, patch: Record<string, any>) {
+  const ch = await ensureOrgChannel(orgId);
+  const { error } = await ch.send({
+    type: "broadcast",
+    event: "score_update",
+    payload: patch,
   });
-  
-  ch.on('broadcast', { event: 'state' }, (p) => { 
-    console.log('Operator - État reçu:', p);
-    if (stateUpdateCallback && p.payload?.state) {
-      stateUpdateCallback(p.payload.state);
-    }
-  });
-  
-  // Écouter tous les messages pour debug
-  ch.on('broadcast', { event: '*' }, (p) => { 
-    console.log('Operator - Message reçu:', p.event, p.payload);
-  });
-  
-  ch.subscribe((status) => { 
-    console.log('Operator - Statut de souscription:', status);
-    if (status === 'SUBSCRIBED') onAck?.(); 
-  });
-  
-  return {
-    publish(state: MatchState, info: any){
-      console.log('Operator - Publication de l\'état:', { state, info });
-      const payload: BroadcastPayload = { state, info, t: Date.now() };
-      ch.send({ type: 'broadcast', event: 'state', payload });
-    },
-    requestSync(){
-      console.log('Operator - Demande de synchronisation');
-      ch.send({ type: 'broadcast', event: 'request_sync', payload: { operator: true } });
-    },
-    onStateUpdate(callback: (state: any) => void){
-      stateUpdateCallback = callback;
-    },
-    close(){ 
-      console.log('Operator - Fermeture du canal');
-      supa.removeChannel(ch); 
-    }
+  if (error) throw error;
+}
+
+/**
+ * Optional: clean up all channels (ex: logout)
+ */
+export async function realtimeCleanup() {
+  for (const ch of orgChannels.values()) {
+    try {
+      await supa.removeChannel(ch);
+    } catch {}
   }
+  orgChannels.clear();
 }
