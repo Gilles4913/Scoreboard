@@ -1,13 +1,26 @@
-// apps/operator/src/utils/displayLink.ts
-import { DISPLAY_APP_URL } from "../config";
+export function buildDisplayUrl(params: { token: string }) {
+  const base = (import.meta.env.VITE_DISPLAY_BASE_URL as string | undefined)?.trim();
+  if (!base) {
+    // fallback pratique en local
+    return `http://localhost:5174/?token=${encodeURIComponent(params.token)}`;
+  }
 
-export function buildDisplayUrl(params: { token: string; matchId?: string }) {
-  const url = new URL(DISPLAY_APP_URL);
+  const url = new URL(base);
+  // on force le token-only (Display via Edge Function)
   url.searchParams.set("token", params.token);
-  if (params.matchId) url.searchParams.set("matchId", params.matchId);
   return url.toString();
 }
 
 export async function copyToClipboard(text: string) {
-  await navigator.clipboard.writeText(text);
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // fallback vieux navigateurs
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+  }
 }
