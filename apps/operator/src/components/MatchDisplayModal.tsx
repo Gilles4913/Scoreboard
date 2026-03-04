@@ -25,7 +25,7 @@ export function MatchDisplayModal({ open, onClose, match }: Props) {
   if (!open || !match) return null;
 
   const subtitle =
-    (match.home_name && match.away_name) ? `${match.home_name} vs ${match.away_name}` : "";
+    match.home_name && match.away_name ? `${match.home_name} vs ${match.away_name}` : "";
 
   async function onCopy() {
     if (!url) return;
@@ -57,11 +57,26 @@ export function MatchDisplayModal({ open, onClose, match }: Props) {
           color: "#e5e7eb",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 6 }}>📺 Display Link</div>
-            <div style={{ fontWeight: 700, marginBottom: 4 }}>{match.name ?? "Match"}</div>
-            {subtitle ? <div style={{ color: "#9aa0a6", marginBottom: 12 }}>{subtitle}</div> : null}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            alignItems: "flex-start",
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 320 }}>
+            <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 6 }}>
+              📺 Display Link
+            </div>
+
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>
+              {match.name ?? "Match"}
+            </div>
+            {subtitle ? (
+              <div style={{ color: "#9aa0a6", marginBottom: 12 }}>{subtitle}</div>
+            ) : null}
 
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <code
@@ -77,11 +92,33 @@ export function MatchDisplayModal({ open, onClose, match }: Props) {
                 {url}
               </code>
 
-              <button onClick={onCopy} style={{ padding: "10px 12px", borderRadius: 10 }}>
+              <button
+                onClick={onCopy}
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  border: "1px solid #2a2d33",
+                  background: "#14161a",
+                  color: "#e5e7eb",
+                  cursor: "pointer",
+                }}
+              >
                 📋 Copier
               </button>
 
-              <a href={url} target="_blank" rel="noreferrer" style={{ padding: "10px 12px" }}>
+              <a
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  border: "1px solid #2a2d33",
+                  background: "#14161a",
+                  color: "#e5e7eb",
+                  textDecoration: "none",
+                }}
+              >
                 Ouvrir
               </a>
             </div>
@@ -95,16 +132,36 @@ export function MatchDisplayModal({ open, onClose, match }: Props) {
             </div>
           </div>
 
-          <div style={{ minWidth: 380, textAlign: "center" }}>
-            <div style={{ fontSize: 12, color: "#9aa0a6", marginBottom: 8 }}>QR Code (scanne et ouvre)</div>
-            <div style={{ background: "white", padding: 16, borderRadius: 16, display: "inline-block" }}>
+          <div style={{ minWidth: 360, textAlign: "center" }}>
+            <div style={{ fontSize: 12, color: "#9aa0a6", marginBottom: 8 }}>
+              QR Code (scan → ouvre l’affichage)
+            </div>
+
+            <div
+              style={{
+                background: "white",
+                padding: 16,
+                borderRadius: 16,
+                display: "inline-block",
+              }}
+            >
               <QRCodeCanvas value={url} size={320} />
             </div>
           </div>
         </div>
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 14 }}>
-          <button onClick={onClose} style={{ padding: "10px 12px", borderRadius: 10 }}>
+          <button
+            onClick={onClose}
+            style={{
+              padding: "10px 12px",
+              borderRadius: 10,
+              border: "1px solid #2a2d33",
+              background: "#14161a",
+              color: "#e5e7eb",
+              cursor: "pointer",
+            }}
+          >
             Fermer
           </button>
         </div>
