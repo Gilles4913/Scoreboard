@@ -1,190 +1,233 @@
-// apps/display/src/main.tsx
-import React, { useEffect, useMemo, useState } from "react";
-import { createRoot } from "react-dom/client";
-import type { MatchState } from "@pkg/types";
-import { applyTick } from "@pkg/logic";
-import { applyTheme, type ThemeName } from "./themes";
-import "./theme.css";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import ReactDOM from "react-dom/client";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
+import "./theme.css";
 import { Scoreboard } from "./components/Scoreboard";
-import { connectDisplay } from "./realtime";
-import { fetchDisplayContext, type DisplayContext } from "./api";
+
+// --------------------
+// ENV
+// --------------------
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+// Edge function endpoint (SB2)
+const EDGE_CONTEXT_URL =
+  (import.meta.env.VITE_EDGE_CONTEXT_URL as string | undefined)?.trim() ||
+  "https://gygjtykgvpyguhiostpx.functions.supabase.co/get-display-context";
+
+type MatchContext = {
+  id: string;
+  org_id?: string;
+  name?: string | null;
+  status?: string | null;
+  home_name?: string | null;
+  away_name?: string | null;
+  public_display?: boolean;
+  display_token?: string | null;
+
+  // si tu ajoutes des colonnes score/temps/etc dans DB, elles pourront arriver ici
+  home_score?: number | null;
+  away_score?: number | null;
+
+  // (optionnel) sport, config display, etc.
+  org_sport?: string | null;
+};
+
+type EdgePayload = {
+  match: MatchContext;
+};
 
 function App() {
-  const qs = useMemo(() => new URLSearchParams(window.location.search), []);
-  const [theme, setTheme] = useState<ThemeName>((qs.get("theme") as ThemeName) || "neon");
-  const [ui] = useState(qs.get("ui") === "1");
+  const supa = useMemo<SupabaseClient>(() => createClient(SUPABASE_URL, SUPABASE_ANON_KEY), []);
 
-  const matchId = qs.get("matchId") || "";
-  const token = qs.get("token") || "";
-
-  const [ctx, setCtx] = useState<DisplayContext | null>(null);
-  const [state, setState] = useState<MatchState | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState<string>("Initialisation…");
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>("");
+  const [match, setMatch] = useState<MatchContext | null>(null);
 
-  const [homeName, setHomeName] = useState("HOME");
-  const [awayName, setAwayName] = useState("AWAY");
-  const [homeLogo, setHomeLogo] = useState<string | null>(null);
-  const [awayLogo, setAwayLogo] = useState<string | null>(null);
+  const channelRef = useRef<ReturnType<SupabaseClient["channel"]> | null>(null);
+  const lastRefreshRef = useRef<number>(0);
 
-  const [displayConnection, setDisplayConnection] = useState<{ close: () => void } | null>(null);
+  // --------------------
+  // 1) Fetch contexte via Edge Function
+  // --------------------
+  async function fetchContext() {
+    setError("");
+    const qs = new URLSearchParams(window.location.search);
 
-  useEffect(() => {
-    applyTheme(theme);
-  }, [theme]);
+    const token = qs.get("token");
+    const org = qs.get("org");
 
-  // 1) Charger le contexte via Edge Function (secure)
-  useEffect(() => {
-    (async () => {
-      try {
-        setError("");
-        if (!matchId || !token) {
-          setError('URL invalide. Requis: ?matchId=<uuid>&token=<display_token>');
-          setConnectionStatus("❌ Paramètres manquants");
-          return;
-        }
-
-        setConnectionStatus("Chargement du contexte (Edge Function)…");
-        const data = await fetchDisplayContext({ matchId, token });
-        setCtx(data);
-
-        // Team names/logos depuis Edge payload
-        const hn = data.home?.team?.short_name || data.home?.team?.name || "HOME";
-        const an = data.away?.team?.short_name || data.away?.team?.name || "AWAY";
-        setHomeName(hn);
-        setAwayName(an);
-        setHomeLogo((data.home?.team as any)?.logo ?? null);
-        setAwayLogo((data.away?.team as any)?.logo ?? null);
-
-        setConnectionStatus("Contexte chargé. Connexion Realtime…");
-      } catch (e: any) {
-        setError(e?.message ?? "Erreur inconnue");
-        setConnectionStatus("❌ Erreur de chargement");
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [matchId, token]);
-
-  // 2) Connexion Realtime broadcast (pas de SELECT sur matches)
-  useEffect(() => {
-    if (!ctx) return;
-
-    // Fermer la connexion précédente si besoin
-    if (displayConnection) {
-      displayConnection.close();
-      setDisplayConnection(null);
+    if (!token && !org) {
+      throw new Error("Paramètre manquant : ?token=... ou ?org=...");
     }
 
-    const orgSlug = ctx.org.slug;
-    const mid = ctx.match.id;
+    const url = new URL(EDGE_CONTEXT_URL);
+    if (token) url.searchParams.set("token", token);
+    else if (org) url.searchParams.set("org", org);
 
-    setConnectionStatus(`Connexion au canal… (${orgSlug}/${mid})`);
-
-    const conn = connectDisplay(orgSlug, mid, token, (s: MatchState, info: any) => {
-      const running = s?.clock?.running;
-      setConnectionStatus(`${running ? "🔴" : "⏸️"} Connecté`);
-      setState(s);
-
-      // Si l’operator envoie des noms, on les respecte
-      if (info) {
-        if (info.home_name) setHomeName(info.home_name);
-        if (info.away_name) setAwayName(info.away_name);
-      }
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        "Accept": "application/json",
+      },
     });
 
-    setDisplayConnection(conn);
+    const json = (await res.json()) as any;
 
-    return () => {
-      conn.close();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx]);
+    if (!res.ok) {
+      throw new Error(json?.error || `Edge error (${res.status})`);
+    }
 
-  // 3) Tick local pour l’horloge (affichage fluide)
-  useEffect(() => {
-    if (!state?.matchId) return;
-    const id = setInterval(() => setState((prev) => (prev ? applyTick(prev) : prev)), 100);
-    return () => clearInterval(id);
-  }, [state?.matchId]);
+    const payload = json as EdgePayload;
+    if (!payload?.match?.id) {
+      throw new Error("Edge response invalide: match.id manquant");
+    }
 
-  function toggleFullscreen() {
-    const el: any = document.documentElement;
-    if (!document.fullscreenElement) el.requestFullscreen?.();
-    else document.exitFullscreen?.();
+    setMatch(payload.match);
+    lastRefreshRef.current = Date.now();
+    return payload.match;
   }
 
-  // UI states
+  // --------------------
+  // 2) Realtime Broadcast (Operator -> Display)
+  // --------------------
+  async function subscribeBroadcast(nextMatch: MatchContext) {
+    // ferme l’ancien channel si on change de match
+    if (channelRef.current) {
+      try {
+        await supa.removeChannel(channelRef.current);
+      } catch {}
+      channelRef.current = null;
+    }
+
+    // channel namespace SB2
+    // On préfère org_id si dispo, sinon match.id (fallback)
+    const room =
+      nextMatch.org_id ? `sb2:org:${nextMatch.org_id}` : `sb2:match:${nextMatch.id}`;
+
+    const channel = supa.channel(room, {
+      config: {
+        broadcast: { self: false },
+        presence: { key: "display" },
+      },
+    });
+
+    channel
+      .on("broadcast", { event: "match_update" }, ({ payload }) => {
+        // payload attendu: { match: {...} }
+        if (payload?.match?.id) setMatch(payload.match as MatchContext);
+      })
+      .on("broadcast", { event: "score_update" }, ({ payload }) => {
+        // payload possible: { home_score, away_score, ... } -> patch
+        setMatch((prev) => {
+          if (!prev) return prev;
+          return { ...prev, ...payload };
+        });
+      })
+      .on("broadcast", { event: "ping" }, () => {
+        // no-op, juste pour debug
+      });
+
+    const { error } = await channel.subscribe((status) => {
+      // pour debug si besoin
+      // console.log("realtime status:", status, "room:", room);
+    });
+
+    if (error) throw error;
+    channelRef.current = channel;
+  }
+
+  // --------------------
+  // 3) Boot
+  // --------------------
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      try {
+        setLoading(true);
+        const ctx = await fetchContext();
+        if (!alive) return;
+
+        // subscribe broadcast
+        await subscribeBroadcast(ctx);
+
+        // sécurité: refresh context toutes les 60s (au cas où broadcast raté)
+        // (sans polling agressif)
+        const timer = setInterval(async () => {
+          try {
+            const now = Date.now();
+            if (now - lastRefreshRef.current < 60_000) return;
+            const m = await fetchContext();
+            // resubscribe si org_id / id change
+            if (m?.id && (match?.id !== m.id || match?.org_id !== m.org_id)) {
+              await subscribeBroadcast(m);
+            }
+          } catch {
+            // silencieux
+          }
+        }, 10_000);
+
+        return () => clearInterval(timer);
+      } catch (e: any) {
+        setError(e?.message ?? "Erreur init display");
+      } finally {
+        setLoading(false);
+      }
+    })();
+
+    return () => {
+      alive = false;
+      if (channelRef.current) {
+        supa.removeChannel(channelRef.current).catch(() => {});
+        channelRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // --------------------
+  // UI minimal
+  // --------------------
+  if (loading) {
+    return (
+      <div style={{ padding: 18, color: "#e5e7eb", fontFamily: "system-ui" }}>
+        Chargement…
+      </div>
+    );
+  }
+
   if (error) {
     return (
-      <div style={{ minHeight: "100vh", background: "#0b0b0c", color: "#eaeaea", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ background: "#111214", border: "1px solid #1b1c1f", borderRadius: 14, padding: 24, maxWidth: 720 }}>
-          <div style={{ fontSize: 20, marginBottom: 8 }}>❌ Display Error</div>
-          <pre style={{ whiteSpace: "pre-wrap", color: "#ff6b6b", margin: 0 }}>{error}</pre>
-          <div style={{ marginTop: 12, fontSize: 12, color: "#9aa0a6" }}>
-            Requis: <code>?matchId=&lt;uuid&gt;&amp;token=&lt;display_token&gt;</code>
-          </div>
+      <div style={{ padding: 18, color: "#e5e7eb", fontFamily: "system-ui" }}>
+        <div style={{ fontWeight: 900, marginBottom: 10 }}>Erreur Display</div>
+        <div style={{ background: "#1a0f10", border: "1px solid #3a1c1f", padding: 12, borderRadius: 12 }}>
+          ❌ {error}
+        </div>
+        <div style={{ marginTop: 12, color: "#9aa0a6", fontSize: 12 }}>
+          URL attendue : <code>?token=...</code> ou <code>?org=...</code>
+          <br />
+          Exemple : <code>https://scoreboard-display-pi.vercel.app/?token=XXXXX</code>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="board">
-      {state ? (
-        <Scoreboard
-          state={state}
-          homeName={homeName}
-          awayName={awayName}
-          homeLogo={homeLogo || undefined}
-          awayLogo={awayLogo || undefined}
-        />
-      ) : (
-        <div
-          style={{
-            position: "fixed",
-            top: "50%",
-            left: "50%",
-            transform: "translate(-50%, -50%)",
-            background: "rgba(0,0,0,0.85)",
-            color: "white",
-            padding: "22px 26px",
-            borderRadius: 14,
-            textAlign: "center",
-            maxWidth: 520,
-          }}
-        >
-          <div style={{ fontSize: 22, marginBottom: 8 }}>📺 Scoreboard Display</div>
-          <div style={{ color: "#9aa0a6", marginBottom: 8 }}>{connectionStatus}</div>
-          {ctx && (
-            <div style={{ fontSize: 13, color: "#4ade80" }}>
-              {ctx.org.name} • {ctx.org.sport}
-              <br />
-              {homeName} vs {awayName}
-            </div>
-          )}
-          {!ctx && (
-            <div style={{ fontSize: 12, color: "#666", marginTop: 10 }}>
-              En attente du contexte Edge Function…
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className={ui ? "toolbar" : "toolbar hidden"}>
-        <select value={theme} onChange={(e) => setTheme(e.target.value as ThemeName)}>
-          <option value="neon">Neon</option>
-          <option value="glass">Glass</option>
-          <option value="classic">Classic</option>
-        </select>
-        <button onClick={() => toggleFullscreen()}>Plein écran (F)</button>
-        <button onClick={() => window.location.reload()}>🔄 Recharger</button>
+  if (!match) {
+    return (
+      <div style={{ padding: 18, color: "#e5e7eb", fontFamily: "system-ui" }}>
+        Aucun match.
       </div>
-    </div>
-  );
+    );
+  }
+
+  // ✅ Ton composant Scoreboard existant reçoit un objet match.
+  // Si ton Scoreboard attend une autre shape, tu adapteras ici.
+  return <Scoreboard match={match as any} />;
 }
 
-createRoot(document.getElementById("root")!).render(
+ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />
   </React.StrictMode>
