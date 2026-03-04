@@ -1,146 +1,160 @@
-import { useEffect, useMemo, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import React, { useMemo, useState } from "react";
+import type { MatchInfo } from "@pkg/types";
 import { MatchDisplayModal } from "../components/MatchDisplayModal";
+import { supa } from "../supabase";
 
-type MatchRow = {
-  id: string;
-  name: string | null;
-  status: string;
-  scheduled_at: string | null;
-  display_token: string;
-  public_display: boolean;
-  home_name: string | null;
-  away_name: string | null;
+type Props = {
+  match: MatchInfo;
+  onBack: () => void;
+  activeMatch: MatchInfo | null;
+  onMatchesUpdate: (next: MatchInfo[]) => void;
 };
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-
-function fmtDate(iso: string | null) {
+function fmtDate(iso: any) {
   if (!iso) return "—";
   try {
     return new Date(iso).toLocaleString();
   } catch {
-    return iso;
+    return String(iso);
   }
 }
 
-export default function MatchPage() {
-  const supa = useMemo(() => createClient(SUPABASE_URL, SUPABASE_ANON_KEY), []);
+function normStatus(s: any): string {
+  return String(s ?? "").toLowerCase().trim();
+}
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string>("");
-  const [matches, setMatches] = useState<MatchRow[]>([]);
+export function MatchPage({ match, onBack, activeMatch, onMatchesUpdate }: Props) {
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  // modal state
+  // modal display (QR)
   const [displayOpen, setDisplayOpen] = useState(false);
-  const [displayMatch, setDisplayMatch] = useState<MatchRow | null>(null);
 
-  function openDisplay(m: MatchRow) {
-    setDisplayMatch(m);
-    setDisplayOpen(true);
-  }
+  const isActive = useMemo(() => {
+    if (!activeMatch) return false;
+    return activeMatch.id === (match as any).id && (normStatus((match as any).status) === "live" || normStatus((match as any).status) === "in_progress");
+  }, [activeMatch, match]);
 
-  function closeDisplay() {
-    setDisplayOpen(false);
-    setDisplayMatch(null);
-  }
-
-  async function load() {
-    setLoading(true);
-    setError("");
+  async function togglePublicDisplay() {
     try {
-      // 🔧 Adapte la requête si tu as une vue canon (matches_v / matches_canon)
-      // Ici on lit "matches" (authenticated) : ça marche pour Operator connecté.
-      const { data, error } = await supa
+      setSaving(true);
+      setError("");
+
+      const next = !(match as any).public_display;
+
+      const { error } = await supa
         .from("matches")
-        .select("id,name,status,scheduled_at,display_token,public_display,home_name,away_name")
-        .order("scheduled_at", { ascending: true });
+        .update({ public_display: next })
+        .eq("id", (match as any).id);
 
       if (error) throw error;
-      setMatches((data ?? []) as MatchRow[]);
+
+      // recharge liste (simple : re-fetch org matches)
+      const { data, error: e2 } = await supa
+        .from("matches")
+        .select("id,org_id,name,home_name,away_name,scheduled_at,status,public_display,display_token,created_at,updated_at,home_team_id,away_team_id")
+        .eq("org_id", (match as any).org_id);
+
+      if (e2) throw e2;
+      onMatchesUpdate((data ?? []) as any);
     } catch (e: any) {
-      setError(e?.message ?? "Failed to load matches");
+      setError(e?.message ?? "Erreur toggle public_display");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   }
 
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   return (
     <div style={{ padding: 18, color: "#e5e7eb" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-        <h2 style={{ margin: 0 }}>Matches</h2>
-        <button onClick={load} style={{ padding: "8px 12px", borderRadius: 10 }}>
-          🔄 Rafraîchir
-        </button>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontWeight: 900, fontSize: 18 }}>{(match as any).name ?? "Match"}</div>
+          <div style={{ fontSize: 12, color: "#9aa0a6" }}>
+            {(match as any).home_name ?? "HOME"} vs {(match as any).away_name ?? "AWAY"}
+          </div>
+          <div style={{ fontSize: 12, color: "#6b7280" }}>
+            {fmtDate((match as any).scheduled_at)} • status: <code>{String((match as any).status ?? "")}</code>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <button
+            onClick={onBack}
+            style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #2a2d33", background: "#14161a", color: "#e5e7eb" }}
+          >
+            ← Retour
+          </button>
+
+          <button
+            onClick={togglePublicDisplay}
+            disabled={saving}
+            style={{
+              padding: "8px 12px",
+              borderRadius: 10,
+              border: "1px solid #2a2d33",
+              background: "#14161a",
+              color: "#e5e7eb",
+            }}
+            title="Active/désactive l’affichage public (Edge Function vérifie public_display=true)"
+          >
+            public_display: {(match as any).public_display ? "ON" : "OFF"}
+          </button>
+
+          <button
+            onClick={() => setDisplayOpen(true)}
+            disabled={!(match as any).display_token}
+            title={!(match as any).display_token ? "display_token manquant" : "Lien + QR code Display"}
+            style={{
+              padding: "8px 12px",
+              borderRadius: 10,
+              border: "1px solid #2a2d33",
+              background: !(match as any).display_token ? "#0f1114" : "#14161a",
+              color: !(match as any).display_token ? "#6b7280" : "#e5e7eb",
+              cursor: !(match as any).display_token ? "not-allowed" : "pointer",
+            }}
+          >
+            📺 Display (QR)
+          </button>
+
+          <div style={{ fontSize: 12, color: isActive ? "#4ade80" : "#9aa0a6" }}>
+            {isActive ? "🔴 Match actif" : "⏸️ Inactif"}
+          </div>
+        </div>
       </div>
 
-      {loading ? <div style={{ marginTop: 12, color: "#9aa0a6" }}>Chargement…</div> : null}
       {error ? (
         <div style={{ marginTop: 12, background: "#1a0f10", border: "1px solid #3a1c1f", padding: 12, borderRadius: 12 }}>
           ❌ {error}
         </div>
       ) : null}
 
-      <div style={{ marginTop: 14, border: "1px solid #2a2d33", borderRadius: 12, overflow: "hidden" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "160px 1fr 130px 120px 140px", gap: 0, background: "#0f1114" }}>
-          <div style={{ padding: 10, fontWeight: 800, borderBottom: "1px solid #2a2d33" }}>Date</div>
-          <div style={{ padding: 10, fontWeight: 800, borderBottom: "1px solid #2a2d33" }}>Match</div>
-          <div style={{ padding: 10, fontWeight: 800, borderBottom: "1px solid #2a2d33" }}>Statut</div>
-          <div style={{ padding: 10, fontWeight: 800, borderBottom: "1px solid #2a2d33" }}>Public</div>
-          <div style={{ padding: 10, fontWeight: 800, borderBottom: "1px solid #2a2d33" }}>Actions</div>
-
-          {matches.map((m) => (
-            <Row key={m.id}>
-              <Cell>{fmtDate(m.scheduled_at)}</Cell>
-              <Cell>
-                <div style={{ fontWeight: 800 }}>{m.name ?? "Match"}</div>
-                <div style={{ fontSize: 12, color: "#9aa0a6" }}>
-                  {(m.home_name ?? "HOME")} vs {(m.away_name ?? "AWAY")}
-                </div>
-                <div style={{ fontSize: 11, color: "#6b7280" }}>
-                  token: <code style={{ userSelect: "all" }}>{m.display_token}</code>
-                </div>
-              </Cell>
-              <Cell>{m.status}</Cell>
-              <Cell>{m.public_display ? "✅" : "—"}</Cell>
-              <Cell>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button
-                    onClick={() => openDisplay(m)}
-                    disabled={!m.display_token}
-                    style={{ padding: "8px 10px", borderRadius: 10 }}
-                    title="Voir lien + QR code"
-                  >
-                    📺 Display
-                  </button>
-
-                  {/* Tu peux ajouter ici: Edit / Start / Archive etc */}
-                </div>
-              </Cell>
-            </Row>
-          ))}
+      {/* Ici tu peux ré-intégrer tes blocs “faits de jeu / score / contrôles” si tu les avais déjà.
+          Cette version est safe DB car elle ne dépend que de matches.
+      */}
+      <div style={{ marginTop: 16, border: "1px solid #2a2d33", borderRadius: 14, padding: 12, background: "#0f1114" }}>
+        <div style={{ fontWeight: 900, marginBottom: 8 }}>Infos DB</div>
+        <div style={{ fontSize: 12, color: "#9aa0a6" }}>
+          id: <code style={{ userSelect: "all" }}>{(match as any).id}</code>
+        </div>
+        <div style={{ fontSize: 12, color: "#9aa0a6" }}>
+          org_id: <code style={{ userSelect: "all" }}>{(match as any).org_id}</code>
+        </div>
+        <div style={{ fontSize: 12, color: "#9aa0a6" }}>
+          token: <code style={{ userSelect: "all" }}>{(match as any).display_token ?? "—"}</code>
         </div>
       </div>
 
-      <MatchDisplayModal open={displayOpen} onClose={closeDisplay} match={displayMatch} />
-    </div>
-  );
-}
-
-function Row({ children }: { children: any }) {
-  return <>{children}</>;
-}
-
-function Cell({ children }: { children: any }) {
-  return (
-    <div style={{ padding: 10, borderBottom: "1px solid #1f232a", minHeight: 56, display: "flex", alignItems: "center" }}>
-      {children}
+      <MatchDisplayModal
+        open={displayOpen}
+        onClose={() => setDisplayOpen(false)}
+        match={{
+          id: (match as any).id,
+          name: (match as any).name,
+          display_token: (match as any).display_token,
+          home_name: (match as any).home_name,
+          away_name: (match as any).away_name,
+        }}
+      />
     </div>
   );
 }
