@@ -12,10 +12,7 @@ export type TVEventType =
   | "event.add";
 
 export async function tvEmit(matchId: string, type: TVEventType, payload: any, seq: number) {
-  if (!TV_BROADCAST_URL) {
-    // fallback silencieux
-    return { ok: false, error: "VITE_TV_BROADCAST_URL not set" };
-  }
+  if (!TV_BROADCAST_URL) return { ok: false, error: "VITE_TV_BROADCAST_URL not set" };
 
   const { data } = await supabase.auth.getSession();
   const jwt = data.session?.access_token;
@@ -23,21 +20,10 @@ export async function tvEmit(matchId: string, type: TVEventType, payload: any, s
 
   const res = await fetch(TV_BROADCAST_URL, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "authorization": `Bearer ${jwt}`,
-    },
-    body: JSON.stringify({
-      match_id: matchId,
-      type,
-      ts: Date.now(),
-      seq,
-      payload,
-    }),
+    headers: { "content-type": "application/json", authorization: `Bearer ${jwt}` },
+    body: JSON.stringify({ match_id: matchId, type, ts: Date.now(), seq, payload }),
   });
 
-  if (!res.ok) {
-    return { ok: false, error: await res.text() };
-  }
+  if (!res.ok) return { ok: false, error: await res.text() };
   return { ok: true };
 }
