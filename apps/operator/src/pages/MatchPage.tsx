@@ -5,6 +5,7 @@ import { Panel } from '../components/Panels';
 import { createOperatorChannel } from '../realtime';
 import { applyTick } from '@pkg/logic';
 import { supa } from '../supabase';
+import { DisplayLinkCard } from "../components/DisplayLinkCard";
 
 interface MatchPageProps {
   match: MatchInfo;
@@ -28,15 +29,6 @@ export function MatchPage({ match, onBack, activeMatch, onMatchesUpdate }: Match
 
   const storageKey = `match_state_${match.id}`;
   const matchStarted = matchStatus === 'live';
-
-  // ✅ Lien unique Display (par organisation)
-  const displayUrl = useMemo(() => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const u = new URL(origin);
-    u.pathname = '/display';
-    u.searchParams.set('org', orgSlug);
-    return u.toString();
-  }, [orgSlug]);
 
   // ---------- Initialisation état + canal ----------
   useEffect(() => {
@@ -318,23 +310,34 @@ export function MatchPage({ match, onBack, activeMatch, onMatchesUpdate }: Match
         </div>
 
         <div className="display-link">
-          <div className="small">
-            <div style={{ marginBottom: 8 }}>
-              <strong>Statut :</strong>{' '}
-              <span style={{ color: connectionStatus.includes('connecté') || connectionStatus.includes('prêt') ? '#4ade80' : '#fbbf24' }}>
-                {connectionStatus}
-              </span>
-            </div>
-            <div style={{ marginBottom: 8, fontSize: 12, color: '#9aa0a6' }}>
-              {matchStarted ? '🔴 Affichage temps réel actif' : '⏸️ Affichage statique'}
-            </div>
-            <strong>Lien Display :</strong>{' '}
-            <a href={displayUrl} target="_blank" rel="noopener noreferrer">
-              {displayUrl}
-            </a>
-          </div>
-        </div>
+  <div className="small" style={{ marginBottom: 10 }}>
+    <div style={{ marginBottom: 8 }}>
+      <strong>Statut :</strong>{" "}
+      <span
+        style={{
+          color:
+            connectionStatus.includes("connecté") || connectionStatus.includes("prêt")
+              ? "#4ade80"
+              : "#fbbf24",
+        }}
+      >
+        {connectionStatus}
+      </span>
+    </div>
+    <div style={{ marginBottom: 8, fontSize: 12, color: "#9aa0a6" }}>
+      {matchStarted ? "🔴 Affichage temps réel actif" : "⏸️ Affichage statique"}
+    </div>
+  </div>
+
+  <DisplayLinkCard
+    matchId={match.id}
+    displayToken={match.display_token}
+    matchName={match.name}
+    subtitle={`${match.home_name} vs ${match.away_name}`}
+  />
+</div>
       </div>
     </div>
   );
 }
+
