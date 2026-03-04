@@ -1,26 +1,38 @@
-export function buildDisplayUrl(params: { token: string }) {
-  const base = (import.meta.env.VITE_DISPLAY_BASE_URL as string | undefined)?.trim();
-  if (!base) {
-    // fallback pratique en local
-    return `http://localhost:5174/?token=${encodeURIComponent(params.token)}`;
-  }
+function trimSlash(s: string) {
+  return s.replace(/\/+$/, "");
+}
 
-  const url = new URL(base);
-  // on force le token-only (Display via Edge Function)
-  url.searchParams.set("token", params.token);
-  return url.toString();
+function getDisplayBaseUrl() {
+  // Prefer VITE_DISPLAY_URL (same naming as apps/home) then VITE_DISPLAY_BASE_URL (legacy)
+  const a = (import.meta.env.VITE_DISPLAY_URL as string | undefined)?.trim();
+  const b = (import.meta.env.VITE_DISPLAY_BASE_URL as string | undefined)?.trim();
+  const base = a || b;
+
+  // fallback local
+  return trimSlash(base || "http://localhost:5174");
+}
+
+export function buildDisplayUrl(params: { token?: string; org?: string }) {
+  const base = getDisplayBaseUrl();
+
+  if (params.token) return `${base}/?token=${encodeURIComponent(params.token)}`;
+  if (params.org) return `${base}/?org=${encodeURIComponent(params.org)}`;
+
+  return `${base}/`;
 }
 
 export async function copyToClipboard(text: string) {
   try {
     await navigator.clipboard.writeText(text);
   } catch {
-    // fallback vieux navigateurs
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
+    const el = document.createElement("textarea");
+    el.value = text;
+    el.setAttribute("readonly", "true");
+    el.style.position = "fixed";
+    el.style.left = "-9999px";
+    document.body.appendChild(el);
+    el.select();
     document.execCommand("copy");
-    ta.remove();
+    document.body.removeChild(el);
   }
 }
