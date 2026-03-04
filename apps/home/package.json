@@ -1,10 +1,22 @@
 {
-  "name": "@app/home",
-  "version": "3.0.0",
+  "name": "home",
+  "version": "1.0.0",
   "private": true,
-  "type": "module",
-  "packageManager": "pnpm@8.15.9",  
+  "packageManager": "pnpm@8.15.9",
   "scripts": {
-    "dev": "vite --port 3000"
+    "dev": "vite --port 5175",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.98.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.13.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.4",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.21"
   }
 }
