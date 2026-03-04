@@ -18,11 +18,13 @@ function deepMerge(base: any, patch: any): any {
 Deno.serve(async (req) => {
   try {
     const url = new URL(req.url);
-    const matchId = url.searchParams.get("matchId");
-    const token = url.searchParams.get("token");
 
-    if (!matchId || !token) {
-      return new Response(JSON.stringify({ error: "matchId and token are required" }), {
+    // ✅ token-only (matchId optional)
+    const token = url.searchParams.get("token");
+    const matchId = url.searchParams.get("matchId"); // optionnel pour compat
+
+    if (!token) {
+      return new Response(JSON.stringify({ error: "token is required" }), {
         status: 400,
         headers: { "content-type": "application/json" },
       });
@@ -32,17 +34,19 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    const { data: match, error: matchErr } = await supabase
+    let q = supabase
       .from("matches")
       .select(
-        "id,name,status,scheduled_at,public_display,home_name,away_name,home_team_id,away_team_id,orgs!inner(id,slug,name,sport,display_defaults)"
+        "id,name,status,scheduled_at,public_display,display_token,home_name,away_name,home_team_id,away_team_id,orgs!inner(id,slug,name,sport,display_defaults)"
       )
-      .eq("id", matchId)
       .eq("display_token", token)
-      .eq("public_display", true)
-      .maybeSingle();
+      .eq("public_display", true);
 
+    if (matchId) q = q.eq("id", matchId);
+
+    const { data: match, error: matchErr } = await q.maybeSingle();
     if (matchErr) throw matchErr;
+
     if (!match) {
       return new Response(JSON.stringify({ error: "Not found" }), {
         status: 404,
@@ -82,6 +86,7 @@ Deno.serve(async (req) => {
         status: match.status,
         scheduled_at: match.scheduled_at,
         public_display: match.public_display,
+        display_token: match.display_token,
       },
       org: { id: org.id, slug: org.slug, name: org.name, sport },
       home: { team: homeTeam ?? { name: match.home_name }, display: homeDisplay },
