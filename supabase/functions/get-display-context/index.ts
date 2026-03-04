@@ -1,107 +1,134 @@
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-type Json = Record<string, any>;
+const supabase = createClient(
+  Deno.env.get("SUPABASE_URL")!,
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+);
 
-function deepMerge(base: any, patch: any): any {
-  if (!patch) return base;
-  const out: any = Array.isArray(base) ? [...base] : { ...base };
-  for (const [k, v] of Object.entries(patch)) {
-    if (v && typeof v === "object" && !Array.isArray(v) && base?.[k] && typeof base[k] === "object") {
-      out[k] = deepMerge(base[k], v);
-    } else {
-      out[k] = v;
-    }
-  }
-  return out;
-}
-
-Deno.serve(async (req) => {
+serve(async (req) => {
   try {
+
     const url = new URL(req.url);
 
-    // ✅ token-only
     const token = url.searchParams.get("token");
-    const matchId = url.searchParams.get("matchId"); // optionnel: compat si tu veux verrouiller plus
+    const orgSlug = url.searchParams.get("org");
 
-    if (!token) {
-      return new Response(JSON.stringify({ error: "token is required" }), {
-        status: 400,
-        headers: { "content-type": "application/json" },
-      });
+    if (!token && !orgSlug) {
+      return new Response(
+        JSON.stringify({ error: "token or org required" }),
+        { status: 400 }
+      );
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, serviceKey);
+    let match;
 
-    let q = supabase
-      .from("matches")
-      .select(
-        "id,name,status,scheduled_at,public_display,display_token,home_name,away_name,home_team_id,away_team_id,org_id,orgs!inner(id,slug,name,sport,display_defaults)"
-      )
-      .eq("display_token", token)
-      .eq("public_display", true);
+    // -------------------------
+    // MODE MATCH TOKEN
+    // -------------------------
 
-    if (matchId) q = q.eq("id", matchId);
+    if (token) {
 
-    const { data: match, error: matchErr } = await q.maybeSingle();
-    if (matchErr) throw matchErr;
+      const { data, error } = await supabase
+        .from("matches")
+        .select(`
+          id,
+          name,
+          status,
+          home_name,
+          away_name,
+          home_score,
+          away_score,
+          org_id,
+          display_token,
+          public_display
+        `)
+        .eq("display_token", token)
+        .single();
+
+      if (error || !data) {
+        return new Response(
+          JSON.stringify({ error: "match not found" }),
+          { status: 404 }
+        );
+      }
+
+      if (!data.public_display) {
+        return new Response(
+          JSON.stringify({ error: "display disabled" }),
+          { status: 403 }
+        );
+      }
+
+      match = data;
+    }
+
+    // -------------------------
+    // MODE ORG
+    // -------------------------
+
+    if (orgSlug) {
+
+      const { data: org } = await supabase
+        .from("orgs")
+        .select("id")
+        .eq("slug", orgSlug)
+        .single();
+
+      if (!org) {
+        return new Response(
+          JSON.stringify({ error: "org not found" }),
+          { status: 404 }
+        );
+      }
+
+      const { data } = await supabase
+        .from("matches")
+        .select(`
+          id,
+          name,
+          status,
+          home_name,
+          away_name,
+          home_score,
+          away_score,
+          display_token
+        `)
+        .eq("org_id", org.id)
+        .eq("is_live", true)
+        .single();
+
+      match = data;
+    }
 
     if (!match) {
-      return new Response(JSON.stringify({ error: "Not found" }), {
-        status: 404,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "no active match" }),
+        { status: 404 }
+      );
     }
 
-    const org = (match as any).orgs;
-    const sport = org.sport as string;
-    const orgDefaults = org.display_defaults ?? {};
+    return new Response(
+      JSON.stringify({
+        match,
+      }),
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store"
+        }
+      }
+    );
 
-    const teamIds = [match.home_team_id, match.away_team_id].filter(Boolean) as string[];
-    const teamsById: Record<string, Json> = {};
-
-    if (teamIds.length) {
-      const { data: teams, error: teamErr } = await supabase
-        .from("teams")
-        .select("id,org_id,name,short_name,logo,colors,display_overrides")
-        .in("id", teamIds);
-
-      if (teamErr) throw teamErr;
-      for (const t of teams ?? []) teamsById[(t as any).id] = t as any;
-    }
-
-    const homeTeam = match.home_team_id ? teamsById[match.home_team_id] : null;
-    const awayTeam = match.away_team_id ? teamsById[match.away_team_id] : null;
-
-    const homeDisplay = deepMerge(orgDefaults, homeTeam?.display_overrides ?? {});
-    const awayDisplay = deepMerge(orgDefaults, awayTeam?.display_overrides ?? {});
-
-    if (!homeDisplay[sport] && orgDefaults[sport]) homeDisplay[sport] = orgDefaults[sport];
-    if (!awayDisplay[sport] && orgDefaults[sport]) awayDisplay[sport] = orgDefaults[sport];
-
-    const payload = {
-      match: {
-        id: match.id,
-        name: match.name,
-        status: match.status,
-        scheduled_at: match.scheduled_at,
-        public_display: match.public_display,
-        display_token: match.display_token,
-      },
-      org: { id: org.id, slug: org.slug, name: org.name, sport },
-      home: { team: homeTeam ?? { name: match.home_name }, display: homeDisplay },
-      away: { team: awayTeam ?? { name: match.away_name }, display: awayDisplay },
-    };
-
-    return new Response(JSON.stringify(payload), {
-      status: 200,
-      headers: { "content-type": "application/json", "cache-control": "no-store" },
-    });
   } catch (e) {
-    return new Response(JSON.stringify({ error: String(e) }), {
-      status: 500,
-      headers: { "content-type": "application/json" },
-    });
+
+    return new Response(
+      JSON.stringify({
+        error: "internal error",
+        detail: String(e)
+      }),
+      { status: 500 }
+    );
+
   }
 });
