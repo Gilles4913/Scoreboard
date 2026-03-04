@@ -19,9 +19,9 @@ Deno.serve(async (req) => {
   try {
     const url = new URL(req.url);
 
-    // ✅ token-only (matchId optional)
+    // ✅ token-only
     const token = url.searchParams.get("token");
-    const matchId = url.searchParams.get("matchId"); // optionnel pour compat
+    const matchId = url.searchParams.get("matchId"); // optionnel: compat si tu veux verrouiller plus
 
     if (!token) {
       return new Response(JSON.stringify({ error: "token is required" }), {
@@ -37,7 +37,7 @@ Deno.serve(async (req) => {
     let q = supabase
       .from("matches")
       .select(
-        "id,name,status,scheduled_at,public_display,display_token,home_name,away_name,home_team_id,away_team_id,orgs!inner(id,slug,name,sport,display_defaults)"
+        "id,name,status,scheduled_at,public_display,display_token,home_name,away_name,home_team_id,away_team_id,org_id,orgs!inner(id,slug,name,sport,display_defaults)"
       )
       .eq("display_token", token)
       .eq("public_display", true);
@@ -76,6 +76,7 @@ Deno.serve(async (req) => {
 
     const homeDisplay = deepMerge(orgDefaults, homeTeam?.display_overrides ?? {});
     const awayDisplay = deepMerge(orgDefaults, awayTeam?.display_overrides ?? {});
+
     if (!homeDisplay[sport] && orgDefaults[sport]) homeDisplay[sport] = orgDefaults[sport];
     if (!awayDisplay[sport] && orgDefaults[sport]) awayDisplay[sport] = orgDefaults[sport];
 
