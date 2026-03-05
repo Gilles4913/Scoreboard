@@ -1,78 +1,103 @@
-import React, { useEffect, useState } from "react"
-import ReactDOM from "react-dom/client"
-import Scoreboard from "./components/Scoreboard"
-import { connectTV } from "./tv"
+import React, { useEffect, useMemo, useState } from "react";
+import ReactDOM from "react-dom/client";
 
-const EDGE_CONTEXT_URL = import.meta.env.VITE_EDGE_CONTEXT_URL
-const WS_URL = import.meta.env.VITE_TV_WS_URL
+import Scoreboard from "./components/Scoreboard";
+import StadiumDisplay from "./StadiumDisplay";
+import { connectTV } from "./tv";
+
+const EDGE_CONTEXT_URL = import.meta.env.VITE_EDGE_CONTEXT_URL as string | undefined;
+const WS_URL = import.meta.env.VITE_TV_WS_URL as string | undefined;
+
+type TVEvent = { match_id: string; type: string; ts: number; seq: number; payload: any };
 
 function App() {
-  const [state, setState] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get("token");
+  const mode = (params.get("mode") || "stadium").toLowerCase(); // default stadium for LED usage
 
-  const params = new URLSearchParams(window.location.search)
-  const token = params.get("token")
+  const [snapshot, setSnapshot] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!token) return
-
-    async function loadSnapshot() {
-      const res = await fetch(`${EDGE_CONTEXT_URL}?token=${token}`)
-      const json = await res.json()
-
-      setState(json)
-      setLoading(false)
+    if (!token) {
+      setErr("Token manquant (?token=...)");
+      setLoading(false);
+      return;
+    }
+    if (!EDGE_CONTEXT_URL) {
+      setErr("VITE_EDGE_CONTEXT_URL manquante");
+      setLoading(false);
+      return;
     }
 
-    loadSnapshot()
-  }, [token])
+    (async () => {
+      try {
+        const url = new URL(EDGE_CONTEXT_URL);
+        url.searchParams.set("token", token);
+
+        const res = await fetch(url.toString());
+        if (!res.ok) throw new Error(await res.text());
+
+        const json = await res.json();
+        setSnapshot(json);
+      } catch (e: any) {
+        setErr(e?.message || "Erreur snapshot");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [token]);
 
   useEffect(() => {
-    if (!token || !state) return
+    if (!token || !snapshot) return;
+    if (!WS_URL) return;
 
-    const tv = connectTV(WS_URL, token, (ev) => {
-      setState((prev: any) => {
-        const s = { ...prev }
+    const tv = connectTV(WS_URL, token, (ev: TVEvent) => {
+      // Stadium path: call imperative API
+      const api = (window as any).__SB2_STADIUM_API__;
 
-        switch (ev.type) {
-          case "score.set":
-            s.home_score = ev.payload.home
-            s.away_score = ev.payload.away
-            break
+      switch (ev.type) {
+        case "score.set":
+          api?.scoreSet?.(Number(ev.payload?.home ?? 0), Number(ev.payload?.away ?? 0));
+          break;
+        case "timer.set":
+          api?.timerSet?.(Number(ev.payload?.clock ?? 0));
+          break;
+        case "timer.start":
+          api?.timerStart?.();
+          break;
+        case "timer.pause":
+          api?.timerPause?.();
+          break;
+        case "period.set":
+          api?.periodSet?.(String(ev.payload?.period ?? "P?"));
+          break;
+        case "moment.show":
+          api?.moment?.(String(ev.payload?.title ?? "MOMENT"), ev.payload?.subtitle ? String(ev.payload.subtitle) : undefined);
+          break;
+        case "state.patch":
+          api?.patch?.(ev.payload ?? {});
+          break;
+        default:
+          // ignore unknown
+          break;
+      }
+    });
 
-          case "timer.set":
-            s.clock = ev.payload.clock
-            break
+    return () => tv.close();
+  }, [token, snapshot]);
 
-          case "timer.start":
-            s.running = true
-            break
+  if (loading) return <div style={{ padding: 18, fontFamily: "system-ui" }}>Chargement…</div>;
+  if (err) return <div style={{ padding: 18, fontFamily: "system-ui", color: "crimson" }}>{err}</div>;
+  if (!snapshot) return <div style={{ padding: 18, fontFamily: "system-ui" }}>Match introuvable</div>;
 
-          case "timer.pause":
-            s.running = false
-            break
+  if (mode === "stadium" || mode === "led") {
+    return <StadiumDisplay snapshot={snapshot} />;
+  }
 
-          case "period.set":
-            s.period = ev.payload.period
-            break
-
-          case "state.patch":
-            Object.assign(s, ev.payload)
-            break
-        }
-
-        return s
-      })
-    })
-
-    return () => tv.close()
-  }, [state, token])
-
-  if (!token) return <div>Token manquant</div>
-  if (loading) return <div>Chargement...</div>
-  if (!state) return <div>Match introuvable</div>
-
-  return <Scoreboard state={state} />
+  // fallback = ton composant actuel
+  return <Scoreboard state={snapshot} />;
 }
 
-ReactDOM.createRoot(document.getElementById("root")!).render(<App />)
+ReactDOM.createRoot(document.getElementById("root")!).render(<App />);
