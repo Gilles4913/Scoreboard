@@ -52,7 +52,7 @@ function isForceLogin() {
   }
 }
 
-function normalizeSport(o: { sport?: string | null; org_sport?: string | null }) {
+function normalizeSport(o: { sport?: string | null; sport?: string | null }) {
   return (o.sport || o.org_sport || null) as string | null;
 }
 
