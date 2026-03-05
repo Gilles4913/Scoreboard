@@ -152,10 +152,19 @@ function OrgPicker({
       setErr(null);
 
       // memberships + org details
-      const { data, error } = await supabase
-        .from("org_members")
-        .select("role,orgs(id,slug,name,status,sport)")
-        .eq("user_id", userId);
+     const { data, error } = await supabase
+  .from("org_members")
+  .select(`
+    role,
+    orgs (
+      id,
+      slug,
+      name,
+      status,
+      sport
+    )
+  `)
+  .eq("user_id", user.id);
 
       if (error) {
         setErr(error.message);
@@ -184,7 +193,7 @@ function OrgPicker({
   const sports = useMemo(() => {
     const set = new Set<string>();
     for (const o of rows) {
-      const s = (o.org_sport || o.sport || "").trim();
+      const s = (o.sport || o.sport || "").trim();
       if (s) set.add(s);
     }
     return Array.from(set).sort();
