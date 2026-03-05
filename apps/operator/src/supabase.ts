@@ -1,13 +1,15 @@
 // apps/operator/src/supabase.ts
 import { createClient } from "@supabase/supabase-js";
 
-function env(name: string): string {
+function getEnv(name: string) {
   const v = (import.meta as any).env?.[name];
   return typeof v === "string" ? v : "";
 }
 
-export const SUPABASE_URL = env("VITE_SUPABASE_URL");
-export const SUPABASE_ANON_KEY = env("VITE_SUPABASE_ANON_KEY");
+const supabaseUrl = getEnv("VITE_SUPABASE_URL");
+const supabaseAnonKey = getEnv("VITE_SUPABASE_ANON_KEY");
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 if (!SUPABASE_URL) console.error("Missing env VITE_SUPABASE_URL");
 if (!SUPABASE_ANON_KEY) console.error("Missing env VITE_SUPABASE_ANON_KEY");
@@ -63,3 +65,4 @@ export async function applySessionTransferIfPresent(): Promise<boolean> {
   }
   return true;
 }
+
