@@ -1,8 +1,9 @@
+// apps/operator/src/pages/MatchPage.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 
-const LS_ACTIVE_ORG_KEY = "scoreDisplay.activeOrgSlug";
+const LS_ACTIVE_ORG_ID = "scoreDisplay.activeOrgId";
+const LS_ACTIVE_ORG_SLUG = "scoreDisplay.activeOrgSlug";
 
 type MatchRow = {
   id: string;
@@ -23,17 +24,15 @@ type OrgRow = {
 };
 
 export default function MatchPage() {
-  const nav = useNavigate();
   const [loading, setLoading] = useState(true);
   const [org, setOrg] = useState<OrgRow | null>(null);
   const [matches, setMatches] = useState<MatchRow[]>([]);
   const [err, setErr] = useState("");
 
-  const displayBaseUrl = (import.meta as any).env?.VITE_DISPLAY_URL as string | undefined;
+  const displayBaseUrl = ((import.meta as any).env?.VITE_DISPLAY_URL as string | undefined) || "";
 
-  const activeOrgSlug = useMemo(() => {
-    return (localStorage.getItem(LS_ACTIVE_ORG_KEY) || "").trim();
-  }, []);
+  const activeOrgId = useMemo(() => (localStorage.getItem(LS_ACTIVE_ORG_ID) || "").trim(), []);
+  const activeOrgSlug = useMemo(() => (localStorage.getItem(LS_ACTIVE_ORG_SLUG) || "").trim(), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,17 +41,27 @@ export default function MatchPage() {
       setErr("");
       setLoading(true);
 
-      if (!activeOrgSlug) {
-        nav("/select-org", { replace: true });
+      // 1) il faut une session auth (sinon RLS refuse)
+      const { data: sess } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (!sess.session?.user) {
+        setErr("Non connecté. Reviens sur Home pour te connecter.");
+        setLoading(false);
         return;
       }
 
-      // charge org
-      const { data: orgRow, error: orgErr } = await supabase
-        .from("orgs")
-        .select("id, slug, name, status")
-        .eq("slug", activeOrgSlug)
-        .maybeSingle();
+      // 2) il faut une org sélectionnée dans Home
+      if (!activeOrgId && !activeOrgSlug) {
+        setErr("Aucune organisation sélectionnée. Reviens sur Home et clique sur Ouvrir.");
+        setLoading(false);
+        return;
+      }
+
+      // charge org (par id si dispo, sinon slug)
+      const orgQuery = supabase.from("orgs").select("id, slug, name, status");
+      const { data: orgRow, error: orgErr } = activeOrgId
+        ? await orgQuery.eq("id", activeOrgId).maybeSingle()
+        : await orgQuery.eq("slug", activeOrgSlug).maybeSingle();
 
       if (cancelled) return;
 
@@ -66,7 +75,7 @@ export default function MatchPage() {
 
       setOrg(orgRow as any);
 
-      // charge matchs de l'org
+      // charge matchs
       const { data: ms, error: mErr } = await supabase
         .from("matches")
         .select("id, name, status, scheduled_at, public_display, display_token, home_name, away_name")
@@ -89,28 +98,36 @@ export default function MatchPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeOrgSlug, nav]);
+  }, [activeOrgId, activeOrgSlug]);
 
-  function switchOrg() {
-    localStorage.removeItem(LS_ACTIVE_ORG_KEY);
-    nav("/select-org");
+  async function logout() {
+    await supabase.auth.signOut();
+    window.location.reload();
   }
 
   function displayLink(m: MatchRow) {
-    // ton display utilise token ou matchId selon ton implémentation
-    // Ici je pars sur token (plus standard pour display public)
     if (!displayBaseUrl) return "";
-    if (m.display_token) return `${displayBaseUrl.replace(/\/$/, "")}/?token=${encodeURIComponent(m.display_token)}`;
-    // fallback matchId
-    return `${displayBaseUrl.replace(/\/$/, "")}/?matchId=${encodeURIComponent(m.id)}`;
+    const base = displayBaseUrl.replace(/\/$/, "");
+    if (m.display_token) return `${base}/?token=${encodeURIComponent(m.display_token)}`;
+    return `${base}/?matchId=${encodeURIComponent(m.id)}`;
   }
 
   if (loading) return <div style={{ padding: 24 }}>Chargement…</div>;
-  if (err) return <div style={{ padding: 24, color: "crimson" }}>Erreur: {err}</div>;
+
+  if (err)
+    return (
+      <div style={{ padding: 24 }}>
+        <div style={{ color: "crimson", fontWeight: 700 }}>Erreur: {err}</div>
+        <div style={{ marginTop: 12 }}>
+          <button onClick={logout}>Se déconnecter</button>
+        </div>
+      </div>
+    );
+
   if (!org) return <div style={{ padding: 24 }}>Organisation non définie.</div>;
 
   return (
-    <div style={{ padding: 24 }}>
+    <div style={{ padding: 24, maxWidth: 1000, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
         <div>
           <h1 style={{ margin: 0 }}>{org.name}</h1>
@@ -118,7 +135,7 @@ export default function MatchPage() {
             slug: {org.slug} {org.status ? `• status: ${org.status}` : null}
           </div>
         </div>
-        <button onClick={switchOrg}>Changer d’org</button>
+        <button onClick={logout}>Déconnexion</button>
       </div>
 
       <h2 style={{ marginTop: 18 }}>Matchs</h2>
@@ -126,7 +143,7 @@ export default function MatchPage() {
       {matches.length === 0 ? (
         <div>Aucun match.</div>
       ) : (
-        <div style={{ display: "grid", gap: 12, maxWidth: 900 }}>
+        <div style={{ display: "grid", gap: 12 }}>
           {matches.map((m) => {
             const link = displayLink(m);
             return (
@@ -167,9 +184,7 @@ export default function MatchPage() {
                       </button>
                     </>
                   ) : (
-                    <span style={{ fontSize: 12, color: "crimson" }}>
-                      VITE_DISPLAY_URL manquant côté operator.
-                    </span>
+                    <span style={{ fontSize: 12, color: "crimson" }}>VITE_DISPLAY_URL manquant côté operator.</span>
                   )}
                 </div>
               </div>
