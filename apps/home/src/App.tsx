@@ -108,17 +108,28 @@ export default function App() {
     localStorage.removeItem(LS_ACTIVE_ORG_KEY);
     window.location.reload();
   }
+async function openInOperator(org: { id: string; slug: string }) {
+  localStorage.setItem("scoreDisplay.activeOrgId", org.id);
+  localStorage.setItem("scoreDisplay.activeOrgSlug", org.slug);
 
-  function openOperator(orgSlug: string) {
-    localStorage.setItem(LS_ACTIVE_ORG_KEY, orgSlug);
-
-    const url =
-      OPERATOR_URL.replace(/\/$/, "") +
-      "/?org=" +
-      encodeURIComponent(orgSlug);
-
-    window.open(url, "_blank");
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data.session) {
+    // pas de session => retour login
+    window.location.href = "/?forceLogin=1";
+    return;
   }
+
+  const operatorUrl = (import.meta as any).env?.VITE_OPERATOR_URL as string;
+  const base = (operatorUrl || "").replace(/\/$/, "");
+  const access_token = data.session.access_token;
+  const refresh_token = data.session.refresh_token;
+
+  // IMPORTANT: passer les tokens, puis Operator les “consomme” et nettoie l’URL.
+  window.location.href = `${base}/?access_token=${encodeURIComponent(access_token)}&refresh_token=${encodeURIComponent(
+    refresh_token
+  )}`;
+}
+  
 
   function openAdmin() {
     window.open(ADMIN_URL, "_blank");
