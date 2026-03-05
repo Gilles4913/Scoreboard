@@ -385,15 +385,16 @@ export default function Scoreboard({ ctx }: Props) {
 
   const sponsor = sponsors.length > 0 ? sponsors[sponsorIndex % sponsors.length] : null;
 
-  const lowerThirdText = useMemo(() => {
-    const title = ctx.title || `${ctx.home.name} ${t(lang1, "vs")} ${ctx.away.name}`;
-    const comp = ctx.competition ? ctx.competition : "";
-    const venue = ctx.venue ? ctx.venue : "";
-    return {
-      title,
-      meta: [comp, venue].filter(Boolean).join(" • ") || " ",
-    };
-  }, [ctx.title, ctx.home.name, ctx.away.name, ctx.competition, ctx.venue, lang1]);
+ const lowerThirdText = useMemo(() => {
+  const title = ctx.title || `${ctx.home.name} ${t(lang1, "vs")} ${ctx.away.name}`;
+  const comp = ctx.competition ? ctx.competition : "";
+  const venue = ctx.venue ? ctx.venue : "";
+  const sportStatus = `${ctx.sport.toUpperCase()} • ${statusLabel}`;
+  return {
+    title,
+    meta: [sportStatus, comp, venue].filter(Boolean).join(" • ") || " ",
+  };
+}, [ctx.title, ctx.home.name, ctx.away.name, ctx.competition, ctx.venue, ctx.sport, statusLabel, lang1]);
 
   const clockTime = fmtClock(ctx.clock_ms);
   const clockMeta = ctx.clock_label || (ctx.clock_running ? "⏱" : "");
