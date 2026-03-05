@@ -28,7 +28,12 @@ export default function App() {
     <BrowserRouter>
       <SuperAdminGuard>
         <AdminLayout>
-          <Routes>
+          <Routes
+            element={
+              <SuperAdminGuard>
+                <AdminLayout />
+              </SuperAdminGuard>
+            }>
             <Route path="/" element={<Home />} />
             <Route path="/orgs" element={<OrgsPage />} />
             <Route path="/members" element={<MembersPage />} />
