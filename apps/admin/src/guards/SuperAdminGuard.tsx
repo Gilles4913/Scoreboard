@@ -6,26 +6,26 @@ export default function SuperAdminGuard({ children }: { children: React.ReactNod
 
   useEffect(() => {
     (async () => {
-      const { data: s } = await supabase.auth.getSession();
+      const { data: s, error: sessErr } = await supabase.auth.getSession();
+
+      if (sessErr) {
+        setState({ loading: false, error: `Erreur session: ${sessErr.message}` });
+        return;
+      }
+
       if (!s.session) {
         setState({ loading: false, error: "Non connecté. Connecte-toi via Home." });
         return;
       }
 
-      const userId = s.session.user.id;
-
-      const { data: profile, error } = await supabase
-        .from("profiles")
-        .select("role,email")
-        .eq("id", userId)
-        .single();
+      const { data, error } = await supabase.rpc("is_super_admin", { p_uid: s.session.user.id });
 
       if (error) {
-        setState({ loading: false, error: `Erreur profil: ${error.message}` });
+        setState({ loading: false, error: `Erreur droits: ${error.message}` });
         return;
       }
 
-      if (profile?.role !== "super_admin") {
+      if (!data) {
         setState({ loading: false, error: "Accès refusé: super_admin uniquement." });
         return;
       }
