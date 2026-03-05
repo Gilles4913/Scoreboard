@@ -5,6 +5,7 @@ import AdminLayout from "./components/AdminLayout";
 import OrgsPage from "./pages/OrgsPage";
 import MembersPage from "./pages/MembersPage";
 import SportsPage from "./pages/SportsPage";
+import DashboardPage from "./pages/DashboardPage";
 
 function Home() {
   return (
@@ -33,6 +34,8 @@ export default function App() {
             <Route path="/members" element={<MembersPage />} />
             <Route path="/sports" element={<SportsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="/" element={<DashboardPage />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
           </Routes>
         </AdminLayout>
       </SuperAdminGuard>
