@@ -2,118 +2,121 @@ import React, { useEffect, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { supabase } from "../supabase";
 
-/**
- * SuperAdminGuard
- * - Autorise uniquement les super_admin (déduits de org_members.role='super_admin' dans l'org master)
- * - Ne dépend PAS de profiles.role (qui n'existe pas dans ta DB)
- * - S'appuie sur la fonction SQL: public.is_super_admin(p_uid uuid) returns boolean
- */
-export default function SuperAdminGuard({ children }: { children: React.ReactNode }) {
-  const location = useLocation();
+type OrgRow = {
+  id: string;
+  slug: string;
+  is_master?: boolean | null;
+};
 
+type MemberJoinRow = {
+  role: string | null;
+  orgs: OrgRow | null;
+};
+
+export default function SuperAdminGuard({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [allowed, setAllowed] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [hasSession, setHasSession] = useState<boolean>(false);
+  const [err, setErr] = useState<string | null>(null);
+  const location = useLocation();
 
   useEffect(() => {
-    let cancelled = false;
+    let mounted = true;
 
-    async function run() {
-      setLoading(true);
-      setError(null);
+    async function check() {
+      try {
+        setErr(null);
 
-      // 1) session
-      const { data: sess, error: sessErr } = await supabase.auth.getSession();
-      if (cancelled) return;
+        const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+        if (sessionErr) throw sessionErr;
 
-      if (sessErr) {
-        setHasSession(false);
-        setAllowed(false);
-        setError(`Erreur session: ${sessErr.message}`);
+        const user = sessionData.session?.user;
+        if (!user) {
+          if (!mounted) return;
+          setAllowed(false);
+          setLoading(false);
+          return;
+        }
+
+        // IMPORTANT: on ne dépend pas de profiles.role
+        // Super admin = membre de l'org "master" avec role = "super_admin"
+        const { data, error } = await supabase
+          .from("org_members")
+          .select("role, orgs(id,slug,is_master)")
+          .eq("user_id", user.id);
+
+        if (error) throw error;
+
+        const rows = (data || []) as unknown as MemberJoinRow[];
+        const isSA = rows.some(
+          (r) =>
+            (r.role || "").toLowerCase() === "super_admin" &&
+            r.orgs &&
+            ((r.orgs.slug || "").toLowerCase() === "master" || r.orgs.is_master === true)
+        );
+
+        if (!mounted) return;
+        setAllowed(isSA);
         setLoading(false);
-        return;
-      }
-
-      if (!sess.session?.user?.id) {
-        setHasSession(false);
+      } catch (e: any) {
+        if (!mounted) return;
+        setErr(e?.message || "Erreur de vérification super admin");
         setAllowed(false);
         setLoading(false);
-        return;
       }
-
-      setHasSession(true);
-
-      // 2) check super_admin via RPC
-      const uid = sess.session.user.id;
-      const { data, error } = await supabase.rpc("is_super_admin", { p_uid: uid });
-
-      if (cancelled) return;
-
-      if (error) {
-        setAllowed(false);
-        setError(`Erreur droits: ${error.message}`);
-        setLoading(false);
-        return;
-      }
-
-      setAllowed(Boolean(data));
-      setLoading(false);
     }
 
-    run();
-
+    check();
     return () => {
-      cancelled = true;
+      mounted = false;
     };
-  }, []);
-
-  // Pas de session => redirection vers Home (ou login admin si tu en as un)
-  // Ici on suppose que le login se fait via l'app Home.
-  if (!loading && !hasSession) {
-    // On garde la route demandée en "state" au cas où tu fais un retour après login.
-    return <Navigate to="/" replace state={{ from: location.pathname }} />;
-  }
+  }, [location.pathname]);
 
   if (loading) {
     return (
-      <div style={{ padding: 24, fontFamily: "system-ui" }}>
-        <h2 style={{ margin: 0 }}>scoreDisplay — Admin</h2>
-        <p style={{ marginTop: 8 }}>Vérification des droits super_admin…</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div style={{ padding: 24, fontFamily: "system-ui" }}>
-        <h2 style={{ margin: 0 }}>scoreDisplay — Admin</h2>
-        <p style={{ marginTop: 8, color: "crimson", fontWeight: 700 }}>Accès impossible</p>
-        <pre
-          style={{
-            marginTop: 12,
-            padding: 12,
-            borderRadius: 10,
-            background: "rgba(0,0,0,0.06)",
-            overflowX: "auto",
-          }}
-        >
-          {error}
-        </pre>
+      <div style={pageStyle()}>
+        <div style={cardStyle()}>
+          <div style={{ fontWeight: 900 }}>scoreDisplay Admin</div>
+          <div style={{ marginTop: 8, opacity: 0.8 }}>Vérification des droits…</div>
+        </div>
       </div>
     );
   }
 
   if (!allowed) {
-    return (
-      <div style={{ padding: 24, fontFamily: "system-ui" }}>
-        <h2 style={{ margin: 0 }}>scoreDisplay — Admin</h2>
-        <p style={{ marginTop: 8, color: "crimson", fontWeight: 800 }}>
-          Accès refusé (super_admin uniquement)
-        </p>
-      </div>
-    );
+    // si pas connecté => login
+    // (si tu as une route /login dédiée, remplace par Navigate("/login"))
+    return <Navigate to="/login" replace />;
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      {err ? (
+        <div style={{ padding: 10, margin: 10, borderRadius: 10, border: "1px solid rgba(220,38,38,.35)", background: "rgba(220,38,38,.12)" }}>
+          {err}
+        </div>
+      ) : null}
+      {children}
+    </>
+  );
+}
+
+function pageStyle(): React.CSSProperties {
+  return {
+    minHeight: "100vh",
+    display: "grid",
+    placeItems: "center",
+    background: "var(--bg, #0b0d12)",
+    color: "var(--text, #e5e7eb)",
+    padding: 18,
+    fontFamily: "system-ui",
+  };
+}
+function cardStyle(): React.CSSProperties {
+  return {
+    width: "min(520px, 92vw)",
+    background: "var(--panel, #0f141b)",
+    border: "1px solid var(--border, #1f2a3a)",
+    borderRadius: 16,
+    padding: 16,
+  };
 }
