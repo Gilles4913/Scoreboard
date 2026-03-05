@@ -1,64 +1,54 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { supa } from "./supabase";
+import { supabase } from "./supabase";
 
-/**
- * Room naming convention (Pro)
- * - org room: sb2:org:<org_id>
- * - match room fallback: sb2:match:<match_id>
- */
-const orgChannels = new Map<string, ReturnType<SupabaseClient["channel"]>>();
-
-async function ensureOrgChannel(orgId: string) {
-  const key = `sb2:org:${orgId}`;
-  const existing = orgChannels.get(key);
-  if (existing) return existing;
-
-  const ch = supa.channel(key, { config: { broadcast: { self: true } } });
-
-  // subscribe once
-  const { error } = await ch.subscribe();
-  if (error) throw error;
-
-  orgChannels.set(key, ch);
-  return ch;
+function getEnv(name: string) {
+  const v = (import.meta as any).env?.[name];
+  return typeof v === "string" ? v : "";
 }
 
-/**
- * Broadcast full match payload (recommended).
- * Display listens to event: "match_update" and replaces state.
- */
-export async function broadcastMatchUpdate(orgId: string, match: any) {
-  const ch = await ensureOrgChannel(orgId);
-  const { error } = await ch.send({
-    type: "broadcast",
-    event: "match_update",
-    payload: { match },
+const TV_BROADCAST_URL = getEnv("VITE_TV_BROADCAST_URL");
+
+export type BroadcastPatch = {
+  match?: Partial<{
+    home_score: number;
+    away_score: number;
+    clock_ms: number;
+    status: string;
+    period_label: string;
+    name: string;
+    venue: string;
+  }>;
+  display?: Partial<{
+    stadium_mode: boolean;
+    lower_third: boolean;
+    dual_language: boolean;
+    lang_primary: "fr" | "en";
+    lang_secondary: "fr" | "en";
+    sponsors: Array<{ name: string; logoUrl?: string }>;
+  }>;
+};
+
+export async function sendTvBroadcast(matchId: string, patch: BroadcastPatch) {
+  if (!TV_BROADCAST_URL) throw new Error("VITE_TV_BROADCAST_URL manquante");
+
+  const { data } = await supabase.auth.getSession();
+  const jwt = data.session?.access_token;
+  if (!jwt) throw new Error("Pas de session Supabase (JWT) — reconnecte-toi");
+
+  const res = await fetch(TV_BROADCAST_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${jwt}`,
+    },
+    body: JSON.stringify({
+      match_id: matchId,
+      patch,
+      ts: Date.now(),
+    }),
   });
-  if (error) throw error;
-}
 
-/**
- * Broadcast partial patch (optional).
- * Display listens to event: "score_update" and merges patch.
- */
-export async function broadcastScorePatch(orgId: string, patch: Record<string, any>) {
-  const ch = await ensureOrgChannel(orgId);
-  const { error } = await ch.send({
-    type: "broadcast",
-    event: "score_update",
-    payload: patch,
-  });
-  if (error) throw error;
-}
-
-/**
- * Optional: clean up all channels (ex: logout)
- */
-export async function realtimeCleanup() {
-  for (const ch of orgChannels.values()) {
-    try {
-      await supa.removeChannel(ch);
-    } catch {}
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`tv-broadcast HTTP ${res.status} ${txt}`);
   }
-  orgChannels.clear();
 }
