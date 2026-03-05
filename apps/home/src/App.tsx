@@ -154,7 +154,7 @@ function OrgPicker({
       // memberships + org details
       const { data, error } = await supabase
         .from("org_members")
-        .select("role, orgs(id, slug, name, status, org_sport, sport)")
+        .select("role,orgs(id,slug,name,status,sport)")
         .eq("user_id", userId);
 
       if (error) {
