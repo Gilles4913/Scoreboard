@@ -1,152 +1,205 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, NavLink, useLocation } from "react-router-dom";
+import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 
-type ThemeMode = "light" | "dark";
-
-const STORAGE_KEY = "scoreDisplay_admin_theme";
-
-function getInitialTheme(): ThemeMode {
-  const v = (localStorage.getItem(STORAGE_KEY) || "").toLowerCase();
-  return v === "dark" ? "dark" : "light";
+function getEnv(name: string) {
+  const v = (import.meta as any).env?.[name];
+  return typeof v === "string" ? v : "";
 }
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const loc = useLocation();
-  const [theme, setTheme] = useState<ThemeMode>(() => getInitialTheme());
+const HOME_URL = (getEnv("VITE_HOME_URL") || "https://scoreboard-home.vercel.app/").replace(/\/$/, "");
+const OPERATOR_URL = (getEnv("VITE_OPERATOR_URL") || "").replace(/\/$/, "");
+const DISPLAY_URL = (getEnv("VITE_DISPLAY_URL") || "").replace(/\/$/, "");
 
-  const OPERATOR_URL = (import.meta.env.VITE_OPERATOR_URL || "").replace(/\/$/, "");
-  const HOME_URL = (import.meta.env.VITE_HOME_URL || "").replace(/\/$/, "");
+type Theme = "dark" | "light";
+
+function getTheme(): Theme {
+  const t = (localStorage.getItem("scoreDisplay.admin.theme") || "").toLowerCase();
+  return t === "light" ? "light" : "dark";
+}
+function setTheme(t: Theme) {
+  localStorage.setItem("scoreDisplay.admin.theme", t);
+  document.documentElement.dataset.theme = t;
+}
+
+export default function AdminLayout() {
+  const nav = useNavigate();
+  const loc = useLocation();
+
+  const [email, setEmail] = useState<string | null>(null);
+  const [theme, setThemeState] = useState<Theme>(getTheme());
+
+  useEffect(() => setTheme(theme), [theme]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, theme);
-    document.documentElement.setAttribute("data-theme", theme);
-  }, [theme]);
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      setEmail(data.session?.user?.email ?? null);
+    })();
+  }, [loc.pathname]);
 
-  const styles = useMemo(() => {
-    const isDark = theme === "dark";
+  const active = useMemo(() => {
+    const p = loc.pathname;
+    if (p.startsWith("/orgs")) return "orgs";
+    if (p.startsWith("/members")) return "members";
+    return "orgs";
+  }, [loc.pathname]);
 
-    const bg = isDark ? "#0b0d10" : "#f6f7fb";
-    const panel = isDark ? "#0f141b" : "#ffffff";
-    const text = isDark ? "#e5e7eb" : "#111827";
-    const muted = isDark ? "#a7b0bf" : "#6b7280";
-    const border = isDark ? "#202938" : "#e5e7eb";
-
-    const activeBg = isDark ? "#e5e7eb" : "#111827";
-    const activeText = isDark ? "#0b0d10" : "#ffffff";
-
-    return {
-      page: {
-        minHeight: "100vh",
-        background: bg,
-        color: text,
-        fontFamily: "system-ui",
-      } as React.CSSProperties,
-      topbar: {
-        display: "flex",
-        gap: 10,
-        padding: "12px 16px",
-        borderBottom: `1px solid ${border}`,
-        alignItems: "center",
-        background: panel,
-        position: "sticky",
-        top: 0,
-        zIndex: 10,
-      } as React.CSSProperties,
-      brand: {
-        textDecoration: "none",
-        fontWeight: 900,
-        color: text,
-        letterSpacing: 0.2,
-      } as React.CSSProperties,
-      pill: {
-        textDecoration: "none",
-        padding: "7px 10px",
-        borderRadius: 10,
-        border: `1px solid ${border}`,
-        color: text,
-        fontWeight: 800,
-        background: "transparent",
-      } as React.CSSProperties,
-      pillActive: {
-        background: activeBg,
-        color: activeText,
-        border: `1px solid ${activeBg}`,
-      } as React.CSSProperties,
-      right: { marginLeft: "auto", display: "flex", gap: 10, alignItems: "center" } as React.CSSProperties,
-      btn: {
-        padding: "7px 10px",
-        borderRadius: 10,
-        border: `1px solid ${border}`,
-        background: panel,
-        color: text,
-        cursor: "pointer",
-        fontWeight: 800,
-      } as React.CSSProperties,
-      subtle: { color: muted, fontSize: 12 } as React.CSSProperties,
-      content: { padding: 16 } as React.CSSProperties,
-    };
-  }, [theme]);
-
-  const navLinkStyle = ({ isActive }: { isActive: boolean }) => {
-    const base = styles.pill;
-    return isActive ? { ...base, ...styles.pillActive } : base;
-  };
-
-  async function signOut() {
+  async function logout() {
     await supabase.auth.signOut();
-    // On renvoie vers Home (si configuré), sinon racine admin
-    if (HOME_URL) window.location.assign(`${HOME_URL}/`);
-    else window.location.assign("/");
+    // Retour vers home (login)
+    window.location.assign(`${HOME_URL}/?forceLogin=1`);
+  }
+
+  function external(url: string) {
+    if (!url) return;
+    window.location.assign(url);
   }
 
   return (
-    <div style={styles.page}>
-      <div style={styles.topbar}>
-        <Link to="/" style={styles.brand}>
-          scoreDisplay — Admin
-        </Link>
+    <div style={shell()}>
+      <style>{styles}</style>
 
-        <NavLink to="/orgs" style={navLinkStyle}>
-          Organisations
-        </NavLink>
-        <NavLink to="/members" style={navLinkStyle}>
-          Membres
-        </NavLink>
-        <NavLink to="/sports" style={navLinkStyle}>
-          Sports
-        </NavLink>
+      <header style={topbar()}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ fontWeight: 950, letterSpacing: 0.2 }}>scoreDisplay</div>
+          <div style={{ opacity: 0.75, fontSize: 12 }}>Admin Console</div>
+        </div>
 
-        <div style={styles.right}>
-          <div style={styles.subtle} title={loc.pathname}>
-            {loc.pathname}
-          </div>
-
-          <button
-            style={styles.btn}
-            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
-            title="Thème clair/sombre"
-          >
-            {theme === "dark" ? "🌙 Dark" : "☀️ Light"}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button style={btnGhost()} onClick={() => setThemeState((t) => (t === "dark" ? "light" : "dark"))} title="Thème">
+            {theme === "dark" ? "🌙 Sombre" : "☀️ Clair"}
           </button>
 
-          {OPERATOR_URL ? (
-            <button
-              style={styles.btn}
-              onClick={() => window.location.assign(`${OPERATOR_URL}/`)}
-              title="Aller vers Operator"
-            >
-              Operator
+          {DISPLAY_URL ? (
+            <button style={btnGhost()} onClick={() => external(DISPLAY_URL)} title="Ouvrir Display">
+              📺 Display
             </button>
           ) : null}
 
-          <button style={styles.btn} onClick={signOut}>
+          {OPERATOR_URL ? (
+            <button style={btnGhost()} onClick={() => external(OPERATOR_URL)} title="Ouvrir Operator">
+              ⚙️ Operator
+            </button>
+          ) : null}
+
+          <button style={btn()} onClick={logout} title="Déconnexion">
             Déconnexion
           </button>
         </div>
-      </div>
+      </header>
 
-      <div style={styles.content}>{children}</div>
+      <div style={layout()}>
+        <aside style={sidebar()}>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>Connecté</div>
+            <div style={{ fontWeight: 900, fontSize: 13 }}>{email || "…"}</div>
+          </div>
+
+          <nav style={{ display: "grid", gap: 8 }}>
+            <Link style={navItem(active === "orgs")} to="/orgs">
+              Organisations
+            </Link>
+            <Link style={navItem(active === "members")} to="/members">
+              Membres
+            </Link>
+          </nav>
+
+          <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 12, display: "grid", gap: 8 }}>
+            <button style={btnGhost()} onClick={() => nav("/orgs")} title="Liste organisations (actives par défaut)">
+              🔎 Recherche / filtres
+            </button>
+            <button style={btnGhost()} onClick={() => window.location.assign(`${HOME_URL}/`)} title="Retour Home">
+              🏠 Home
+            </button>
+          </div>
+
+          <div style={{ marginTop: "auto", fontSize: 12, opacity: 0.7 }}>
+            Astuce: <code>?forceLogin=1</code> sur Home pour forcer la reconnexion.
+          </div>
+        </aside>
+
+        <main style={main()}>
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
+}
+
+/* styles */
+const styles = `
+  :root{
+    --bg:#0b0d10; --panel:rgba(255,255,255,.04); --text:#e5e7eb; --muted:#9ca3af; --border:#1b2230; --primary:#60a5fa;
+  }
+  :root[data-theme="light"]{
+    --bg:#f6f7fb; --panel:#ffffff; --text:#0f172a; --muted:#475569; --border:#e2e8f0; --primary:#2563eb;
+  }
+  *{ box-sizing: border-box; }
+  a{ color: inherit; text-decoration: none; }
+  code{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+`;
+
+function shell(): React.CSSProperties {
+  return { minHeight: "100vh", background: "var(--bg)", color: "var(--text)", fontFamily: "Inter, system-ui, Arial" };
+}
+function topbar(): React.CSSProperties {
+  return {
+    position: "sticky",
+    top: 0,
+    zIndex: 10,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    padding: "14px 18px",
+    borderBottom: "1px solid var(--border)",
+    background: "var(--bg)",
+  };
+}
+function layout(): React.CSSProperties {
+  return { display: "grid", gridTemplateColumns: "260px 1fr", minHeight: "calc(100vh - 56px)" };
+}
+function sidebar(): React.CSSProperties {
+  return {
+    borderRight: "1px solid var(--border)",
+    padding: 14,
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  };
+}
+function main(): React.CSSProperties {
+  return { padding: 16 };
+}
+function navItem(active: boolean): React.CSSProperties {
+  return {
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: "1px solid var(--border)",
+    background: active ? "rgba(96,165,250,.16)" : "var(--panel)",
+    fontWeight: 900,
+  };
+}
+function btn(): React.CSSProperties {
+  return {
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: "1px solid var(--border)",
+    background: "rgba(96,165,250,.18)",
+    color: "var(--text)",
+    cursor: "pointer",
+    fontWeight: 900,
+  };
+}
+function btnGhost(): React.CSSProperties {
+  return {
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: "1px solid var(--border)",
+    background: "var(--panel)",
+    color: "var(--text)",
+    cursor: "pointer",
+    fontWeight: 900,
+  };
 }
