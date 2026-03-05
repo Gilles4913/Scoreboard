@@ -202,7 +202,7 @@ export default function App() {
       }
 
       // org_members -> orgs join
-      const sel = "role, orgs(id,slug,name,status,org_sport,sport)";
+      const sel = "role, orgs(id,slug,name,status,sport)";
       const { data, error: e } = await supabase
         .from("org_members")
         .select(sel)
