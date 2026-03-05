@@ -1,576 +1,649 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabase";
 
-/**
- * Home = Hub
- * - Login
- * - Liste des organisations accessibles (via org_members)
- * - Choix org -> redirection Operator (par défaut), avec session propagée dans l'URL
- * - ?forceLogin=1 pour forcer l’écran login même si session persistée
- */
+type OrgMemberRow = {
+  role: string;
+  orgs: {
+    id: string;
+    slug: string;
+    name: string;
+    status: string | null;
+    sport?: string | null; // selon DB
+    org_sport?: string | null; // selon DB historique
+  } | null;
+};
 
-type OrgRole = "super_admin" | "org_admin" | "operator" | "viewer" | string;
-
-type OrgRow = {
+type OrgView = {
   id: string;
   slug: string;
-  name: string | null;
-  status: string | null; // active | suspended | archived ... (selon ta DB)
-  sport: string | null;  // football | basket | ...
+  name: string;
+  status: string | null;
+  sport: string | null;
+  role: string;
+  stats?: {
+    scheduledMatches: number;
+    publicDisplays: number;
+  };
 };
 
-type OrgMembershipRow = {
-  role: OrgRole;
-  orgs: OrgRow | null; // join
-};
+type ThemeMode = "dark" | "light";
+
+const LS_THEME_KEY = "scoreDisplay.theme";
+const LS_FORCE_LOGIN_HINT = "scoreDisplay.forceLoginHint"; // juste pour UX
 
 function getEnv(name: string) {
   const v = (import.meta as any).env?.[name];
   return typeof v === "string" ? v : "";
 }
 
-const ADMIN_URL = getEnv("VITE_ADMIN_URL").replace(/\/$/, "");
-const OPERATOR_URL = getEnv("VITE_OPERATOR_URL").replace(/\/$/, "");
-const DISPLAY_URL = getEnv("VITE_DISPLAY_URL").replace(/\/$/, ""); // optionnel ici
+const SUPABASE_URL = getEnv("VITE_SUPABASE_URL");
+const SUPABASE_ANON_KEY = getEnv("VITE_SUPABASE_ANON_KEY");
 
-const LS_ACTIVE_ORG_KEY = "scoreDisplay.activeOrgSlug";
-const LS_THEME_KEY = "scoreDisplay.theme"; // light|dark
+const OPERATOR_URL = getEnv("VITE_OPERATOR_URL"); // https://scoreboard-operator.vercel.app/
+const ADMIN_URL = getEnv("VITE_ADMIN_URL"); // https://scoreboard-admin-swart.vercel.app/
+const DISPLAY_URL = getEnv("VITE_DISPLAY_URL"); // https://scoreboard-display-pi.vercel.app/ (optionnel ici)
 
-function isTruthy(s: string) {
-  return !!s && s.trim().length > 0;
-}
-
-function parseBoolParam(v: string | null) {
-  if (!v) return false;
-  return v === "1" || v.toLowerCase() === "true" || v.toLowerCase() === "yes";
-}
-
-function sanitizeReturnTo(url: string) {
-  // On limite volontairement : soit vide, soit URL https (évite open redirect)
+function isForceLogin() {
   try {
-    const u = new URL(url);
-    if (u.protocol === "https:" || u.protocol === "http:") return u.toString();
-  } catch {}
-  return "";
+    const u = new URL(window.location.href);
+    return u.searchParams.get("forceLogin") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function normalizeSport(o: { sport?: string | null; org_sport?: string | null }) {
+  return (o.sport || o.org_sport || null) as string | null;
+}
+
+function prettyStatus(s: string | null) {
+  if (!s) return "active";
+  return s;
+}
+
+function statusColor(s: string | null) {
+  const v = (s || "active").toLowerCase();
+  if (v === "active") return "#2ecc71";
+  if (v === "suspended") return "#f39c12";
+  if (v === "archived") return "#95a5a6";
+  return "#3498db";
+}
+
+function safeBaseUrl(url: string) {
+  return url.replace(/\/+$/, "");
 }
 
 /**
- * Propage la session Supabase vers une autre app
- * URL cible: `${baseUrl}${path}#access_token=...&refresh_token=...`
+ * ⚠️ Session transfer cross-domain:
+ * - Home récupère access_token/refresh_token
+ * - Ouvre Operator/Admin avec tokens dans le hash (#) pour éviter logs serveur
+ * - Operator/Admin doivent lire le hash, faire supabase.auth.setSession(), puis nettoyer l’URL.
  */
-async function redirectWithSession(baseUrl: string, path: string) {
-  if (!isTruthy(baseUrl)) {
-    alert("URL cible manquante (VITE_OPERATOR_URL / VITE_ADMIN_URL).");
-    return;
-  }
-
-  const { data, error } = await supabase.auth.getSession();
-  if (error || !data.session) {
-    // pas de session => retour login
-    window.location.href = `${window.location.origin}/?forceLogin=1`;
-    return;
-  }
-
-  const access_token = data.session.access_token;
-  const refresh_token = data.session.refresh_token;
-
-  // IMPORTANT: on met les tokens dans le hash (pas envoyés au serveur)
-  const hash = `#access_token=${encodeURIComponent(access_token)}&refresh_token=${encodeURIComponent(refresh_token)}`;
-
-  const url = `${baseUrl}${path}${hash}`;
-  window.location.href = url;
-}
-
-function prettySport(sport: string | null) {
-  if (!sport) return "—";
-  const m: Record<string, string> = {
-    football: "Football",
-    basket: "Basket",
-    basketball: "Basket",
-    volleyball: "Volley",
-    volley: "Volley",
-    handball: "Handball",
-    rugby: "Rugby",
-  };
-  return m[sport] || sport;
-}
-
-function statusLabel(status: string | null) {
-  const s = (status || "active").toLowerCase();
-  if (s === "archived") return "Archivée";
-  if (s === "suspended") return "Suspendue";
-  return "Active";
-}
-
-function statusDot(status: string | null) {
-  const s = (status || "active").toLowerCase();
-  if (s === "archived") return "⚪";
-  if (s === "suspended") return "🟠";
-  return "🟢";
+function buildSessionTransferUrl(baseUrl: string, payload: Record<string, string>) {
+  const b = safeBaseUrl(baseUrl || "");
+  const hash = new URLSearchParams(payload).toString();
+  return `${b}/#${hash}`;
 }
 
 export default function App() {
-  const [theme, setTheme] = useState<"dark" | "light">(() => {
-    const v = (localStorage.getItem(LS_THEME_KEY) || "").toLowerCase();
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    const v = (localStorage.getItem(LS_THEME_KEY) || "dark") as ThemeMode;
     return v === "light" ? "light" : "dark";
   });
 
-  const [booting, setBooting] = useState(true);
-  const [forcingLogin, setForcingLogin] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(true);
 
-  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [sessionEmail, setSessionEmail] = useState<string>("");
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
 
-  const [loadingOrgs, setLoadingOrgs] = useState(false);
-  const [orgs, setOrgs] = useState<Array<{ role: OrgRole; org: OrgRow }>>([]);
-  const [err, setErr] = useState("");
+  const [orgsLoading, setOrgsLoading] = useState(false);
+  const [orgs, setOrgs] = useState<OrgView[]>([]);
+  const [error, setError] = useState<string>("");
 
+  // login form
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  // filters
   const [q, setQ] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"active" | "all" | "archived" | "suspended">("active");
+  const [statusFilter, setStatusFilter] = useState<"active" | "all" | "suspended" | "archived">("active");
   const [sportFilter, setSportFilter] = useState<string>("all");
 
-  const bg = theme === "dark" ? "#0b0f14" : "#f4f6f8";
-  const fg = theme === "dark" ? "#e8edf2" : "#0d1620";
-  const card = theme === "dark" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
-  const border = theme === "dark" ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
+  const forceLogin = useMemo(() => isForceLogin(), []);
 
   useEffect(() => {
-    document.documentElement.style.background = bg;
-    document.body.style.background = bg;
-    document.body.style.color = fg;
-  }, [bg, fg]);
-
-  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
     localStorage.setItem(LS_THEME_KEY, theme);
   }, [theme]);
 
-  const forceLogin = useMemo(() => {
-    const sp = new URLSearchParams(window.location.search);
-    return parseBoolParam(sp.get("forceLogin"));
-  }, []);
-
-  const returnTo = useMemo(() => {
-    const sp = new URLSearchParams(window.location.search);
-    return sanitizeReturnTo(sp.get("returnTo") || "");
-  }, []);
-
+  // Auth bootstrap
   useEffect(() => {
     let cancelled = false;
 
-    async function init() {
-      setBooting(true);
-      setErr("");
+    async function boot() {
+      setError("");
+      setLoading(true);
+      setAuthLoading(true);
 
-      // Écoute auth
-      const { data: sub } = supabase.auth.onAuthStateChange((_evt, session) => {
-        if (cancelled) return;
-        setUserEmail(session?.user?.email || null);
-      });
+      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+        setError("Variables d’environnement manquantes: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY");
+        setLoading(false);
+        setAuthLoading(false);
+        return;
+      }
 
-      // session au boot
+      // Si ?forceLogin=1, on log out proprement + on affiche la page login.
+      if (forceLogin) {
+        try {
+          localStorage.setItem(LS_FORCE_LOGIN_HINT, "1");
+          await supabase.auth.signOut();
+        } catch {}
+      }
+
       const { data } = await supabase.auth.getSession();
-      const session = data.session;
-
       if (cancelled) return;
 
-      // force login même si session existe
-      if (forceLogin) {
-        setForcingLogin(true);
-        await supabase.auth.signOut();
-        setForcingLogin(false);
-        setUserEmail(null);
+      const sess = data.session;
+      if (!sess) {
+        setSessionEmail("");
         setIsSuperAdmin(false);
-        setOrgs([]);
-        setBooting(false);
+        setAuthLoading(false);
+        setLoading(false);
         return;
       }
 
-      if (!session?.user) {
-        setUserEmail(null);
-        setIsSuperAdmin(false);
-        setOrgs([]);
-        setBooting(false);
-        return;
-      }
+      setSessionEmail(sess.user.email || "");
 
-      setUserEmail(session.user.email || null);
-
-      // check super_admin via RPC (si tu l’as) sinon via org_members role sur master
-      // Ici on tente RPC is_super_admin si elle existe.
+      // check super_admin via RPC (tu as déjà is_super_admin(uuid))
       try {
-        const { data: rpcData, error: rpcErr } = await supabase.rpc("is_super_admin");
-        if (!rpcErr) setIsSuperAdmin(!!rpcData);
+        const { data: rpc, error: rpcErr } = await supabase.rpc("is_super_admin", { p_uid: sess.user.id });
+        if (!cancelled) setIsSuperAdmin(!rpcErr && rpc === true);
       } catch {
-        // ignore
+        if (!cancelled) setIsSuperAdmin(false);
       }
 
-      // charge orgs
-      await loadOrgs();
-
-      // si on vient d’un returnTo (ex: admin demande login via home)
-      if (returnTo) {
-        window.location.href = returnTo;
-        return;
-      }
-
-      setBooting(false);
-
-      sub?.subscription?.unsubscribe?.();
+      setAuthLoading(false);
+      setLoading(false);
     }
+
+    boot();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_evt, session) => {
+      if (!session) {
+        setSessionEmail("");
+        setIsSuperAdmin(false);
+        setOrgs([]);
+      } else {
+        setSessionEmail(session.user.email || "");
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      sub.subscription.unsubscribe();
+    };
+  }, [forceLogin]);
+
+  // Load orgs when logged in
+  useEffect(() => {
+    let cancelled = false;
 
     async function loadOrgs() {
-      setLoadingOrgs(true);
-      setErr("");
+      setError("");
+      setOrgsLoading(true);
 
-      // IMPORTANT: ne pas sélectionner org_sport (colonne inexistante)
-      const { data, error } = await supabase
-        .from("org_members")
-        .select("role, orgs(id,slug,name,status,sport)")
-        .order("created_at", { ascending: false });
-
-      if (cancelled) return;
-
-      if (error) {
-        setErr(error.message);
+      const { data: sessData } = await supabase.auth.getSession();
+      const sess = sessData.session;
+      if (!sess) {
         setOrgs([]);
-        setLoadingOrgs(false);
+        setOrgsLoading(false);
         return;
       }
 
-      const rows = (data || []) as unknown as OrgMembershipRow[];
-      const cleaned = rows
-        .map((r) => ({ role: r.role, org: r.orgs }))
-        .filter((x): x is { role: OrgRole; org: OrgRow } => !!x.org)
-        .map((x) => ({ role: x.role, org: x.org }));
+      // org_members -> orgs join
+      const sel = "role, orgs(id,slug,name,status,org_sport,sport)";
+      const { data, error: e } = await supabase
+        .from("org_members")
+        .select(sel)
+        .eq("user_id", sess.user.id);
 
-      setOrgs(cleaned);
-      setLoadingOrgs(false);
+      if (cancelled) return;
+
+      if (e) {
+        setError(e.message);
+        setOrgs([]);
+        setOrgsLoading(false);
+        return;
+      }
+
+      const rows = (data || []) as OrgMemberRow[];
+      const mapped: OrgView[] = rows
+        .filter((r) => r.orgs)
+        .map((r) => ({
+          id: r.orgs!.id,
+          slug: r.orgs!.slug,
+          name: r.orgs!.name,
+          status: r.orgs!.status,
+          sport: normalizeSport(r.orgs!),
+          role: r.role,
+        }));
+
+      setOrgs(mapped);
+      setOrgsLoading(false);
+
+      // Mini-stats (dev-friendly): on récupère des matches pour ces org_id et on calcule en client
+      // (OK car peu d’orgs; si ça grossit → on fera une view/RPC agrégée)
+      const orgIds = mapped.map((x) => x.id);
+      if (orgIds.length === 0) return;
+
+      const { data: matches, error: mErr } = await supabase
+        .from("matches")
+        .select("id, org_id, status, public_display")
+        .in("org_id", orgIds);
+
+      if (cancelled) return;
+      if (mErr) return; // stats optionnelles, on ne bloque pas
+
+      const byOrg: Record<string, { scheduledMatches: number; publicDisplays: number }> = {};
+      for (const oid of orgIds) byOrg[oid] = { scheduledMatches: 0, publicDisplays: 0 };
+
+      for (const m of (matches as any[]) || []) {
+        const oid = String(m.org_id || "");
+        if (!byOrg[oid]) continue;
+        if ((m.status || "scheduled") === "scheduled") byOrg[oid].scheduledMatches += 1;
+        if (m.public_display === true) byOrg[oid].publicDisplays += 1;
+      }
+
+      setOrgs((prev) =>
+        prev.map((o) => ({
+          ...o,
+          stats: byOrg[o.id] || { scheduledMatches: 0, publicDisplays: 0 },
+        }))
+      );
     }
 
-    init();
+    if (!authLoading && sessionEmail) loadOrgs();
 
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authLoading, sessionEmail]);
 
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
+    return orgs.filter((o) => {
+      const st = (o.status || "active").toLowerCase();
+      const sp = (o.sport || "").toLowerCase();
 
-    return orgs.filter(({ org }) => {
-      const st = (org.status || "active").toLowerCase();
-
-      if (statusFilter === "active" && (st === "archived" || st === "suspended")) return false;
-      if (statusFilter === "archived" && st !== "archived") return false;
-      if (statusFilter === "suspended" && st !== "suspended") return false;
-
-      if (sportFilter !== "all") {
-        const sp = (org.sport || "").toLowerCase();
-        if (sp !== sportFilter) return false;
-      }
+      if (statusFilter !== "all" && st !== statusFilter) return false;
+      if (sportFilter !== "all" && sp !== sportFilter) return false;
 
       if (!qq) return true;
-
-      const name = (org.name || "").toLowerCase();
-      const slug = (org.slug || "").toLowerCase();
-      return name.includes(qq) || slug.includes(qq);
+      return (
+        o.name.toLowerCase().includes(qq) ||
+        o.slug.toLowerCase().includes(qq) ||
+        sp.includes(qq) ||
+        o.role.toLowerCase().includes(qq)
+      );
     });
   }, [orgs, q, statusFilter, sportFilter]);
 
-  async function doLogin(email: string, password: string) {
-    setErr("");
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      setErr(error.message);
+  const globalStats = useMemo(() => {
+    const total = orgs.length;
+    const active = orgs.filter((o) => (o.status || "active") === "active").length;
+    const suspended = orgs.filter((o) => (o.status || "") === "suspended").length;
+    const archived = orgs.filter((o) => (o.status || "") === "archived").length;
+
+    const scheduledMatches = orgs.reduce((acc, o) => acc + (o.stats?.scheduledMatches || 0), 0);
+    const publicDisplays = orgs.reduce((acc, o) => acc + (o.stats?.publicDisplays || 0), 0);
+
+    return { total, active, suspended, archived, scheduledMatches, publicDisplays };
+  }, [orgs]);
+
+  async function doLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+
+    const em = email.trim();
+    if (!em || !password) {
+      setError("Email et mot de passe requis.");
       return;
     }
-    // rechargement orgs
-    setBooting(true);
-    window.location.href = window.location.origin; // nettoie query params
+
+    const { error: err } = await supabase.auth.signInWithPassword({ email: em, password });
+    if (err) {
+      setError(err.message);
+      return;
+    }
+
+    // recharge la page pour repartir proprement (et enlever forceLogin si présent)
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.delete("forceLogin");
+      window.location.href = u.toString();
+    } catch {
+      window.location.reload();
+    }
   }
 
   async function logout() {
     await supabase.auth.signOut();
-    localStorage.removeItem(LS_ACTIVE_ORG_KEY);
-    window.location.href = `${window.location.origin}/?forceLogin=1`;
+    window.location.reload();
   }
 
-  async function openOrgAsOperator(orgSlug: string) {
-    console.log("[HOME] click Ouvrir org:", orgSlug);
-    localStorage.setItem(LS_ACTIVE_ORG_KEY, orgSlug);
-
-    // path côté operator
-    const path = `/?org=${encodeURIComponent(orgSlug)}`;
-    await redirectWithSession(OPERATOR_URL, path);
+  function toggleTheme() {
+    setTheme((t) => (t === "dark" ? "light" : "dark"));
   }
 
-  async function openAdminConsole() {
-    console.log("[HOME] open admin console");
-    await redirectWithSession(ADMIN_URL, `/`);
+  async function openOperator(orgSlug: string) {
+    setError("");
+
+    if (!OPERATOR_URL) {
+      setError("VITE_OPERATOR_URL manquant dans les variables d’environnement de Home.");
+      return;
+    }
+
+    const { data } = await supabase.auth.getSession();
+    const sess = data.session;
+    if (!sess) {
+      setError("Session expirée. Reconnecte-toi.");
+      return;
+    }
+
+    const url = buildSessionTransferUrl(OPERATOR_URL, {
+      org: orgSlug,
+      access_token: sess.access_token,
+      refresh_token: sess.refresh_token,
+      from: "home",
+    });
+
+    // même onglet (conseillé pour démo)
+    window.location.href = url;
   }
 
-  // -------- UI --------
-
-  if (booting) {
-    return <div style={{ padding: 24, fontFamily: "system-ui" }}>Chargement…</div>;
+  async function openAdmin() {
+    setError("");
+    if (!ADMIN_URL) {
+      setError("VITE_ADMIN_URL manquant dans les variables d’environnement de Home.");
+      return;
+    }
+    const { data } = await supabase.auth.getSession();
+    const sess = data.session;
+    if (!sess) {
+      setError("Session expirée. Reconnecte-toi.");
+      return;
+    }
+    const url = buildSessionTransferUrl(ADMIN_URL, {
+      access_token: sess.access_token,
+      refresh_token: sess.refresh_token,
+      from: "home",
+    });
+    window.location.href = url;
   }
 
-  // Pas connecté => login
-  if (!userEmail) {
+  const ui = useMemo(() => {
+    const dark = theme === "dark";
+    return {
+      page: {
+        minHeight: "100vh",
+        background: dark ? "#0b0f14" : "#f6f7fb",
+        color: dark ? "#eef2ff" : "#0b0f14",
+        padding: 24,
+        fontFamily:
+          "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, Apple Color Emoji, Segoe UI Emoji",
+      } as React.CSSProperties,
+      card: {
+        background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+        border: dark ? "1px solid rgba(255,255,255,0.10)" : "1px solid rgba(0,0,0,0.08)",
+        borderRadius: 16,
+        padding: 16,
+        boxShadow: dark ? "0 10px 30px rgba(0,0,0,0.35)" : "0 10px 30px rgba(0,0,0,0.08)",
+      } as React.CSSProperties,
+      input: {
+        borderRadius: 12,
+        border: dark ? "1px solid rgba(255,255,255,0.18)" : "1px solid rgba(0,0,0,0.14)",
+        background: dark ? "rgba(0,0,0,0.25)" : "rgba(255,255,255,0.9)",
+        color: dark ? "#eef2ff" : "#0b0f14",
+        padding: "10px 12px",
+        outline: "none",
+      } as React.CSSProperties,
+      btn: {
+        borderRadius: 12,
+        border: dark ? "1px solid rgba(255,255,255,0.18)" : "1px solid rgba(0,0,0,0.14)",
+        background: dark ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.9)",
+        color: dark ? "#eef2ff" : "#0b0f14",
+        padding: "10px 12px",
+        cursor: "pointer",
+        fontWeight: 700,
+      } as React.CSSProperties,
+      btnPrimary: {
+        borderRadius: 12,
+        border: "1px solid rgba(255,255,255,0.10)",
+        background: "#3b82f6",
+        color: "white",
+        padding: "10px 12px",
+        cursor: "pointer",
+        fontWeight: 800,
+      } as React.CSSProperties,
+      small: { opacity: 0.8, fontSize: 12 } as React.CSSProperties,
+    };
+  }, [theme]);
+
+  // --- RENDER
+  if (loading) {
+    return <div style={ui.page}>Chargement…</div>;
+  }
+
+  const showLogin = !sessionEmail;
+
+  if (showLogin) {
     return (
-      <div style={{ padding: 24, maxWidth: 520, fontFamily: "system-ui" }}>
-        <h1 style={{ margin: 0, fontWeight: 900 }}>scoreDisplay</h1>
-        <div style={{ opacity: 0.8, marginTop: 6 }}>Connexion</div>
+      <div style={ui.page}>
+        <div style={{ maxWidth: 520, margin: "6vh auto" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <h1 style={{ margin: 0 }}>scoreDisplay</h1>
+            <button style={ui.btn} onClick={toggleTheme}>
+              {theme === "dark" ? "☀️ Clair" : "🌙 Sombre"}
+            </button>
+          </div>
 
-        <div style={{ marginTop: 18, border: `1px solid ${border}`, background: card, borderRadius: 12, padding: 16 }}>
-          <LoginForm onLogin={doLogin} loading={forcingLogin} />
-          {err ? <div style={{ color: "crimson", marginTop: 12 }}>{err}</div> : null}
-          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
-            Astuce : forcer l’écran login → <code>?forceLogin=1</code>
+          <p style={{ marginTop: 8, opacity: 0.85 }}>
+            Hub d’accès — session persistée • forcer la page login : <code>?forceLogin=1</code>
+          </p>
+
+          <div style={{ ...ui.card, marginTop: 18 }}>
+            <h2 style={{ marginTop: 0 }}>Connexion</h2>
+
+            {error ? (
+              <div style={{ color: "#ef4444", marginBottom: 12, fontWeight: 700 }}>Erreur: {error}</div>
+            ) : null}
+
+            <form onSubmit={doLogin} style={{ display: "grid", gap: 10 }}>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span style={ui.small}>Email</span>
+                <input style={ui.input} value={email} onChange={(e) => setEmail(e.target.value)} />
+              </label>
+
+              <label style={{ display: "grid", gap: 6 }}>
+                <span style={ui.small}>Mot de passe</span>
+                <input
+                  style={ui.input}
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </label>
+
+              <button style={ui.btnPrimary} type="submit">
+                Se connecter
+              </button>
+
+              <div style={ui.small}>
+                Si tu restes bloqué sur une redirection, ouvre :{" "}
+                <code>{safeBaseUrl(window.location.origin)}/?forceLogin=1</code>
+              </div>
+            </form>
+          </div>
+
+          <div style={{ ...ui.card, marginTop: 12 }}>
+            <div style={{ fontWeight: 800, marginBottom: 6 }}>Vérifs rapides</div>
+            <div style={ui.small}>
+              - VITE_SUPABASE_URL : {SUPABASE_URL ? "OK" : "MANQUANT"} <br />
+              - VITE_SUPABASE_ANON_KEY : {SUPABASE_ANON_KEY ? "OK" : "MANQUANT"} <br />
+              - VITE_OPERATOR_URL : {OPERATOR_URL ? "OK" : "MANQUANT"} <br />
+              - VITE_ADMIN_URL : {ADMIN_URL ? "OK" : "MANQUANT"} <br />
+              - VITE_DISPLAY_URL : {DISPLAY_URL ? "OK" : "MANQUANT"} <br />
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
-  // Connecté => org picker
+  // logged-in view
   return (
-    <div style={{ padding: 24, fontFamily: "system-ui", maxWidth: 1100 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+    <div style={ui.page}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
         <div>
-          <h1 style={{ margin: 0, fontWeight: 900 }}>scoreDisplay</h1>
-          <div style={{ opacity: 0.8, marginTop: 6 }}>connecté : {userEmail}</div>
+          <h1 style={{ margin: 0 }}>scoreDisplay</h1>
+          <div style={ui.small}>
+            connecté : <b>{sessionEmail}</b>
+          </div>
         </div>
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <button
-            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
-            style={{
-              padding: "8px 12px",
-              borderRadius: 10,
-              border: `1px solid ${border}`,
-              background: card,
-              color: fg,
-              cursor: "pointer",
-            }}
-          >
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <button style={ui.btn} onClick={toggleTheme}>
             {theme === "dark" ? "☀️ Clair" : "🌙 Sombre"}
           </button>
 
-          {isSuperAdmin && isTruthy(ADMIN_URL) ? (
-            <button
-              onClick={openAdminConsole}
-              style={{
-                padding: "8px 12px",
-                borderRadius: 10,
-                border: `1px solid ${border}`,
-                background: card,
-                color: fg,
-                cursor: "pointer",
-              }}
-            >
-              🛠️ Admin
+          {isSuperAdmin ? (
+            <button style={ui.btnPrimary} onClick={openAdmin} title="Ouvrir la console Super Admin">
+              🛡️ Admin
             </button>
           ) : null}
 
-          <button
-            onClick={logout}
-            style={{
-              padding: "8px 12px",
-              borderRadius: 10,
-              border: `1px solid ${border}`,
-              background: card,
-              color: fg,
-              cursor: "pointer",
-            }}
-          >
+          <button style={ui.btn} onClick={logout}>
             Se déconnecter
           </button>
         </div>
       </div>
 
-      <div style={{ marginTop: 18, border: `1px solid ${border}`, background: card, borderRadius: 14, padding: 14 }}>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+      {error ? (
+        <div style={{ ...ui.card, marginTop: 14, borderColor: "rgba(239,68,68,0.45)" }}>
+          <div style={{ color: "#ef4444", fontWeight: 900 }}>Erreur</div>
+          <div style={{ marginTop: 6 }}>{error}</div>
+        </div>
+      ) : null}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12, marginTop: 14 }}>
+        <div style={ui.card}>
+          <div style={ui.small}>Organisations</div>
+          <div style={{ fontSize: 28, fontWeight: 900 }}>{globalStats.total}</div>
+          <div style={ui.small}>
+            actives {globalStats.active} • suspendues {globalStats.suspended} • archivées {globalStats.archived}
+          </div>
+        </div>
+        <div style={ui.card}>
+          <div style={ui.small}>Matchs (scheduled)</div>
+          <div style={{ fontSize: 28, fontWeight: 900 }}>{globalStats.scheduledMatches}</div>
+          <div style={ui.small}>préparation / à venir</div>
+        </div>
+        <div style={ui.card}>
+          <div style={ui.small}>Displays publics</div>
+          <div style={{ fontSize: 28, fontWeight: 900 }}>{globalStats.publicDisplays}</div>
+          <div style={ui.small}>public_display = true</div>
+        </div>
+      </div>
+
+      <div style={{ ...ui.card, marginTop: 14 }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <input
+            style={{ ...ui.input, minWidth: 240, flex: 1 }}
+            placeholder="Recherche org (slug / nom / sport / rôle)…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Recherche org (slug / nom)…"
-            style={{
-              flex: "1 1 260px",
-              minWidth: 220,
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: `1px solid ${border}`,
-              background: theme === "dark" ? "#0e141c" : "#fff",
-              color: fg,
-              outline: "none",
-            }}
           />
 
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as any)}
-            style={{
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: `1px solid ${border}`,
-              background: theme === "dark" ? "#0e141c" : "#fff",
-              color: fg,
-            }}
-          >
+          <select style={ui.input} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)}>
             <option value="active">Actives</option>
-            <option value="all">Toutes</option>
+            <option value="all">Tous statuts</option>
             <option value="suspended">Suspendues</option>
             <option value="archived">Archivées</option>
           </select>
 
-          <select
-            value={sportFilter}
-            onChange={(e) => setSportFilter(e.target.value)}
-            style={{
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: `1px solid ${border}`,
-              background: theme === "dark" ? "#0e141c" : "#fff",
-              color: fg,
-            }}
-          >
+          <select style={ui.input} value={sportFilter} onChange={(e) => setSportFilter(e.target.value)}>
             <option value="all">Tous sports</option>
             <option value="football">Football</option>
             <option value="basket">Basket</option>
             <option value="handball">Handball</option>
+            <option value="volleyball">Volleyball</option>
             <option value="rugby">Rugby</option>
-            <option value="volleyball">Volley</option>
           </select>
 
-          <div style={{ marginLeft: "auto", opacity: 0.75, fontSize: 12 }}>
-            {loadingOrgs ? "Chargement…" : `${filtered.length} org(s)`}
-          </div>
+          <div style={ui.small}>{filtered.length} org(s)</div>
         </div>
+      </div>
 
-        {err ? <div style={{ color: "crimson", marginTop: 12 }}>{err}</div> : null}
+      <h2 style={{ marginTop: 16, marginBottom: 10 }}>Organisations</h2>
 
-        <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
-          {filtered.map(({ role, org }) => {
-            const st = (org.status || "active").toLowerCase();
-            const isReadOnly = st === "archived" || st === "suspended";
+      {orgsLoading ? (
+        <div style={ui.card}>Chargement des organisations…</div>
+      ) : filtered.length === 0 ? (
+        <div style={ui.card}>Aucune organisation.</div>
+      ) : (
+        <div style={{ display: "grid", gap: 12 }}>
+          {filtered.map((o) => {
+            const st = prettyStatus(o.status);
+            const sport = (o.sport || "—").toLowerCase();
+            const sc = statusColor(o.status);
+            const scheduled = o.stats?.scheduledMatches ?? 0;
+            const pub = o.stats?.publicDisplays ?? 0;
 
             return (
-              <div
-                key={org.id}
-                style={{
-                  border: `1px solid ${border}`,
-                  borderRadius: 14,
-                  padding: 14,
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: 12,
-                  background: theme === "dark" ? "rgba(0,0,0,0.10)" : "rgba(255,255,255,0.6)",
-                }}
-              >
+              <div key={o.id} style={{ ...ui.card, display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 900, fontSize: 16, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {org.name || org.slug}
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    <div style={{ fontSize: 18, fontWeight: 900, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {o.name}
+                    </div>
+                    <span style={{ ...ui.small, padding: "3px 10px", borderRadius: 999, border: `1px solid ${sc}55` }}>
+                      <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 999, background: sc, marginRight: 6 }} />
+                      {st}
+                    </span>
+                    <span style={{ ...ui.small, padding: "3px 10px", borderRadius: 999, border: "1px solid rgba(255,255,255,0.18)" }}>
+                      🏷️ {sport}
+                    </span>
+                    <span style={{ ...ui.small, padding: "3px 10px", borderRadius: 999, border: "1px solid rgba(255,255,255,0.18)" }}>
+                      👤 {o.role}
+                    </span>
                   </div>
-                  <div style={{ opacity: 0.75, fontSize: 12, marginTop: 3 }}>
-                    {org.slug} • {statusDot(org.status)} {statusLabel(org.status)} • {prettySport(org.sport)} • rôle: {role}
-                    {isReadOnly ? " • read-only" : ""}
+
+                  <div style={{ ...ui.small, marginTop: 6 }}>
+                    <span style={{ opacity: 0.85 }}>{o.slug}</span> •{" "}
+                    <span>matchs à venir: <b>{scheduled}</b></span> •{" "}
+                    <span>displays publics: <b>{pub}</b></span>
                   </div>
                 </div>
 
-                <div style={{ display: "flex", gap: 10, alignItems: "center", flexShrink: 0 }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                   <button
-                    type="button"
-                    onClick={() => openOrgAsOperator(org.slug)}
-                    style={{
-                      padding: "8px 14px",
-                      borderRadius: 10,
-                      border: `1px solid ${border}`,
-                      background: theme === "dark" ? "#182230" : "#ffffff",
-                      color: fg,
-                      cursor: "pointer",
-                      pointerEvents: "auto",
-                    }}
+                    style={ui.btnPrimary}
+                    onClick={() => openOperator(o.slug)}
                     title="Ouvrir l’interface Operator sur cette organisation"
                   >
                     Ouvrir
                   </button>
-
-                  {isTruthy(DISPLAY_URL) ? (
-                    <a
-                      href={DISPLAY_URL}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ fontSize: 12, opacity: 0.8 }}
-                      title="Ouvrir l’app Display (le match se choisit via token/matchId)"
-                    >
-                      Display
-                    </a>
-                  ) : null}
                 </div>
               </div>
             );
           })}
-
-          {!loadingOrgs && filtered.length === 0 ? (
-            <div style={{ opacity: 0.7, padding: 8 }}>Aucune organisation.</div>
-          ) : null}
         </div>
-      </div>
+      )}
 
-      <div style={{ marginTop: 12, fontSize: 12, opacity: 0.7 }}>
-        Astuce : forcer l’écran login → <code>?forceLogin=1</code>
+      <div style={{ ...ui.small, marginTop: 14 }}>
+        Astuce : pour forcer l’écran login → <code>{safeBaseUrl(window.location.origin)}/?forceLogin=1</code>
       </div>
     </div>
-  );
-}
-
-function LoginForm(props: { onLogin: (email: string, password: string) => void; loading: boolean }) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        props.onLogin(email.trim(), password);
-      }}
-    >
-      <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Email</label>
-      <input
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        placeholder="email"
-        style={{ width: "100%", marginTop: 6, padding: "10px 12px", borderRadius: 10, border: "1px solid #9996" }}
-        autoComplete="email"
-      />
-
-      <label style={{ display: "block", fontSize: 12, opacity: 0.8, marginTop: 12 }}>Mot de passe</label>
-      <input
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        placeholder="password"
-        type="password"
-        style={{ width: "100%", marginTop: 6, padding: "10px 12px", borderRadius: 10, border: "1px solid #9996" }}
-        autoComplete="current-password"
-      />
-
-      <button
-        type="submit"
-        disabled={props.loading}
-        style={{
-          marginTop: 14,
-          padding: "10px 14px",
-          borderRadius: 10,
-          border: "1px solid #9996",
-          cursor: "pointer",
-          fontWeight: 800,
-        }}
-      >
-        Se connecter
-      </button>
-    </form>
   );
 }
