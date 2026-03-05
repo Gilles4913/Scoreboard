@@ -215,6 +215,11 @@ export function Scoreboard({ state, homeName, awayName, homeLogo, awayLogo }:{ s
   );
 }
 }
+function fmt(ms: number) {
+  const s = Math.floor(ms / 1000);
+  const mm = Math.floor(s / 60).toString().padStart(2, "0");
+  const ss = (s % 60).toString().padStart(2, "0");
+  return `${mm}:${ss}`;
+}
 
 export default Scoreboard;
-function fmt(ms:number){ const s = Math.floor(ms/1000); const mm = Math.floor(s/60).toString().padStart(2,'0'); const ss = (s%60).toString().padStart(2,'0'); return `${mm}:${ss}`; }
