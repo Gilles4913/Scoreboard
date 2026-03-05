@@ -1,3 +1,4 @@
+// apps/operator/src/App.tsx
 import React, { useEffect } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import MatchPage from "./pages/MatchPage";
@@ -5,48 +6,45 @@ import SelectOrgPage from "./pages/SelectOrgPage";
 
 const LS_ACTIVE_ORG_KEY = "scoreDisplay.activeOrgSlug";
 
-function useQuery() {
-  const { search } = useLocation();
-  return React.useMemo(() => new URLSearchParams(search), [search]);
-}
-
-function BootstrapRouter() {
+function Landing() {
   const nav = useNavigate();
-  const q = useQuery();
+  const location = useLocation();
 
   useEffect(() => {
-    // 1) Si on arrive avec ?org=demo-football, on force la sélection de l'org
-    const orgSlug = q.get("org");
-    if (orgSlug && orgSlug.trim()) {
-      localStorage.setItem(LS_ACTIVE_ORG_KEY, orgSlug.trim());
-      // Nettoie l'URL et va sur /matches
+    const q = new URLSearchParams(location.search);
+    const orgSlug = (q.get("org") || "").trim();
+
+    // 1) Arrivée depuis Home : /?org=demo-football
+    if (orgSlug) {
+      localStorage.setItem(LS_ACTIVE_ORG_KEY, orgSlug);
       nav("/matches", { replace: true });
       return;
     }
 
-    // 2) Si org déjà persistée, on démarre directement sur /matches
-    const stored = localStorage.getItem(LS_ACTIVE_ORG_KEY);
-    if (stored && stored.trim()) {
-      // Ne rien faire: les routes géreront
+    // 2) Si org déjà persistée => /matches
+    const stored = (localStorage.getItem(LS_ACTIVE_ORG_KEY) || "").trim();
+    if (stored) {
+      nav("/matches", { replace: true });
       return;
     }
-  }, [q, nav]);
 
-  return (
-    <Routes>
-      <Route path="/" element={<Navigate to="/matches" replace />} />
-      <Route path="/select-org" element={<SelectOrgPage />} />
-      <Route path="/matches" element={<MatchPage />} />
-      {/* fallback */}
-      <Route path="*" element={<Navigate to="/matches" replace />} />
-    </Routes>
-  );
+    // 3) Sinon => choix org
+    nav("/select-org", { replace: true });
+  }, [location.search, nav]);
+
+  return null;
 }
 
 export default function App() {
   return (
     <BrowserRouter>
-      <BootstrapRouter />
+      <Routes>
+        <Route path="/" element={<Landing />} />
+        <Route path="/select-org" element={<SelectOrgPage />} />
+        <Route path="/matches" element={<MatchPage />} />
+        {/* fallback */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     </BrowserRouter>
   );
 }
