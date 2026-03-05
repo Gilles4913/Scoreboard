@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
-import { createClient, type Session } from "@supabase/supabase-js";
+import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import LoginPage from "./pages/LoginPage";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
@@ -10,47 +10,420 @@ const ADMIN_URL = (import.meta.env.VITE_ADMIN_URL || "").replace(/\/$/, "");
 const OPERATOR_URL = (import.meta.env.VITE_OPERATOR_URL || "").replace(/\/$/, "");
 const DISPLAY_URL = (import.meta.env.VITE_DISPLAY_URL || "").replace(/\/$/, "");
 
-type Profile = { role?: string | null };
+type OrgStatus = "active" | "suspended" | "archived";
 
-function hardRedirect(url: string) {
-  window.location.assign(url);
+type OrgRow = {
+  id: string;
+  slug: string;
+  name?: string | null;
+  status?: OrgStatus | null;
+  org_sport?: string | null; // selon ton schéma
+  sport?: string | null;     // fallback possible
+};
+
+type MemberRow = {
+  role: string;
+  orgs: OrgRow | null;
+};
+
+function hardRedirect(baseUrl: string, pathWithQuery = "/") {
+  if (!baseUrl) return;
+  const p = pathWithQuery.startsWith("/") ? pathWithQuery : `/${pathWithQuery}`;
+  window.location.assign(`${baseUrl}${p}`);
 }
 
-/**
- * Passe la session à une autre app (autre domaine) via URL hash.
- * Exemple: https://xxx.vercel.app/#access_token=...&refresh_token=...
- */
-function redirectWithSession(baseUrl: string, session: Session, path = "/") {
-  const cleanBase = baseUrl.replace(/\/$/, "");
-  const cleanPath = path.startsWith("/") ? path : `/${path}`;
-  const hash = new URLSearchParams({
-    access_token: session.access_token,
-    refresh_token: session.refresh_token,
-    token_type: session.token_type ?? "bearer",
-    expires_in: String(session.expires_in ?? 3600),
-  }).toString();
-
-  hardRedirect(`${cleanBase}${cleanPath}#${hash}`);
+function getThemeFromStorage(): "dark" | "light" {
+  const v = (localStorage.getItem("scoreDisplay.theme") || "").toLowerCase();
+  return v === "light" ? "light" : "dark";
 }
 
-function MissingEnv({ name }: { name: string }) {
+function applyTheme(t: "dark" | "light") {
+  document.documentElement.dataset.theme = t;
+  localStorage.setItem("scoreDisplay.theme", t);
+}
+
+function ThemeToggle() {
+  const [t, setT] = useState<"dark" | "light">(getThemeFromStorage());
+
+  useEffect(() => applyTheme(t), [t]);
+
   return (
-    <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#0b0d10", color: "#e5e7eb", fontFamily: "Inter, system-ui" }}>
-      <div style={{ maxWidth: 680, padding: 24 }}>
-        <h1 style={{ margin: 0, fontSize: 22 }}>Scoreboard – Home</h1>
-        <p style={{ opacity: 0.85 }}>Variable manquante : <code>{name}</code></p>
-        <p style={{ opacity: 0.65, marginTop: 8 }}>
-          Vérifie les variables d’environnement du projet Vercel <b>scoreboard-home</b>.
-        </p>
-      </div>
+    <button
+      onClick={() => setT((x) => (x === "dark" ? "light" : "dark"))}
+      style={{
+        border: "1px solid var(--border)",
+        background: "var(--panel)",
+        color: "var(--text)",
+        padding: "8px 10px",
+        borderRadius: 10,
+        cursor: "pointer",
+        fontSize: 12,
+      }}
+      title="Basculer thème"
+    >
+      {t === "dark" ? "🌙 Sombre" : "☀️ Clair"}
+    </button>
+  );
+}
+
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "var(--bg)",
+        color: "var(--text)",
+        fontFamily: "Inter, system-ui, Arial",
+      }}
+    >
+      <style>{`
+        :root{
+          --bg:#0b0d10; --panel:rgba(255,255,255,.03); --text:#e5e7eb; --muted:#9ca3af; --border:#1b2230; --primary:#60a5fa;
+          --danger:#ef4444; --warn:#f59e0b; --ok:#22c55e;
+        }
+        :root[data-theme="light"]{
+          --bg:#f6f7fb; --panel:#ffffff; --text:#0f172a; --muted:#475569; --border:#e2e8f0; --primary:#2563eb;
+          --danger:#dc2626; --warn:#d97706; --ok:#16a34a;
+        }
+        a{ color: var(--primary); }
+        input, select{
+          border: 1px solid var(--border);
+          background: var(--panel);
+          color: var(--text);
+          padding: 10px 12px;
+          border-radius: 10px;
+          outline: none;
+        }
+        button{
+          font-family: inherit;
+        }
+      `}</style>
+
+      {children}
     </div>
   );
 }
 
-function HomeRedirector({ supabase }: { supabase: ReturnType<typeof createClient> }) {
+function StatusPill({ status }: { status: OrgStatus }) {
+  const color =
+    status === "active" ? "var(--ok)" : status === "suspended" ? "var(--warn)" : "var(--muted)";
+  const label = status === "active" ? "Active" : status === "suspended" ? "Suspendue" : "Archivée";
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        border: `1px solid var(--border)`,
+        background: "var(--panel)",
+        padding: "4px 10px",
+        borderRadius: 999,
+        fontSize: 12,
+      }}
+    >
+      <span style={{ width: 8, height: 8, borderRadius: 999, background: color, display: "inline-block" }} />
+      {label}
+    </span>
+  );
+}
+
+function OrgPicker({
+  supabase,
+  userId,
+  isSuperAdmin,
+}: {
+  supabase: SupabaseClient;
+  userId: string;
+  isSuperAdmin: boolean;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  const [rows, setRows] = useState<OrgRow[]>([]);
+
+  // filtres
+  const [q, setQ] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"active" | "all" | "active+archived">("active");
+  const [sportFilter, setSportFilter] = useState<string>("all");
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      setErr(null);
+
+      // memberships + org details
+      const { data, error } = await supabase
+        .from("org_members")
+        .select("role, orgs(id, slug, name, status, org_sport, sport)")
+        .eq("user_id", userId);
+
+      if (error) {
+        setErr(error.message);
+        setLoading(false);
+        return;
+      }
+
+      const members = (data || []) as unknown as MemberRow[];
+      const orgs = members
+        .map((m) => m.orgs)
+        .filter(Boolean)
+        .map((o) => ({
+          id: o!.id,
+          slug: o!.slug,
+          name: o!.name ?? null,
+          status: (o!.status ?? "active") as OrgStatus,
+          org_sport: o!.org_sport ?? null,
+          sport: o!.sport ?? null,
+        }));
+
+      setRows(orgs);
+      setLoading(false);
+    })();
+  }, [supabase, userId]);
+
+  const sports = useMemo(() => {
+    const set = new Set<string>();
+    for (const o of rows) {
+      const s = (o.org_sport || o.sport || "").trim();
+      if (s) set.add(s);
+    }
+    return Array.from(set).sort();
+  }, [rows]);
+
+  const filtered = useMemo(() => {
+    const qq = q.trim().toLowerCase();
+
+    return rows
+      .filter((o) => {
+        const status = (o.status ?? "active") as OrgStatus;
+
+        if (statusFilter === "active" && status !== "active") return false;
+        if (statusFilter === "active+archived" && !(status === "active" || status === "archived")) return false;
+
+        if (sportFilter !== "all") {
+          const s = (o.org_sport || o.sport || "").trim();
+          if (s !== sportFilter) return false;
+        }
+
+        if (!qq) return true;
+        const hay = `${o.slug} ${o.name || ""}`.toLowerCase();
+        return hay.includes(qq);
+      })
+      .sort((a, b) => {
+        // actives d’abord
+        const sa = a.status ?? "active";
+        const sb = b.status ?? "active";
+        if (sa !== sb) return sa === "active" ? -1 : 1;
+        return a.slug.localeCompare(b.slug);
+      });
+  }, [rows, q, statusFilter, sportFilter]);
+
+  // Si 1 seule org active => redirect auto Operator (par défaut)
+  useEffect(() => {
+    if (loading) return;
+    if (!OPERATOR_URL) return;
+
+    const actives = rows.filter((o) => (o.status ?? "active") === "active");
+    if (actives.length === 1 && !isSuperAdmin) {
+      hardRedirect(OPERATOR_URL, `/?org=${encodeURIComponent(actives[0].slug)}`);
+    }
+  }, [loading, rows, isSuperAdmin]);
+
+  if (loading) {
+    return (
+      <Shell>
+        <div style={{ padding: 32, maxWidth: 900, margin: "0 auto" }}>
+          <h1 style={{ margin: 0, fontSize: 22 }}>scoreDisplay</h1>
+          <p style={{ color: "var(--muted)" }}>Chargement des organisations…</p>
+        </div>
+      </Shell>
+    );
+  }
+
+  if (err) {
+    return (
+      <Shell>
+        <div style={{ padding: 32, maxWidth: 900, margin: "0 auto" }}>
+          <h1 style={{ margin: 0, fontSize: 22 }}>scoreDisplay</h1>
+          <p style={{ color: "var(--danger)" }}>Erreur : {err}</p>
+        </div>
+      </Shell>
+    );
+  }
+
+  return (
+    <Shell>
+      <div style={{ padding: 32, maxWidth: 980, margin: "0 auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 24 }}>scoreDisplay</h1>
+            <p style={{ marginTop: 8, color: "var(--muted)" }}>
+              Choisis une organisation (Operator par défaut). {isSuperAdmin ? "Mode Super Admin activé." : ""}
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <ThemeToggle />
+            <button
+              onClick={async () => {
+                await supabase.auth.signOut();
+                window.location.reload();
+              }}
+              style={{
+                border: "1px solid var(--border)",
+                background: "var(--panel)",
+                color: "var(--text)",
+                padding: "8px 10px",
+                borderRadius: 10,
+                cursor: "pointer",
+                fontSize: 12,
+              }}
+            >
+              Se déconnecter
+            </button>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 18, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+          <input
+            placeholder="Rechercher (slug / nom)…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            style={{ minWidth: 260 }}
+          />
+
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)}>
+            <option value="active">Actives uniquement</option>
+            <option value="active+archived">Actives + Archivées</option>
+            <option value="all">Toutes (incl. suspendues)</option>
+          </select>
+
+          <select value={sportFilter} onChange={(e) => setSportFilter(e.target.value)}>
+            <option value="all">Tous sports</option>
+            {sports.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+
+          {isSuperAdmin && (
+            <button
+              onClick={() => {
+                if (!ADMIN_URL) return;
+                hardRedirect(ADMIN_URL, "/");
+              }}
+              style={{
+                marginLeft: "auto",
+                border: "1px solid var(--border)",
+                background: "var(--panel)",
+                color: "var(--text)",
+                padding: "10px 12px",
+                borderRadius: 12,
+                cursor: "pointer",
+                fontSize: 13,
+                fontWeight: 700,
+              }}
+            >
+              Aller à l’Admin Console
+            </button>
+          )}
+        </div>
+
+        <div style={{ marginTop: 16, display: "grid", gap: 10 }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding: 16, border: "1px solid var(--border)", borderRadius: 14, background: "var(--panel)" }}>
+              Aucune organisation ne correspond aux filtres.
+            </div>
+          ) : (
+            filtered.map((o) => {
+              const status = (o.status ?? "active") as OrgStatus;
+              const sport = (o.org_sport || o.sport || "").trim();
+
+              return (
+                <div
+                  key={o.id}
+                  style={{
+                    padding: 16,
+                    border: "1px solid var(--border)",
+                    borderRadius: 14,
+                    background: "var(--panel)",
+                    display: "flex",
+                    gap: 14,
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div style={{ minWidth: 280 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <div style={{ fontWeight: 800, fontSize: 16 }}>{o.name || o.slug}</div>
+                      <StatusPill status={status} />
+                      {sport ? (
+                        <span style={{ fontSize: 12, color: "var(--muted)" }}>
+                          Sport : <b style={{ color: "var(--text)" }}>{sport}</b>
+                        </span>
+                      ) : null}
+                    </div>
+                    <div style={{ marginTop: 6, fontSize: 12, color: "var(--muted)" }}>slug: {o.slug}</div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <button
+                      onClick={() => {
+                        if (!OPERATOR_URL) return;
+                        hardRedirect(OPERATOR_URL, `/?org=${encodeURIComponent(o.slug)}`);
+                      }}
+                      style={{
+                        border: "1px solid var(--border)",
+                        background: "var(--panel)",
+                        color: "var(--text)",
+                        padding: "10px 12px",
+                        borderRadius: 12,
+                        cursor: "pointer",
+                        fontSize: 13,
+                        fontWeight: 800,
+                      }}
+                    >
+                      Ouvrir Operator →
+                    </button>
+
+                    {status === "suspended" && (
+                      <span style={{ fontSize: 12, color: "var(--warn)", fontWeight: 700 }}>
+                        Suspendue : accès bloqué côté Operator/DB
+                      </span>
+                    )}
+
+                    {status === "archived" && (
+                      <span style={{ fontSize: 12, color: "var(--muted)", fontWeight: 700 }}>
+                        Archivée : lecture seule
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div style={{ marginTop: 18, fontSize: 12, color: "var(--muted)" }}>
+          Display :{" "}
+          {DISPLAY_URL ? (
+            <a href={`${DISPLAY_URL}/`} target="_blank" rel="noreferrer">
+              ouvrir
+            </a>
+          ) : (
+            <span>VITE_DISPLAY_URL non configurée</span>
+          )}
+        </div>
+      </div>
+    </Shell>
+  );
+}
+
+function HomeRouter({ supabase }: { supabase: SupabaseClient }) {
   const nav = useNavigate();
-  const [msg, setMsg] = useState("Vérification de session...");
-  const [debug, setDebug] = useState<string>("");
+  const [busy, setBusy] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -62,120 +435,101 @@ function HomeRedirector({ supabase }: { supabase: ReturnType<typeof createClient
         return;
       }
 
-      // Debug utile en phase 1
-      setDebug(`session OK user=${session.user.id}`);
-
       const userId = session.user.id;
 
-      setMsg("Chargement des accès...");
-      const { data: memberships, error: memErr } = await supabase
+      // On calcule isSuperAdmin via membership master
+      const { data: memberships, error } = await supabase
         .from("org_members")
         .select("role, orgs(slug)")
         .eq("user_id", userId);
 
-      if (memErr) {
-        setMsg(`Erreur org_members: ${memErr.message}`);
+      if (error) {
+        setErr(error.message);
+        setBusy(false);
         return;
       }
 
-      const isSuperAdmin = (memberships ?? []).some(
+      const isSuperAdmin = (memberships || []).some(
         (m: any) => m?.orgs?.slug === "master" && m?.role === "super_admin"
       );
 
-      if (isSuperAdmin) {
-        if (!ADMIN_URL) {
-          setMsg("VITE_ADMIN_URL non configurée.");
-          return;
-        }
-        setMsg("Redirection Admin...");
-        redirectWithSession(ADMIN_URL, session, "/");
-        return;
-      }
+      // Rendu OrgPicker (gère l’auto-redirect si 1 org active)
+      setBusy(false);
 
-      if (!OPERATOR_URL) {
-        setMsg("VITE_OPERATOR_URL non configurée.");
-        return;
-      }
-
-      setMsg("Redirection Operator...");
-      redirectWithSession(OPERATOR_URL, session, "/");
+      // On monte le composant via state local (simple)
+      (window as any).__SCOREDISPLAY__ = { userId, isSuperAdmin };
     })();
   }, [nav, supabase]);
 
-  async function hardLogout() {
-    try {
-      await supabase.auth.signOut();
-    } finally {
-      // Nettoyage localStorage (utile si tu as bricolé plusieurs configs)
-      try {
-        localStorage.clear();
-        sessionStorage.clear();
-      } catch {}
-      window.location.assign("/login");
-    }
-  }
-
-  return (
-    <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#0b0d10", color: "#e5e7eb", fontFamily: "Inter, system-ui" }}>
-      <div style={{ maxWidth: 680, padding: 24 }}>
-        <h1 style={{ margin: 0, fontSize: 22 }}>Scoreboard</h1>
-        <p style={{ opacity: 0.85 }}>{msg}</p>
-
-        {debug && (
-          <p style={{ opacity: 0.6, fontSize: 12, marginTop: 8 }}>
-            debug: <code>{debug}</code>
-          </p>
-        )}
-
-        <div style={{ marginTop: 14 }}>
-          <button
-            onClick={hardLogout}
-            style={{
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid #2a2d33",
-              background: "#14161a",
-              color: "#e5e7eb",
-              cursor: "pointer",
-            }}
-          >
-            Se déconnecter (reset)
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DisplayRedirector() {
-  const loc = useLocation();
-  const pathWithQuery = `${loc.pathname}${loc.search}${loc.hash}`;
-
-  if (!DISPLAY_URL) {
+  if (busy) {
     return (
-      <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#0b0d10", color: "#e5e7eb", fontFamily: "Inter, system-ui" }}>
-        <div style={{ maxWidth: 680, padding: 24 }}>
-          <h1 style={{ margin: 0, fontSize: 22 }}>Display</h1>
-          <p style={{ opacity: 0.85 }}>VITE_DISPLAY_URL non configurée.</p>
+      <Shell>
+        <div style={{ padding: 32, maxWidth: 900, margin: "0 auto" }}>
+          <h1 style={{ margin: 0, fontSize: 22 }}>scoreDisplay</h1>
+          <p style={{ color: "var(--muted)" }}>Vérification de session…</p>
         </div>
-      </div>
+      </Shell>
     );
   }
 
-  hardRedirect(`${DISPLAY_URL}${pathWithQuery.startsWith("/") ? pathWithQuery : `/${pathWithQuery}`}`);
+  if (err) {
+    return (
+      <Shell>
+        <div style={{ padding: 32, maxWidth: 900, margin: "0 auto" }}>
+          <h1 style={{ margin: 0, fontSize: 22 }}>scoreDisplay</h1>
+          <p style={{ color: "var(--danger)" }}>Erreur : {err}</p>
+        </div>
+      </Shell>
+    );
+  }
+
+  const ctx = (window as any).__SCOREDISPLAY__ as { userId: string; isSuperAdmin: boolean } | undefined;
+  if (!ctx) {
+    return (
+      <Shell>
+        <div style={{ padding: 32, maxWidth: 900, margin: "0 auto" }}>
+          <h1 style={{ margin: 0, fontSize: 22 }}>scoreDisplay</h1>
+          <p style={{ color: "var(--muted)" }}>Contexte indisponible.</p>
+        </div>
+      </Shell>
+    );
+  }
+
+  return <OrgPicker supabase={supabase} userId={ctx.userId} isSuperAdmin={ctx.isSuperAdmin} />;
+}
+
+function DisplayRedirector() {
+  const url = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (!DISPLAY_URL) {
+    return (
+      <Shell>
+        <div style={{ padding: 32, maxWidth: 900, margin: "0 auto" }}>
+          <h1 style={{ margin: 0, fontSize: 22 }}>Display</h1>
+          <p style={{ color: "var(--muted)" }}>VITE_DISPLAY_URL non configurée.</p>
+        </div>
+      </Shell>
+    );
+  }
+  hardRedirect(DISPLAY_URL, url);
   return null;
 }
 
 export default function App() {
-  if (!SUPABASE_URL) return <MissingEnv name="VITE_SUPABASE_URL" />;
-  if (!SUPABASE_ANON) return <MissingEnv name="VITE_SUPABASE_ANON_KEY" />;
+  const supabase = useMemo(() => {
+    if (!SUPABASE_URL) throw new Error("VITE_SUPABASE_URL is required");
+    if (!SUPABASE_ANON) throw new Error("VITE_SUPABASE_ANON_KEY is required");
+    return createClient(SUPABASE_URL, SUPABASE_ANON);
+  }, []);
 
-  const supabase = useMemo(() => createClient(SUPABASE_URL, SUPABASE_ANON), []);
+  // default theme
+  useEffect(() => {
+    applyTheme(getThemeFromStorage());
+  }, []);
 
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<HomeRedirector supabase={supabase} />} />
+        <Route path="/" element={<HomeRouter supabase={supabase} />} />
         <Route path="/login" element={<LoginPage supabase={supabase} />} />
         <Route path="/display" element={<DisplayRedirector />} />
       </Routes>
