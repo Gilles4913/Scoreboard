@@ -214,7 +214,6 @@ export function Scoreboard({ state, homeName, awayName, homeLogo, awayLogo }:{ s
     </div>
   );
 }
-}
 function fmt(ms: number) {
   const s = Math.floor(ms / 1000);
   const mm = Math.floor(s / 60).toString().padStart(2, "0");
