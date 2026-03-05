@@ -3,34 +3,50 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { supabase } from "./supabase";
 
-/**
- * Home redirige vers Operator avec:
- *   /?org=slug#access_token=...&refresh_token=...
- * Ici on “consomme” le hash, on fait supabase.auth.setSession(), puis on nettoie l’URL.
- */
-async function boot() {
-  const hash = window.location.hash || "";
-  const params = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
+const LS_ACTIVE_ORG_KEY = "scoreDisplay.activeOrgSlug";
 
-  const access_token = params.get("access_token") || "";
-  const refresh_token = params.get("refresh_token") || "";
-
-  if (access_token && refresh_token) {
-    try {
-      await supabase.auth.setSession({ access_token, refresh_token });
-    } catch {
-      // si setSession échoue, on laisse App gérer (il montrera login via Home)
-    }
-
-    // Nettoyage URL (retire tokens du hash)
-    window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
-  }
-
-  ReactDOM.createRoot(document.getElementById("root")!).render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>
-  );
+function getParam(name: string) {
+  const url = new URL(window.location.href);
+  return url.searchParams.get(name) || "";
 }
 
-boot();
+function stripAuthParamsFromUrl() {
+  const url = new URL(window.location.href);
+  ["access_token", "refresh_token", "expires_in", "token_type"].forEach((k) => url.searchParams.delete(k));
+  // on garde org si présent
+  window.history.replaceState({}, document.title, url.toString());
+}
+
+async function bootstrapAuthFromUrl() {
+  const org = getParam("org").trim();
+  if (org) localStorage.setItem(LS_ACTIVE_ORG_KEY, org);
+
+  const access_token = getParam("access_token").trim();
+  const refresh_token = getParam("refresh_token").trim();
+
+  // Si Home a fourni des tokens => setSession
+  if (access_token && refresh_token) {
+    const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+    stripAuthParamsFromUrl();
+
+    // Si tokens invalides => on purge et on laissera l’app rediriger vers Home
+    if (error) {
+      await supabase.auth.signOut();
+    }
+  }
+}
+
+bootstrapAuthFromUrl()
+  .catch(async () => {
+    // en cas d’erreur inattendue, on purge la session
+    try {
+      await supabase.auth.signOut();
+    } catch {}
+  })
+  .finally(() => {
+    ReactDOM.createRoot(document.getElementById("root")!).render(
+      <React.StrictMode>
+        <App />
+      </React.StrictMode>
+    );
+  });
