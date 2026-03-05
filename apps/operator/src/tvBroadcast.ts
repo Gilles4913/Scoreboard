@@ -1,29 +1,28 @@
-import { supabase } from "./supabase";
+import { createClient } from "@supabase/supabase-js";
 
-const TV_BROADCAST_URL = import.meta.env.VITE_TV_BROADCAST_URL as string | undefined;
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+);
 
-export type TVEventType =
-  | "score.set"
-  | "timer.set"
-  | "timer.start"
-  | "timer.pause"
-  | "period.set"
-  | "state.patch"
-  | "event.add";
+const TV_URL = import.meta.env.VITE_TV_BROADCAST_URL;
 
-export async function tvEmit(matchId: string, type: TVEventType, payload: any, seq: number) {
-  if (!TV_BROADCAST_URL) return { ok: false, error: "VITE_TV_BROADCAST_URL not set" };
+export async function tvEmit(matchId, type, payload) {
 
   const { data } = await supabase.auth.getSession();
-  const jwt = data.session?.access_token;
-  if (!jwt) return { ok: false, error: "not authenticated" };
+  const token = data.session?.access_token;
 
-  const res = await fetch(TV_BROADCAST_URL, {
+  await fetch(TV_URL, {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${jwt}` },
-    body: JSON.stringify({ match_id: matchId, type, ts: Date.now(), seq, payload }),
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      match_id: matchId,
+      type,
+      payload,
+      ts: Date.now(),
+    }),
   });
-
-  if (!res.ok) return { ok: false, error: await res.text() };
-  return { ok: true };
 }
