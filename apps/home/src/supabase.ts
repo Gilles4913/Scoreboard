@@ -1,14 +1,30 @@
 import { createClient } from "@supabase/supabase-js";
 
-function getEnv(name: string) {
+function getEnv(name: string): string {
   const v = (import.meta as any).env?.[name];
   return typeof v === "string" ? v : "";
 }
 
-const url = getEnv("VITE_SUPABASE_URL");
-const anon = getEnv("VITE_SUPABASE_ANON_KEY");
+const supabaseUrl = getEnv("VITE_SUPABASE_URL");
+const supabaseAnonKey = getEnv("VITE_SUPABASE_ANON_KEY");
 
-if (!url) throw new Error("VITE_SUPABASE_URL manquant (Vercel env)");
-if (!anon) throw new Error("VITE_SUPABASE_ANON_KEY manquant (Vercel env)");
+/**
+ * On laisse volontairement une erreur claire en runtime
+ * si les variables ne sont pas présentes côté Vercel.
+ */
+if (!supabaseUrl) {
+  // eslint-disable-next-line no-console
+  console.error("[home] Missing env: VITE_SUPABASE_URL");
+}
+if (!supabaseAnonKey) {
+  // eslint-disable-next-line no-console
+  console.error("[home] Missing env: VITE_SUPABASE_ANON_KEY");
+}
 
-export const supabase = createClient(url, anon);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  },
+});
