@@ -1,4 +1,29 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { createClient } from "npm:@supabase/supabase-js@2";
+
+const supabase = createClient(
+  Deno.env.get("SUPABASE_URL")!,
+  Deno.env.get("SUPABASE_ANON_KEY")!,
+  {
+    global: {
+      headers: {
+        Authorization: req.headers.get("Authorization") ?? "",
+      },
+    },
+  }
+);
+
+const { data: userData, error: userErr } = await supabase.auth.getUser();
+
+if (userErr || !userData.user) {
+  return new Response(
+    JSON.stringify({ code: 401, message: "Invalid JWT" }),
+    {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    }
+  );
+}
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
