@@ -336,6 +336,27 @@ export default function MatchPage() {
             </div>
           </div>
         </div>
+        <div
+  style={{
+    marginTop: 14,
+    padding: 16,
+    borderRadius: 16,
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.08)",
+  }}
+>
+  <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 8 }}>
+    Notice rapide
+  </div>
+
+  <div style={{ fontSize: 14, lineHeight: 1.7, opacity: 0.9 }}>
+    1. Clique sur <b>Display</b> pour ouvrir l’écran public du match.<br />
+    2. Clique sur <b>Copier</b> pour récupérer le lien public.<br />
+    3. Clique sur <b>QR</b> pour afficher un QR code à scanner depuis un mobile ou une TV.<br />
+    4. Clique sur <b>Broadcast</b> pour envoyer un patch de démonstration temps réel vers le Display.<br />
+    5. Utilise cet écran comme poste opérateur pendant la démo club / gymnase.
+  </div>
+</div>
 
         {copyMsg ? <div style={styles.copyInfo}>{copyMsg}</div> : null}
 
@@ -665,4 +686,5 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 13,
   },
 };
+
 
