@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
-import MatchPage from "./pages/MatchPage";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "./supabase";
+import MatchPage from "./pages/MatchPage";
 
 const LS_ACTIVE_ORG_KEY = "scoreDisplay.activeOrgSlug";
 
@@ -9,6 +9,8 @@ function getEnv(name: string): string {
   const v = (import.meta as any).env?.[name];
   return typeof v === "string" ? v : "";
 }
+
+const HOME_URL = getEnv("VITE_HOME_URL") || "https://scoreboard-home.vercel.app";
 
 function useQuery() {
   const loc = useLocation();
@@ -18,54 +20,60 @@ function useQuery() {
 function Landing() {
   const nav = useNavigate();
   const q = useQuery();
-  const [email, setEmail] = useState<string>("");
+  const [ready, setReady] = useState(false);
+  const [hasSession, setHasSession] = useState(false);
 
-  const homeUrl = getEnv("VITE_HOME_URL"); // optionnel (tu peux le mettre dans Vercel)
   const orgParam = (q.get("org") || "").trim();
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setEmail(data.session?.user?.email || ""));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setEmail(s?.user?.email || ""));
-    return () => sub.subscription.unsubscribe();
-  }, []);
+    let alive = true;
 
-  useEffect(() => {
-    if (orgParam) {
-      localStorage.setItem(LS_ACTIVE_ORG_KEY, orgParam);
+    async function run() {
+      // si ?org= présent, on le persiste
+      if (orgParam) {
+        localStorage.setItem(LS_ACTIVE_ORG_KEY, orgParam);
+      }
+
+      const { data } = await supabase.auth.getSession();
+      if (!alive) return;
+
+      const ok = !!data.session?.user;
+      setHasSession(ok);
+      setReady(true);
+
+      if (!ok) {
+        const returnTo = encodeURIComponent(window.location.origin + "/");
+        window.location.href = `${HOME_URL.replace(/\/$/, "")}/?forceLogin=1&returnTo=${returnTo}`;
+        return;
+      }
+
+      const activeOrg = (localStorage.getItem(LS_ACTIVE_ORG_KEY) || "").trim();
+      if (!activeOrg) {
+        const returnTo = encodeURIComponent(window.location.origin + "/");
+        window.location.href = `${HOME_URL.replace(/\/$/, "")}/?forceLogin=1&returnTo=${returnTo}`;
+        return;
+      }
+
       nav("/matches", { replace: true });
     }
-  }, [orgParam, nav]);
 
-  return (
-    <div style={{ padding: 24 }}>
-      <h1 style={{ marginTop: 0 }}>scoreDisplay — Operator</h1>
-      {email ? <div style={{ opacity: 0.75, fontSize: 12 }}>connecté : {email}</div> : null}
+    run();
+    return () => {
+      alive = false;
+    };
+  }, [nav, orgParam]);
 
-      <div style={{ marginTop: 16, padding: 12, border: "1px solid #3333", borderRadius: 12 }}>
-        <b>Aucune organisation sélectionnée.</b>
-        <div style={{ marginTop: 8, fontSize: 13 }}>
-          Ouvre Operator depuis <b>Home</b> (bouton “Ouvrir” sur une organisation).
-        </div>
-        {homeUrl ? (
-          <div style={{ marginTop: 10 }}>
-            <a href={homeUrl}>← Retour Home</a>
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
+  if (!ready) return <div style={{ padding: 24 }}>Chargement…</div>;
+  if (!hasSession) return null;
+
+  return <div style={{ padding: 24 }}>Redirection…</div>;
 }
 
 export default function App() {
   return (
     <Routes>
-      {/* arrive depuis Home avec ?org=slug */}
       <Route path="/" element={<Landing />} />
-
-      {/* page principale */}
       <Route path="/matches" element={<MatchPage />} />
-
-      {/* tout le reste -> / */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
