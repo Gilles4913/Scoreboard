@@ -4,7 +4,6 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const TV_WS_RELAY_URL = Deno.env.get("TV_WS_RELAY_URL")!;
 
 function buildCorsHeaders(origin?: string) {
   return {
@@ -72,9 +71,9 @@ serve(async (req) => {
     return json({ error: "Not found" }, 404, origin);
   }
 
-  if (!SUPABASE_URL || !ANON_KEY || !SERVICE_ROLE || !TV_WS_RELAY_URL) {
+  if (!SUPABASE_URL || !ANON_KEY || !SERVICE_ROLE) {
     return json(
-      { error: "Missing SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY or TV_WS_RELAY_URL" },
+      { error: "Missing SUPABASE_URL, SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY" },
       500,
       origin,
     );
@@ -111,33 +110,54 @@ serve(async (req) => {
     return json({ error: "Forbidden (not org member)" }, 403, origin);
   }
 
-  const relayPayload = {
-    match_id: matchId,
-    org_id: orgId,
-    type,
-    ts,
-    seq,
-    payload,
-    patch: payload,
-  };
+  const topic = `match:${matchId}`;
+  const event = type || "patch";
 
-  const relayRes = await fetch(TV_WS_RELAY_URL, {
+  const realtimeRes = await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
     method: "POST",
     headers: {
+      apikey: SERVICE_ROLE,
+      authorization: `Bearer ${SERVICE_ROLE}`,
       "content-type": "application/json",
-      "authorization": `Bearer ${SERVICE_ROLE}`,
     },
-    body: JSON.stringify(relayPayload),
+    body: JSON.stringify({
+      messages: [
+        {
+          topic,
+          event,
+          payload: {
+            match_id: matchId,
+            org_id: orgId,
+            type,
+            ts,
+            seq,
+            patch: payload,
+            payload,
+          },
+        },
+      ],
+    }),
   });
 
-  if (!relayRes.ok) {
-    const text = await relayRes.text().catch(() => "");
+  if (!realtimeRes.ok) {
+    const text = await realtimeRes.text().catch(() => "");
     return json(
-      { error: "Relay failed", details: text || `HTTP ${relayRes.status}` },
+      { error: "Realtime broadcast failed", details: text || `HTTP ${realtimeRes.status}` },
       502,
       origin,
     );
   }
 
-  return json({ ok: true, relayed: relayPayload }, 200, origin);
+  const realtimeJson = await realtimeRes.json().catch(() => null);
+
+  return json(
+    {
+      ok: true,
+      topic,
+      event,
+      realtime: realtimeJson,
+    },
+    200,
+    origin,
+  );
 });
