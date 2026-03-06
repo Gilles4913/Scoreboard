@@ -1,41 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
-import Scoreboard from "./components/Scoreboard";
-import "./theme.css";
+import Scoreboard, { ScoreboardContext } from "./components/Scoreboard";
 
-type DisplayContext = {
-  match: {
-    id: string;
-    name: string;
-    status: string;
-    scheduled_at: string | null;
-    home_name: string;
-    away_name: string;
-    home_score: number;
-    away_score: number;
-    clock_ms: number;
-    period_label?: string | null;
-    sport?: string | null;
-    venue?: string | null;
-  };
-  org: {
-    id: string;
-    slug: string;
-    name?: string | null;
-    status?: string | null;
-    sport?: string | null;
-  };
-  display: {
-    stadium_mode?: boolean;
-    lower_third?: boolean;
-    dual_language?: boolean;
-    lang_primary?: "fr" | "en";
-    lang_secondary?: "fr" | "en";
-    sponsors?: Array<{ name: string; logoUrl?: string }>;
-  };
-};
-
-function getEnv(name: string) {
+function getEnv(name: string): string {
   const v = (import.meta as any).env?.[name];
   return typeof v === "string" ? v : "";
 }
@@ -43,119 +10,195 @@ function getEnv(name: string) {
 const EDGE_CONTEXT_URL = getEnv("VITE_EDGE_CONTEXT_URL");
 const TV_WS_RELAY_URL = getEnv("VITE_TV_WS_RELAY_URL");
 
-function getTokenFromUrl(): string {
-  const u = new URL(window.location.href);
-  const q = u.searchParams.get("token");
-  if (q) return q;
-  // fallback hash parsing: #token=...
-  const h = (u.hash || "").replace(/^#/, "");
-  const hp = new URLSearchParams(h);
-  return hp.get("token") || "";
+function getSearchParam(name: string) {
+  try {
+    const u = new URL(window.location.href);
+    return u.searchParams.get(name) || "";
+  } catch {
+    return "";
+  }
 }
 
-function toWsUrl(httpUrl: string) {
-  // accepts https://.../functions/v1/tv-ws-relay -> wss://...
-  return httpUrl.replace(/^https:/, "wss:").replace(/^http:/, "ws:");
+function toWsUrl(httpLike: string) {
+  if (!httpLike) return "";
+  return httpLike.replace(/^https:/, "wss:").replace(/^http:/, "ws:");
 }
 
-function mergeContext(prev: DisplayContext, patch: any): DisplayContext {
-  // patch is expected to be { match: {...}, display: {...} }
-  const next: DisplayContext = {
+function mergeContext(prev: ScoreboardContext, patch: Partial<ScoreboardContext>): ScoreboardContext {
+  return {
     ...prev,
-    match: { ...prev.match, ...(patch?.match || {}) },
-    display: { ...prev.display, ...(patch?.display || {}) },
+    ...patch,
+    home: { ...(prev.home || {}), ...(patch.home || {}) },
+    away: { ...(prev.away || {}), ...(patch.away || {}) },
   };
-  // keep org stable
-  return next;
 }
 
 function App() {
-  const token = useMemo(() => getTokenFromUrl(), []);
-  const [ctx, setCtx] = useState<DisplayContext | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const token = getSearchParam("token");
+  const matchId = getSearchParam("matchId");
+
+  const [ctx, setCtx] = useState<ScoreboardContext | null>(null);
+  const [err, setErr] = useState("");
 
   const wsRef = useRef<WebSocket | null>(null);
 
-  useEffect(() => {
-    let mounted = true;
+  // anti-jitter: on garde une base clock et on lisse en local si running
+  const [localTick, setLocalTick] = useState(0);
+  const lastBaseClockRef = useRef<number | null>(null);
+  const lastBaseTsRef = useRef<number>(Date.now());
 
-    async function bootstrap() {
-      setErr(null);
+  useEffect(() => {
+    const t = setInterval(() => setLocalTick((v) => v + 1), 250);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    if (!ctx) return;
+    if (typeof ctx.clock_ms === "number") {
+      lastBaseClockRef.current = ctx.clock_ms;
+      lastBaseTsRef.current = Date.now();
+    }
+  }, [ctx?.clock_ms]);
+
+  const computedContext = useMemo(() => {
+    if (!ctx) return null;
+
+    if (!ctx.clock_running || typeof lastBaseClockRef.current !== "number") {
+      return ctx;
+    }
+
+    const elapsed = Date.now() - lastBaseTsRef.current;
+    const clock_ms = Math.max(0, lastBaseClockRef.current - elapsed);
+
+    return {
+      ...ctx,
+      clock_ms,
+    };
+  }, [ctx, localTick]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadInitialContext() {
+      setErr("");
 
       if (!EDGE_CONTEXT_URL) {
-        setErr("VITE_EDGE_CONTEXT_URL manquante");
-        return;
-      }
-      if (!token) {
-        setErr("Token display manquant. Utilise ?token=DISPLAY_TOKEN");
+        setErr("VITE_EDGE_CONTEXT_URL manquante.");
         return;
       }
 
-      const url = `${EDGE_CONTEXT_URL}?token=${encodeURIComponent(token)}`;
-      const res = await fetch(url);
-      if (!res.ok) {
-        setErr(`Edge context error: HTTP ${res.status}`);
-        return;
+      const base = EDGE_CONTEXT_URL.replace(/\/$/, "");
+      const url = new URL(base);
+
+      if (token) url.searchParams.set("token", token);
+      if (matchId) url.searchParams.set("matchId", matchId);
+
+      try {
+        const res = await fetch(url.toString(), { method: "GET" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+
+        if (cancelled) return;
+
+        setCtx({
+          theme: "dark",
+          dual_language: true,
+          lang_primary: "FR",
+          lang_secondary: "EN",
+          show_lower_third: true,
+          show_logos: true,
+          sponsor_rotate_s: 10,
+          ...json,
+        });
+      } catch (e: any) {
+        if (!cancelled) {
+          setErr(e?.message || "Impossible de charger le contexte display.");
+        }
       }
+    }
 
-      const data = (await res.json()) as DisplayContext;
-      if (!mounted) return;
+    loadInitialContext();
 
-      setCtx(data);
+    return () => {
+      cancelled = true;
+    };
+  }, [token, matchId]);
 
-      // WS Relay connect
-      if (!TV_WS_RELAY_URL) return;
-      const wsUrl = `${toWsUrl(TV_WS_RELAY_URL)}?token=${encodeURIComponent(token)}`;
+  useEffect(() => {
+    if (!TV_WS_RELAY_URL) return;
+    if (!token && !matchId) return;
 
-      const ws = new WebSocket(wsUrl);
+    const wsUrlBase = toWsUrl(TV_WS_RELAY_URL);
+    if (!wsUrlBase) return;
+
+    const url = new URL(wsUrlBase);
+    if (token) url.searchParams.set("token", token);
+    if (matchId) url.searchParams.set("matchId", matchId);
+
+    try {
+      const ws = new WebSocket(url.toString());
       wsRef.current = ws;
 
-      ws.onopen = () => {
-        // optional: ws.send(JSON.stringify({ type:"hello"}))
-      };
       ws.onmessage = (ev) => {
         try {
           const msg = JSON.parse(ev.data);
-          // expected: { type:"patch", patch:{...} } or { patch:{...} }
-          const patch = msg.patch || msg;
-          setCtx((prev) => (prev ? mergeContext(prev, patch) : prev));
+          const patch = msg?.patch || msg;
+
+          setCtx((prev) => {
+            if (!prev) return prev;
+            return mergeContext(prev, patch);
+          });
         } catch {
-          // ignore
+          // ignore malformed payload
         }
       };
-      ws.onerror = () => {
-        // silent for TV mode
-      };
-      ws.onclose = () => {
-        // silent
-      };
-    }
 
-    bootstrap();
-    return () => {
-      mounted = false;
-      if (wsRef.current) wsRef.current.close();
-    };
-  }, [token]);
+      ws.onerror = () => {
+        // volontairement silencieux pour la démo
+      };
+
+      return () => {
+        ws.close();
+      };
+    } catch {
+      // ignore
+    }
+  }, [token, matchId]);
 
   if (err) {
     return (
-      <div style={{ padding: 16, color: "white", fontFamily: "system-ui" }}>
-        <h2>scoreDisplay — Display</h2>
-        <div style={{ opacity: 0.85 }}>{err}</div>
+      <div
+        style={{
+          minHeight: "100vh",
+          background: "#0b0f14",
+          color: "#e7eefc",
+          padding: 24,
+          fontFamily: "system-ui",
+        }}
+      >
+        <h1 style={{ marginTop: 0 }}>scoreDisplay — Display</h1>
+        <div style={{ marginTop: 12, color: "crimson" }}>Erreur: {err}</div>
       </div>
     );
   }
 
-  if (!ctx) {
+  if (!computedContext) {
     return (
-      <div style={{ padding: 16, color: "white", fontFamily: "system-ui" }}>
-        Chargement…
+      <div
+        style={{
+          minHeight: "100vh",
+          background: "#0b0f14",
+          color: "#e7eefc",
+          padding: 24,
+          fontFamily: "system-ui",
+        }}
+      >
+        Chargement display…
       </div>
     );
   }
 
-  return <Scoreboard context={ctx} />;
+  return <Scoreboard context={computedContext} />;
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
