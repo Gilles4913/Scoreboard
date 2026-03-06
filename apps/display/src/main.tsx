@@ -9,6 +9,7 @@ function getEnv(name: string): string {
 
 const EDGE_CONTEXT_URL = getEnv("VITE_EDGE_CONTEXT_URL");
 const TV_WS_RELAY_URL = getEnv("VITE_TV_WS_RELAY_URL");
+const SUPABASE_ANON_KEY = getEnv("VITE_SUPABASE_ANON_KEY");
 
 function getSearchParam(name: string) {
   try {
@@ -42,7 +43,6 @@ function App() {
 
   const wsRef = useRef<WebSocket | null>(null);
 
-  // anti-jitter: on garde une base clock et on lisse en local si running
   const [localTick, setLocalTick] = useState(0);
   const lastBaseClockRef = useRef<number | null>(null);
   const lastBaseTsRef = useRef<number>(Date.now());
@@ -94,8 +94,23 @@ function App() {
       if (matchId) url.searchParams.set("matchId", matchId);
 
       try {
-        const res = await fetch(url.toString(), { method: "GET" });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const headers: Record<string, string> = {};
+
+        if (SUPABASE_ANON_KEY) {
+          headers.apikey = SUPABASE_ANON_KEY;
+          headers.Authorization = `Bearer ${SUPABASE_ANON_KEY}`;
+        }
+
+        const res = await fetch(url.toString(), {
+          method: "GET",
+          headers,
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`HTTP ${res.status} ${text}`.trim());
+        }
+
         const json = await res.json();
 
         if (cancelled) return;
@@ -154,7 +169,7 @@ function App() {
       };
 
       ws.onerror = () => {
-        // volontairement silencieux pour la démo
+        // silencieux pour la démo
       };
 
       return () => {
