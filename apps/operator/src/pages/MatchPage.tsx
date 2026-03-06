@@ -317,7 +317,7 @@ export default function MatchPage() {
               Prépare les matchs, ouvre le Display public, teste le broadcast TV temps réel, et pilote une démonstration complète club / ville.
             </div>
             <div style={{ marginTop: 10, fontSize: 13, opacity: 0.78 }}>
-              Règles sport fines : {periodHintsBySport("football")}
+              Règles sport fines : {periodHintsBySport(org.slug.includes("basket") ? "basket" : "football")}
             </div>
           </div>
 
@@ -665,3 +665,4 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 13,
   },
 };
+
