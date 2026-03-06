@@ -5,41 +5,64 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 type Client = { ws: WebSocket; matchId: string; lastSeq: number };
-
 const rooms = new Map<string, Set<Client>>();
 
 function corsHeaders(origin?: string) {
   return {
     "access-control-allow-origin": origin ?? "*",
     "access-control-allow-methods": "GET,POST,OPTIONS",
-    "access-control-allow-headers": "authorization,content-type",
+    "access-control-allow-headers": "authorization,content-type,apikey,x-client-info",
+    "content-type": "application/json",
   };
 }
 
-async function getMatchIdFromToken(displayToken: string): Promise<string | null> {
-  // Service role query
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/matches?select=id&display_token=eq.${encodeURIComponent(displayToken)}&limit=1`, {
-    headers: {
-      "apikey": SERVICE_ROLE,
-      "authorization": `Bearer ${SERVICE_ROLE}`,
-    },
+function json(body: unknown, status = 200, origin?: string) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: corsHeaders(origin),
   });
+}
+
+async function getMatchIdFromToken(displayToken: string): Promise<string | null> {
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/matches?select=id&display_token=eq.${encodeURIComponent(displayToken)}&limit=1`,
+    {
+      headers: {
+        apikey: SERVICE_ROLE,
+        authorization: `Bearer ${SERVICE_ROLE}`,
+      },
+    },
+  );
   if (!res.ok) return null;
-  const json = await res.json();
-  return json?.[0]?.id ?? null;
+  const data = await res.json().catch(() => []);
+  return data?.[0]?.id ?? null;
 }
 
 function broadcast(matchId: string, msg: any) {
   const clients = rooms.get(matchId);
-  if (!clients) return;
+  if (!clients || clients.size === 0) return 0;
+
   const payload = JSON.stringify(msg);
-  for (const c of clients) {
+  let sent = 0;
+
+  for (const c of [...clients]) {
     try {
-      c.ws.send(payload);
+      if (c.ws.readyState === WebSocket.OPEN) {
+        c.ws.send(payload);
+        sent++;
+      } else {
+        clients.delete(c);
+      }
     } catch {
-      // ignore
+      clients.delete(c);
     }
   }
+
+  if (clients.size === 0) {
+    rooms.delete(matchId);
+  }
+
+  return sent;
 }
 
 serve(async (req) => {
@@ -53,14 +76,17 @@ serve(async (req) => {
 
   // ---- WS CONNECT (Display) ----
   if (req.method === "GET" && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
-    const displayToken = url.searchParams.get("token") || "";
-    if (!displayToken) {
-      return new Response("Missing token", { status: 400, headers: corsHeaders(origin) });
+    const displayToken = (url.searchParams.get("token") || "").trim();
+    const directMatchId = (url.searchParams.get("matchId") || "").trim();
+
+    let matchId = directMatchId;
+
+    if (!matchId && displayToken) {
+      matchId = (await getMatchIdFromToken(displayToken)) || "";
     }
 
-    const matchId = await getMatchIdFromToken(displayToken);
     if (!matchId) {
-      return new Response("Invalid token", { status: 401, headers: corsHeaders(origin) });
+      return new Response("Missing token or matchId", { status: 400, headers: corsHeaders(origin) });
     }
 
     const { socket, response } = Deno.upgradeWebSocket(req);
@@ -70,11 +96,14 @@ serve(async (req) => {
       if (!rooms.has(matchId)) rooms.set(matchId, new Set());
       rooms.get(matchId)!.add(client);
 
-      socket.send(JSON.stringify({ type: "hello", match_id: matchId, ts: Date.now() }));
+      socket.send(JSON.stringify({
+        type: "hello",
+        match_id: matchId,
+        ts: Date.now(),
+      }));
     };
 
     socket.onmessage = (ev) => {
-      // optional: ping/pong + client ack
       try {
         const msg = JSON.parse(ev.data);
         if (msg?.type === "pong") return;
@@ -95,48 +124,48 @@ serve(async (req) => {
     };
 
     socket.onerror = () => {
-      // will be cleaned by close
+      const set = rooms.get(matchId);
+      if (set) {
+        set.delete(client);
+        if (set.size === 0) rooms.delete(matchId);
+      }
     };
 
     return response;
   }
 
-  // ---- BROADCAST (Operator -> POST) ----
+  // ---- BROADCAST (tv-broadcast -> POST) ----
   if (req.method === "POST") {
     const auth = req.headers.get("authorization") || "";
     if (!auth.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Missing Authorization Bearer" }), {
-        status: 401,
-        headers: { ...corsHeaders(origin), "content-type": "application/json" },
-      });
+      return json({ error: "Missing Authorization Bearer" }, 401, origin);
     }
 
-    // NOTE: ici on ne re-vérifie pas le JWT via GoTrue (pour rester simple),
-    // mais on pourrait le faire (et vérifier org_members) dans tv-broadcast (separate).
-    // Comme tu veux un setup rapide, on fait la vérif “service-only” côté Operator via une clé.
-    // => pour la prod stricte: on split en 2 functions et on valide membership.
     const body = await req.json().catch(() => null);
-    if (!body?.match_id || !body?.type) {
-      return new Response(JSON.stringify({ error: "match_id and type required" }), {
-        status: 400,
-        headers: { ...corsHeaders(origin), "content-type": "application/json" },
-      });
+    if (!body?.match_id) {
+      return json({ error: "match_id required" }, 400, origin);
     }
+
+    const matchId = String(body.match_id).trim();
+    const type = String(body.type || "patch").trim();
+    const payload = body.payload && typeof body.payload === "object" ? body.payload : {};
+    const patch = body.patch && typeof body.patch === "object" ? body.patch : payload;
+    const ts = Number.isFinite(body.ts) ? body.ts : Date.now();
+    const seq = Number.isFinite(body.seq) ? body.seq : 0;
 
     const msg = {
-      match_id: body.match_id,
-      type: body.type,
-      ts: body.ts ?? Date.now(),
-      seq: body.seq ?? 0,
-      payload: body.payload ?? {},
+      match_id: matchId,
+      type,
+      ts,
+      seq,
+      payload,
+      patch,
     };
 
-    broadcast(body.match_id, msg);
+    const sent = broadcast(matchId, msg);
 
-    return new Response(JSON.stringify({ ok: true }), {
-      headers: { ...corsHeaders(origin), "content-type": "application/json" },
-    });
+    return json({ ok: true, sent, rooms: rooms.get(matchId)?.size ?? 0 }, 200, origin);
   }
 
-  return new Response("Not found", { status: 404, headers: corsHeaders(origin) });
+  return json({ error: "Not found" }, 404, origin);
 });
