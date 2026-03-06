@@ -1,102 +1,62 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-type ThemeMode = "light" | "dark";
-type SportKey = "football" | "basket" | "volleyball" | "handball" | "rugby" | string;
+type ThemeMode = "dark" | "light";
+type SportKey = "football" | "basket" | "handball" | "rugby" | "volleyball" | string;
 type MatchStatus = "scheduled" | "live" | "paused" | "finished" | "archived" | string;
 
-type Team = {
+type TeamInfo = {
   name?: string | null;
-  name_alt?: string | null; // dual-language (optionnel)
+  short_name?: string | null;
   logo_url?: string | null;
 };
 
-type Sponsor = {
+type SponsorItem = {
   name: string;
   logo_url?: string | null;
 };
 
-export type DisplayContext = {
-  // match identity / metadata
+export type ScoreboardContext = {
   match_id?: string;
   match_name?: string | null;
   venue?: string | null;
 
-  // sport + status
   sport?: SportKey;
   status?: MatchStatus;
 
-  // teams
-  home?: Team;
-  away?: Team;
+  home?: TeamInfo;
+  away?: TeamInfo;
 
-  // score + time
+  home_name?: string | null;
+  away_name?: string | null;
+
   home_score?: number | null;
   away_score?: number | null;
 
-  // clock in ms remaining or elapsed depending on sport rules; for stadium we just display mm:ss
   clock_ms?: number | null;
   clock_running?: boolean | null;
 
-  // extra
-  period_label?: string | null; // e.g. "MT", "2ème", "Q3", "1ère mi-temps"
-  show_logos?: boolean;
-  show_lower_third?: boolean;
+  period_label?: string | null;
 
-  // stadium enhancements
   theme?: ThemeMode;
   dual_language?: boolean;
-  lang_primary?: "FR" | "EN" | "DE" | "ES" | string;
-  lang_secondary?: "FR" | "EN" | "DE" | "ES" | string;
+  lang_primary?: "FR" | "EN" | string;
+  lang_secondary?: "FR" | "EN" | string;
 
-  sponsors?: Sponsor[];
-  sponsor_rotate_s?: number; // default 10
+  show_lower_third?: boolean;
+  show_logos?: boolean;
 
-  // “pro” display settings (optional)
-  accent?: string; // e.g. "#00D1FF"
+  sponsors?: SponsorItem[];
+  sponsor_rotate_s?: number;
+
+  accent?: string;
 };
 
 type Props = {
-  context: DisplayContext;
+  context: ScoreboardContext;
 };
 
 function clamp(n: number, a: number, b: number) {
   return Math.max(a, Math.min(b, n));
-}
-
-function fmtClock(ms?: number | null) {
-  const mss = typeof ms === "number" && isFinite(ms) ? Math.max(0, Math.floor(ms)) : 0;
-  const s = Math.floor(mss / 1000);
-  const mm = Math.floor(s / 60).toString().padStart(2, "0");
-  const ss = (s % 60).toString().padStart(2, "0");
-  return `${mm}:${ss}`;
-}
-
-function pickText(primary?: string | null, fallback?: string | null) {
-  const a = (primary || "").trim();
-  if (a) return a;
-  const b = (fallback || "").trim();
-  if (b) return b;
-  return "";
-}
-
-function sportLabel(sport?: string) {
-  const k = (sport || "").toLowerCase();
-  if (k === "football") return "Football";
-  if (k === "basket") return "Basket";
-  if (k === "volleyball") return "Volley";
-  if (k === "handball") return "Hand";
-  if (k === "rugby") return "Rugby";
-  return sport || "";
-}
-
-function statusLabel(status?: string) {
-  const k = (status || "").toLowerCase();
-  if (k === "scheduled") return "Préparation";
-  if (k === "live") return "En cours";
-  if (k === "paused") return "Pause";
-  if (k === "finished") return "Terminé";
-  if (k === "archived") return "Archivé";
-  return status || "";
 }
 
 function safeScore(v?: number | null) {
@@ -104,217 +64,232 @@ function safeScore(v?: number | null) {
   return Math.max(0, Math.floor(v));
 }
 
-function useBumpOnChange(value: number, durationMs = 320) {
+function fmtClock(ms?: number | null) {
+  const val = typeof ms === "number" && isFinite(ms) ? Math.max(0, Math.floor(ms)) : 0;
+  const s = Math.floor(val / 1000);
+  const mm = Math.floor(s / 60)
+    .toString()
+    .padStart(2, "0");
+  const ss = (s % 60).toString().padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
+function sportLabel(s?: string) {
+  const v = (s || "").toLowerCase();
+  if (v === "football") return "FOOTBALL";
+  if (v === "basket") return "BASKET";
+  if (v === "handball") return "HANDBALL";
+  if (v === "rugby") return "RUGBY";
+  if (v === "volleyball") return "VOLLEY";
+  return (s || "SPORT").toUpperCase();
+}
+
+function statusLabel(s?: string) {
+  const v = (s || "").toLowerCase();
+  if (v === "scheduled") return "À PRÉPARER";
+  if (v === "live") return "EN COURS";
+  if (v === "paused") return "PAUSE";
+  if (v === "finished") return "TERMINÉ";
+  if (v === "archived") return "ARCHIVÉ";
+  return (s || "LIVE").toUpperCase();
+}
+
+function useBumpOnChange(value: number, duration = 280) {
+  const prev = useRef(value);
   const [bump, setBump] = useState(false);
-  const prevRef = useRef<number>(value);
 
   useEffect(() => {
-    if (prevRef.current !== value) {
-      prevRef.current = value;
+    if (prev.current !== value) {
+      prev.current = value;
       setBump(true);
-      const t = setTimeout(() => setBump(false), durationMs);
+      const t = setTimeout(() => setBump(false), duration);
       return () => clearTimeout(t);
     }
-  }, [value, durationMs]);
+  }, [value, duration]);
 
   return bump;
 }
 
-function TeamBlock({
-  side,
-  team,
-  dual,
-  showLogos,
+function useRotatingSponsor(items: SponsorItem[], seconds: number) {
+  const [idx, setIdx] = useState(0);
+
+  useEffect(() => {
+    if (items.length <= 1) return;
+    const t = setInterval(() => {
+      setIdx((p) => (p + 1) % items.length);
+    }, clamp(seconds, 3, 60) * 1000);
+
+    return () => clearInterval(t);
+  }, [items, seconds]);
+
+  return items.length ? items[idx] : null;
+}
+
+function SegmentDigits({
+  value,
   theme,
+  accent,
+  size = 120,
+  bump = false,
 }: {
-  side: "home" | "away";
-  team: Team | undefined;
-  dual: boolean;
-  showLogos: boolean;
+  value: string;
   theme: ThemeMode;
+  accent: string;
+  size?: number;
+  bump?: boolean;
 }) {
-  const name = pickText(team?.name, side === "home" ? "DOM" : "EXT");
-  const nameAlt = pickText(team?.name_alt, "");
-  const logo = (team?.logo_url || "").trim();
-
-  const textColor = theme === "dark" ? "#F5F7FA" : "#0C1116";
-  const subColor = theme === "dark" ? "rgba(245,247,250,0.75)" : "rgba(12,17,22,0.70)";
-
   return (
     <div
       style={{
-        display: "grid",
-        gridAutoFlow: "column",
-        alignItems: "center",
-        gap: 14,
-        justifyContent: side === "home" ? "start" : "end",
+        fontFamily: `'Courier New', 'Lucida Console', monospace`,
+        fontWeight: 900,
+        letterSpacing: 6,
+        lineHeight: 1,
+        fontSize: size,
+        color: accent,
+        textShadow:
+          theme === "dark"
+            ? `0 0 10px ${accent}, 0 0 24px ${accent}, 0 0 42px rgba(255,255,255,.16)`
+            : `0 0 2px ${accent}`,
+        transform: bump ? "scale(1.06)" : "scale(1)",
+        transition: "transform 180ms ease",
+        userSelect: "none",
       }}
     >
-      {side === "away" && showLogos && logo ? (
-        <img
-          src={logo}
-          alt=""
-          style={{
-            width: 56,
-            height: 56,
-            objectFit: "contain",
-            filter: theme === "dark" ? "drop-shadow(0 6px 18px rgba(0,0,0,0.55))" : "drop-shadow(0 6px 18px rgba(0,0,0,0.25))",
-          }}
-        />
-      ) : null}
-
-      <div style={{ textAlign: side === "home" ? "left" : "right", lineHeight: 1.05 }}>
-        <div
-          style={{
-            fontWeight: 900,
-            letterSpacing: 0.6,
-            fontSize: 34,
-            color: textColor,
-            textTransform: "uppercase",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            maxWidth: 420,
-          }}
-          title={name}
-        >
-          {name}
-        </div>
-
-        {dual && nameAlt ? (
-          <div
-            style={{
-              marginTop: 6,
-              fontWeight: 700,
-              fontSize: 16,
-              color: subColor,
-              textTransform: "uppercase",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              maxWidth: 420,
-            }}
-            title={nameAlt}
-          >
-            {nameAlt}
-          </div>
-        ) : null}
-      </div>
-
-      {side === "home" && showLogos && logo ? (
-        <img
-          src={logo}
-          alt=""
-          style={{
-            width: 56,
-            height: 56,
-            objectFit: "contain",
-            filter: theme === "dark" ? "drop-shadow(0 6px 18px rgba(0,0,0,0.55))" : "drop-shadow(0 6px 18px rgba(0,0,0,0.25))",
-          }}
-        />
-      ) : null}
+      {value}
     </div>
   );
 }
 
-function SponsorStrip({
-  sponsors,
-  rotateS,
+function TeamName({
+  name,
+  logo,
+  align,
   theme,
+  dual,
+  altName,
+  showLogo,
 }: {
-  sponsors: Sponsor[];
-  rotateS: number;
+  name: string;
+  altName?: string;
+  logo?: string | null;
+  align: "left" | "right";
   theme: ThemeMode;
+  dual: boolean;
+  showLogo: boolean;
 }) {
-  const [idx, setIdx] = useState(0);
+  const textColor = theme === "dark" ? "#edf2ff" : "#0f172a";
+  const subColor = theme === "dark" ? "rgba(237,242,255,.72)" : "rgba(15,23,42,.68)";
 
-  useEffect(() => {
-    if (!sponsors.length) return;
-    const ms = clamp(Math.floor(rotateS * 1000), 2000, 60000);
-    const t = setInterval(() => setIdx((p) => (p + 1) % sponsors.length), ms);
-    return () => clearInterval(t);
-  }, [sponsors.length, rotateS]);
+  const block = (
+    <div style={{ textAlign: align }}>
+      <div
+        style={{
+          fontWeight: 900,
+          fontSize: 34,
+          lineHeight: 1.05,
+          color: textColor,
+          textTransform: "uppercase",
+          letterSpacing: 0.8,
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          maxWidth: 360,
+        }}
+        title={name}
+      >
+        {name}
+      </div>
+      {dual && altName ? (
+        <div
+          style={{
+            marginTop: 6,
+            color: subColor,
+            fontSize: 14,
+            fontWeight: 700,
+            textTransform: "uppercase",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            maxWidth: 360,
+          }}
+          title={altName}
+        >
+          {altName}
+        </div>
+      ) : null}
+    </div>
+  );
 
-  if (!sponsors.length) return null;
-  const s = sponsors[idx];
-
-  const bg = theme === "dark" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)";
-  const bd = theme === "dark" ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)";
-  const tx = theme === "dark" ? "#F5F7FA" : "#0C1116";
+  const logoEl =
+    showLogo && logo ? (
+      <img
+        src={logo}
+        alt=""
+        style={{
+          width: 62,
+          height: 62,
+          objectFit: "contain",
+          filter: theme === "dark" ? "drop-shadow(0 8px 22px rgba(0,0,0,.55))" : "drop-shadow(0 6px 16px rgba(0,0,0,.18))",
+        }}
+      />
+    ) : null;
 
   return (
     <div
       style={{
-        display: "grid",
-        gridAutoFlow: "column",
+        display: "flex",
         alignItems: "center",
-        gap: 12,
-        padding: "10px 14px",
-        borderRadius: 999,
-        background: bg,
-        border: `1px solid ${bd}`,
-        maxWidth: 560,
-        justifyContent: "center",
+        justifyContent: align === "left" ? "flex-start" : "flex-end",
+        gap: 14,
       }}
-      title={s.name}
     >
-      {s.logo_url ? (
-        <img src={s.logo_url} alt="" style={{ width: 34, height: 34, objectFit: "contain" }} />
-      ) : null}
-      <div style={{ color: tx, fontWeight: 900, letterSpacing: 0.6, textTransform: "uppercase", fontSize: 14 }}>
-        {s.name}
-      </div>
+      {align === "right" ? logoEl : null}
+      {block}
+      {align === "left" ? logoEl : null}
     </div>
   );
 }
 
 export default function Scoreboard({ context }: Props) {
-  const theme: ThemeMode = (context.theme || "dark") as ThemeMode;
-  const accent = (context.accent || "#00D1FF").trim();
+  const theme: ThemeMode = context.theme === "light" ? "light" : "dark";
+  const accent = (context.accent || "#00d9ff").trim();
 
-  const sport = (context.sport || "football") as SportKey;
-  const status = (context.status || "scheduled") as MatchStatus;
+  const homeName = context.home?.name || context.home_name || "DOMICILE";
+  const awayName = context.away?.name || context.away_name || "EXTÉRIEUR";
 
-  const showLogos = context.show_logos !== false;
-  const showLowerThird = context.show_lower_third !== false;
+  const homeAlt = context.home?.short_name || "";
+  const awayAlt = context.away?.short_name || "";
 
-  const dual = !!context.dual_language;
+  const homeLogo = context.home?.logo_url || null;
+  const awayLogo = context.away?.logo_url || null;
 
   const homeScore = safeScore(context.home_score);
   const awayScore = safeScore(context.away_score);
 
-  const bumpHome = useBumpOnChange(homeScore);
-  const bumpAway = useBumpOnChange(awayScore);
+  const homeBump = useBumpOnChange(homeScore);
+  const awayBump = useBumpOnChange(awayScore);
 
-  const clockStr = useMemo(() => fmtClock(context.clock_ms), [context.clock_ms]);
+  const dual = !!context.dual_language;
+  const showLowerThird = context.show_lower_third !== false;
+  const showLogos = context.show_logos !== false;
+
+  const sponsor = useRotatingSponsor(context.sponsors || [], context.sponsor_rotate_s || 10);
+
+  const bg = theme === "dark" ? "#04070a" : "#f7f8fb";
+  const panel = theme === "dark" ? "rgba(255,255,255,.05)" : "rgba(0,0,0,.04)";
+  const border = theme === "dark" ? "rgba(255,255,255,.12)" : "rgba(0,0,0,.10)";
+  const text = theme === "dark" ? "#edf2ff" : "#0f172a";
+  const sub = theme === "dark" ? "rgba(237,242,255,.72)" : "rgba(15,23,42,.68)";
+
+  const sport = sportLabel(context.sport);
+  const status = statusLabel(context.status);
   const period = (context.period_label || "").trim();
+  const venue = (context.venue || "").trim();
+  const matchName = (context.match_name || `${homeName} vs ${awayName}`).trim();
 
-  const matchTitle = pickText(context.match_name, "Match");
-  const venue = pickText(context.venue, "");
-
-  const sponsors = Array.isArray(context.sponsors) ? context.sponsors : [];
-  const rotateS = typeof context.sponsor_rotate_s === "number" ? context.sponsor_rotate_s : 10;
-
-  // Layout colors
-  const bg = theme === "dark" ? "#05070A" : "#F7F9FC";
-  const panel = theme === "dark" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)";
-  const border = theme === "dark" ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)";
-  const text = theme === "dark" ? "#F5F7FA" : "#0C1116";
-  const sub = theme === "dark" ? "rgba(245,247,250,0.78)" : "rgba(12,17,22,0.70)";
-
-  // Sport-specific “feel”
-  const scoreSeparator = sport.toLowerCase() === "rugby" ? " - " : " : ";
-  const clockLabel =
-    sport.toLowerCase() === "basket"
-      ? "TEMPS"
-      : sport.toLowerCase() === "volleyball"
-      ? "TEMPS"
-      : sport.toLowerCase() === "handball"
-      ? "TEMPS"
-      : "TEMPS";
-
-  const statusChipBg = theme === "dark" ? "rgba(0,209,255,0.14)" : "rgba(0,140,200,0.12)";
-  const statusChipBd = theme === "dark" ? "rgba(0,209,255,0.32)" : "rgba(0,140,200,0.22)";
+  const scoreSeparator = context.sport === "rugby" ? "-" : ":";
+  const clockText = fmtClock(context.clock_ms);
 
   return (
     <div
@@ -325,185 +300,144 @@ export default function Scoreboard({ context }: Props) {
         color: text,
         overflow: "hidden",
         fontFamily:
-          'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji"',
+          'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"',
       }}
     >
       {/* Top bar */}
       <div
         style={{
-          padding: "18px 28px 12px 28px",
+          padding: "18px 24px 12px",
           display: "grid",
           gridTemplateColumns: "1fr auto 1fr",
           alignItems: "center",
-          gap: 16,
+          gap: 18,
         }}
       >
-        <TeamBlock side="home" team={context.home} dual={dual} showLogos={showLogos} theme={theme} />
+        <TeamName
+          name={homeName}
+          altName={homeAlt}
+          logo={homeLogo}
+          align="left"
+          theme={theme}
+          dual={dual}
+          showLogo={showLogos}
+        />
 
-        {/* Center mini-info */}
-        <div style={{ display: "grid", justifyItems: "center", gap: 8 }}>
+        <div style={{ display: "grid", justifyItems: "center", gap: 10 }}>
           <div
             style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 10,
               padding: "8px 14px",
               borderRadius: 999,
               background: panel,
               border: `1px solid ${border}`,
+              fontSize: 15,
+              fontWeight: 900,
+              letterSpacing: 1.1,
             }}
           >
-            <span style={{ fontWeight: 900, letterSpacing: 0.8, textTransform: "uppercase" }}>{sportLabel(sport)}</span>
-            <span style={{ opacity: 0.55 }}>•</span>
-            <span style={{ fontWeight: 800, color: sub }}>{period || statusLabel(status)}</span>
+            {sport} • {period || status}
           </div>
 
-          {sponsors.length ? <SponsorStrip sponsors={sponsors} rotateS={rotateS} theme={theme} /> : null}
+          {sponsor ? (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "8px 14px",
+                borderRadius: 999,
+                background: panel,
+                border: `1px solid ${border}`,
+              }}
+            >
+              {sponsor.logo_url ? (
+                <img src={sponsor.logo_url} alt="" style={{ width: 26, height: 26, objectFit: "contain" }} />
+              ) : null}
+              <span style={{ fontSize: 13, fontWeight: 800, color: sub }}>{sponsor.name}</span>
+            </div>
+          ) : null}
         </div>
 
-        <TeamBlock side="away" team={context.away} dual={dual} showLogos={showLogos} theme={theme} />
+        <TeamName
+          name={awayName}
+          altName={awayAlt}
+          logo={awayLogo}
+          align="right"
+          theme={theme}
+          dual={dual}
+          showLogo={showLogos}
+        />
       </div>
 
-      {/* Main score panel */}
+      {/* Main board */}
       <div
         style={{
-          margin: "0 28px",
-          padding: "26px 28px",
-          borderRadius: 22,
+          margin: "0 24px",
+          height: "calc(100vh - 190px)",
+          minHeight: 420,
+          borderRadius: 26,
           background: panel,
           border: `1px solid ${border}`,
           display: "grid",
           gridTemplateColumns: "1fr auto 1fr",
           alignItems: "center",
-          gap: 24,
-          height: "calc(100vh - 220px)",
-          minHeight: 360,
+          gap: 16,
+          padding: "22px 26px",
+          boxShadow: theme === "dark" ? "0 30px 80px rgba(0,0,0,.45)" : "0 20px 60px rgba(0,0,0,.08)",
         }}
       >
-        {/* Home score */}
-        <div style={{ display: "grid", justifyItems: "center", gap: 16 }}>
-          <div
-            style={{
-              fontSize: 18,
-              fontWeight: 900,
-              letterSpacing: 1.0,
-              textTransform: "uppercase",
-              color: sub,
-            }}
-          >
-            DOM
+        {/* Home */}
+        <div style={{ display: "grid", justifyItems: "center", gap: 12 }}>
+          <div style={{ color: sub, fontWeight: 900, letterSpacing: 1.1 }}>DOM</div>
+          <SegmentDigits value={String(homeScore)} theme={theme} accent={accent} size={180} bump={homeBump} />
+        </div>
+
+        {/* Center */}
+        <div style={{ display: "grid", justifyItems: "center", gap: 18, minWidth: 260 }}>
+          <div style={{ color: sub, fontWeight: 900, fontSize: 54, lineHeight: 1 }}>
+            {scoreSeparator}
           </div>
+
           <div
             style={{
-              fontSize: 180,
-              fontWeight: 950,
-              lineHeight: 0.95,
-              letterSpacing: 1.5,
-              transform: bumpHome ? "scale(1.06)" : "scale(1)",
-              transition: "transform 220ms ease",
-              textShadow: theme === "dark" ? "0 22px 60px rgba(0,0,0,0.65)" : "0 18px 50px rgba(0,0,0,0.20)",
+              padding: "14px 20px",
+              borderRadius: 20,
+              border: `1px solid ${border}`,
+              background: theme === "dark" ? "rgba(0,0,0,.22)" : "rgba(255,255,255,.6)",
+              boxShadow: theme === "dark" ? "0 16px 42px rgba(0,0,0,.48)" : "0 12px 32px rgba(0,0,0,.10)",
+              display: "grid",
+              justifyItems: "center",
+              gap: 8,
             }}
           >
-            {homeScore}
+            <div style={{ color: sub, fontSize: 12, fontWeight: 900, letterSpacing: 1.6 }}>TEMPS</div>
+            <SegmentDigits value={clockText} theme={theme} accent={accent} size={86} />
+          </div>
+
+          <div
+            style={{
+              padding: "8px 14px",
+              borderRadius: 999,
+              border: `1px solid ${border}`,
+              background: panel,
+              fontSize: 13,
+              fontWeight: 900,
+              letterSpacing: 1.1,
+            }}
+          >
+            {status}
+            {context.clock_running ? " • RUN" : " • STOP"}
           </div>
         </div>
 
-        {/* Center: separator + clock */}
-        <div style={{ display: "grid", justifyItems: "center", gap: 18 }}>
-          <div
-            style={{
-              fontSize: 64,
-              fontWeight: 900,
-              color: sub,
-              lineHeight: 1,
-              letterSpacing: 1.4,
-            }}
-          >
-            {scoreSeparator.trim()}
-          </div>
-
-          <div style={{ display: "grid", justifyItems: "center", gap: 8 }}>
-            <div style={{ fontSize: 14, fontWeight: 900, letterSpacing: 1.2, color: sub, textTransform: "uppercase" }}>
-              {clockLabel}
-            </div>
-
-            <div
-              style={{
-                fontSize: 76,
-                fontWeight: 950,
-                letterSpacing: 2.0,
-                padding: "8px 18px",
-                borderRadius: 18,
-                border: `1px solid ${theme === "dark" ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.10)"}`,
-                background: theme === "dark" ? "rgba(0,0,0,0.22)" : "rgba(255,255,255,0.55)",
-                boxShadow: theme === "dark" ? "0 18px 50px rgba(0,0,0,0.55)" : "0 14px 40px rgba(0,0,0,0.12)",
-              }}
-            >
-              {clockStr}
-            </div>
-
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "8px 14px",
-                borderRadius: 999,
-                border: `1px solid ${statusChipBd}`,
-                background: statusChipBg,
-              }}
-            >
-              <span
-                style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: 999,
-                  background: accent,
-                  boxShadow: `0 0 18px ${accent}`,
-                }}
-              />
-              <span style={{ fontWeight: 900, textTransform: "uppercase", letterSpacing: 1.0 }}>
-                {statusLabel(status)}
-              </span>
-              {context.clock_running ? (
-                <span style={{ fontSize: 12, opacity: 0.75 }}>(RUN)</span>
-              ) : (
-                <span style={{ fontSize: 12, opacity: 0.75 }}>(STOP)</span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Away score */}
-        <div style={{ display: "grid", justifyItems: "center", gap: 16 }}>
-          <div
-            style={{
-              fontSize: 18,
-              fontWeight: 900,
-              letterSpacing: 1.0,
-              textTransform: "uppercase",
-              color: sub,
-            }}
-          >
-            EXT
-          </div>
-          <div
-            style={{
-              fontSize: 180,
-              fontWeight: 950,
-              lineHeight: 0.95,
-              letterSpacing: 1.5,
-              transform: bumpAway ? "scale(1.06)" : "scale(1)",
-              transition: "transform 220ms ease",
-              textShadow: theme === "dark" ? "0 22px 60px rgba(0,0,0,0.65)" : "0 18px 50px rgba(0,0,0,0.20)",
-            }}
-          >
-            {awayScore}
-          </div>
+        {/* Away */}
+        <div style={{ display: "grid", justifyItems: "center", gap: 12 }}>
+          <div style={{ color: sub, fontWeight: 900, letterSpacing: 1.1 }}>EXT</div>
+          <SegmentDigits value={String(awayScore)} theme={theme} accent={accent} size={180} bump={awayBump} />
         </div>
       </div>
 
-      {/* Lower-third */}
+      {/* Lower third */}
       {showLowerThird ? (
         <div
           style={{
@@ -511,79 +445,65 @@ export default function Scoreboard({ context }: Props) {
             left: 18,
             right: 18,
             bottom: 18,
+            borderRadius: 18,
+            background: theme === "dark" ? "rgba(0,0,0,.44)" : "rgba(255,255,255,.72)",
+            border: `1px solid ${border}`,
+            backdropFilter: "blur(10px)",
             display: "grid",
             gridTemplateColumns: "1fr auto",
             alignItems: "center",
-            gap: 14,
+            gap: 16,
             padding: "14px 16px",
-            borderRadius: 18,
-            background: theme === "dark" ? "rgba(0,0,0,0.45)" : "rgba(255,255,255,0.70)",
-            border: `1px solid ${theme === "dark" ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.10)"}`,
-            backdropFilter: "blur(10px)",
           }}
         >
-          <div style={{ display: "grid", gap: 6 }}>
+          <div style={{ minWidth: 0 }}>
             <div
               style={{
                 fontSize: 18,
-                fontWeight: 950,
-                letterSpacing: 0.4,
+                fontWeight: 900,
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
               }}
-              title={matchTitle}
+              title={matchName}
             >
-              {matchTitle}
+              {matchName}
             </div>
-
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", color: sub, fontSize: 13 }}>
-              {venue ? <span>📍 {venue}</span> : null}
-              <span style={{ opacity: 0.55 }}>•</span>
-              <span>{sportLabel(sport)}</span>
-              <span style={{ opacity: 0.55 }}>•</span>
-              <span>{statusLabel(status)}</span>
-              {period ? (
-                <>
-                  <span style={{ opacity: 0.55 }}>•</span>
-                  <span>{period}</span>
-                </>
-              ) : null}
+            <div style={{ marginTop: 4, color: sub, fontSize: 13 }}>
+              {venue ? `📍 ${venue} • ` : ""}
+              {sport} • {status}
+              {period ? ` • ${period}` : ""}
             </div>
           </div>
 
-          {/* right chips */}
-          <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "end", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             {dual ? (
-              <div
+              <span
                 style={{
-                  padding: "8px 12px",
+                  padding: "7px 10px",
                   borderRadius: 999,
-                  border: `1px solid ${border}`,
                   background: panel,
-                  fontWeight: 900,
-                  letterSpacing: 1.0,
-                  textTransform: "uppercase",
+                  border: `1px solid ${border}`,
                   fontSize: 12,
+                  fontWeight: 900,
                 }}
               >
                 {(context.lang_primary || "FR") + "/" + (context.lang_secondary || "EN")}
-              </div>
+              </span>
             ) : null}
-            <div
+
+            <span
               style={{
-                padding: "8px 12px",
+                padding: "7px 10px",
                 borderRadius: 999,
-                border: `1px solid ${border}`,
                 background: panel,
-                fontWeight: 900,
-                letterSpacing: 1.0,
-                textTransform: "uppercase",
+                border: `1px solid ${border}`,
                 fontSize: 12,
+                fontWeight: 900,
               }}
             >
-              Stadium Mode
-            </div>
+              LED STADIUM
+            </span>
           </div>
         </div>
       ) : null}
