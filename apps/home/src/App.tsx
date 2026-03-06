@@ -1,754 +1,444 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { supabase } from "./supabase";
 
-type OrgStatus = "active" | "suspended" | "archived" | string;
+type MemberRow = {
+  role: string | null;
+  orgs: {
+    id: string;
+    slug: string;
+    name: string | null;
+    status: string | null;
+    sport: string | null; // ✅ DB = orgs.sport
+  } | null;
+};
 
-type OrgRow = {
+type OrgView = {
   id: string;
   slug: string;
   name: string;
-  status: OrgStatus | null;
-  sport: string | null;
+  status: "active" | "suspended" | "archived" | "unknown";
+  sport: string;
+  role: string;
 };
 
-type OrgMemberRow = {
-  role: string | null;
-  orgs: OrgRow; // join
-};
+function getEnv(name: string): string {
+  const v = (import.meta as any).env?.[name];
+  return typeof v === "string" ? v : "";
+}
 
-type SessionTokens = {
-  access_token: string;
-  refresh_token: string;
-};
-
-const LS_THEME_KEY = "scoreDisplay.theme";
-const LS_ACTIVE_ORG_KEY = "scoreDisplay.activeOrgSlug";
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-
-const ADMIN_URL = import.meta.env.VITE_ADMIN_URL as string | undefined;
-const OPERATOR_URL = import.meta.env.VITE_OPERATOR_URL as string | undefined;
-const DISPLAY_URL = import.meta.env.VITE_DISPLAY_URL as string | undefined;
-
-function mustEnv(name: string, v?: string) {
-  if (!v) throw new Error(`${name} is required`);
+function normalizeSport(s: any): string {
+  const v = String(s || "").trim().toLowerCase();
+  if (!v) return "unknown";
+  // on garde les slugs existants côté DB
+  if (["football", "basket", "handball", "volleyball", "rugby"].includes(v)) return v;
   return v;
 }
 
-function safeBaseUrl(url: string) {
-  return url.replace(/\/+$/, "");
+function normalizeStatus(s: any): OrgView["status"] {
+  const v = String(s || "").trim().toLowerCase();
+  if (v === "active" || v === "suspended" || v === "archived") return v;
+  return "unknown";
 }
 
-function getThemeFromStorage(): "dark" | "light" {
-  const t = (localStorage.getItem(LS_THEME_KEY) || "dark").toLowerCase();
-  return t === "light" ? "light" : "dark";
-}
-
-function applyTheme(t: "dark" | "light") {
-  document.documentElement.dataset.theme = t;
-  localStorage.setItem(LS_THEME_KEY, t);
-}
-
-function redirectWithSession(baseUrl: string, tokens: SessionTokens, path: string) {
-  const base = safeBaseUrl(baseUrl);
-  const p = path.startsWith("/") ? path : `/${path}`;
-
-  // handoff via hash (comme OAuth)
-  const hash = new URLSearchParams({
-    access_token: tokens.access_token,
-    refresh_token: tokens.refresh_token,
-    token_type: "bearer",
-  }).toString();
-
-  window.location.href = `${base}${p}#${hash}`;
-}
-
-async function isSuperAdminRPC(supabase: SupabaseClient, userId: string): Promise<boolean> {
-  // On tente plusieurs signatures (p_uid / p_user) pour éviter les collisions de nom.
-  const tries: Array<Record<string, any>> = [{ p_uid: userId }, { p_user: userId }, { user_id: userId }];
-  for (const args of tries) {
-    const { data, error } = await supabase.rpc("is_super_admin", args);
-    if (!error) return Boolean(data);
+function labelSport(s: string) {
+  switch (s) {
+    case "football":
+      return "football";
+    case "basket":
+      return "basket";
+    case "handball":
+      return "handball";
+    case "volleyball":
+      return "volleyball";
+    case "rugby":
+      return "rugby";
+    default:
+      return s || "unknown";
   }
-  return false;
+}
+
+function statusBadge(s: OrgView["status"]) {
+  if (s === "active") return { text: "Active", dot: "🟢" };
+  if (s === "suspended") return { text: "Suspendue", dot: "🟠" };
+  if (s === "archived") return { text: "Archivée", dot: "⚫" };
+  return { text: "Inconnu", dot: "⚪" };
 }
 
 export default function App() {
-  const [theme, setTheme] = useState<"dark" | "light">(getThemeFromStorage());
+  const operatorUrl = getEnv("VITE_OPERATOR_URL");
+  const adminUrl = getEnv("VITE_ADMIN_URL");
+  const displayUrl = getEnv("VITE_DISPLAY_URL");
 
-  const supabase = useMemo(() => {
-    const url = mustEnv("VITE_SUPABASE_URL", SUPABASE_URL);
-    const anon = mustEnv("VITE_SUPABASE_ANON_KEY", SUPABASE_ANON_KEY);
-    return createClient(url, anon);
-  }, []);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [userEmail, setUserEmail] = useState<string>("");
+  const [email, setEmail] = useState("orgadmin@demo.local");
+  const [password, setPassword] = useState("admin123");
 
-  const [booting, setBooting] = useState(true);
-  const [sessionEmail, setSessionEmail] = useState<string | null>(null);
-  const [sessionTokens, setSessionTokens] = useState<SessionTokens | null>(null);
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
 
-  const [orgRows, setOrgRows] = useState<
-    Array<{ org: OrgRow; role: string | null }>
-  >([]);
-  const [loadingOrgs, setLoadingOrgs] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loggingIn, setLoggingIn] = useState(false);
-
+  const [orgs, setOrgs] = useState<OrgView[]>([]);
   const [q, setQ] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"active" | "all" | "active+archived">("active");
+  const [statusFilter, setStatusFilter] = useState<"active" | "suspended" | "archived" | "all">("active");
   const [sportFilter, setSportFilter] = useState<string>("all");
 
-  const forceLogin = useMemo(() => {
-    const p = new URLSearchParams(window.location.search);
-    return p.get("forceLogin") === "1";
+  // thème ultra simple (clair/sombre)
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    const saved = localStorage.getItem("scoreDisplay.theme");
+    return saved === "light" ? "light" : "dark";
+  });
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("scoreDisplay.theme", theme);
+  }, [theme]);
+
+  // force login
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("forceLogin") === "1") {
+      supabase.auth.signOut().finally(() => {
+        url.searchParams.delete("forceLogin");
+        window.history.replaceState({}, "", url.toString());
+        setSessionReady(true);
+      });
+      return;
+    }
+    setSessionReady(true);
   }, []);
 
   useEffect(() => {
-    applyTheme(theme);
-  }, [theme]);
+    if (!sessionReady) return;
 
-  useEffect(() => {
-    let cancelled = false;
+    let alive = true;
 
-    async function bootstrap() {
-      setError(null);
-      setBooting(true);
-
+    async function init() {
       const { data } = await supabase.auth.getSession();
-      const session = data.session;
-
-      if (!session || forceLogin) {
-        if (!cancelled) {
-          setSessionEmail(null);
-          setSessionTokens(null);
-          setIsSuperAdmin(false);
-          setOrgRows([]);
-          setBooting(false);
-        }
-        return;
-      }
-
-      const user = session.user;
-      const tokens: SessionTokens = {
-        access_token: session.access_token,
-        refresh_token: session.refresh_token,
-      };
-
-      const sa = await isSuperAdminRPC(supabase, user.id);
-
-      if (cancelled) return;
-
-      setSessionEmail(user.email || user.id);
-      setSessionTokens(tokens);
-      setIsSuperAdmin(sa);
-
-      await loadOrgs(sa, user.id);
-
-      if (!cancelled) setBooting(false);
+      const u = data.session?.user ?? null;
+      if (!alive) return;
+      setUserEmail(u?.email || "");
     }
 
-    async function loadOrgs(sa: boolean, userId: string) {
-      setLoadingOrgs(true);
-      setError(null);
+    init();
 
-      try {
-        if (sa) {
-          // Super admin: liste toutes les orgs (RLS via helpers)
-          const { data, error } = await supabase
-            .from("orgs")
-            .select("id,slug,name,status,sport")
-            .order("name", { ascending: true });
-
-          if (error) throw error;
-
-          const rows = (data || []).map((o: any) => ({
-            org: o as OrgRow,
-            role: "super_admin",
-          }));
-
-          setOrgRows(rows);
-        } else {
-          // Utilisateur normal: via org_members join orgs(...)
-          const { data, error } = await supabase
-            .from("org_members")
-            .select("role, orgs(id,slug,name,status,sport)")
-            .eq("user_id", userId);
-
-          if (error) throw error;
-
-          const rows = ((data || []) as any[]).map((r) => ({
-            role: r.role ?? null,
-            org: r.orgs as OrgRow,
-          }));
-
-          setOrgRows(rows);
-        }
-      } catch (e: any) {
-        setOrgRows([]);
-        setError(e?.message || "Erreur chargement organisations");
-      } finally {
-        setLoadingOrgs(false);
-      }
-    }
-
-    bootstrap();
-
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      // si token refresh etc.
-      if (!session) return;
-      setSessionEmail(session.user?.email || session.user?.id || null);
-      setSessionTokens({
-        access_token: session.access_token,
-        refresh_token: session.refresh_token,
-      });
+    const { data: sub } = supabase.auth.onAuthStateChange((_evt, s) => {
+      setUserEmail(s?.user?.email || "");
     });
 
     return () => {
-      cancelled = true;
+      alive = false;
       sub.subscription.unsubscribe();
     };
-  }, [supabase, forceLogin]);
+  }, [sessionReady]);
 
-  const sports = useMemo(() => {
-    const set = new Set<string>();
-    for (const r of orgRows) {
-      const s = (r.org.sport || "").trim();
-      if (s) set.add(s);
-    }
-    return Array.from(set).sort();
-  }, [orgRows]);
+  const isLoggedIn = !!userEmail;
 
-  const stats = useMemo(() => {
-    const total = orgRows.length;
-    let active = 0;
-    let suspended = 0;
-    let archived = 0;
-
-    for (const r of orgRows) {
-      const st = ((r.org.status || "active") + "").toLowerCase();
-      if (st === "active") active++;
-      else if (st === "suspended") suspended++;
-      else if (st === "archived") archived++;
-    }
-    return { total, active, suspended, archived };
-  }, [orgRows]);
-
-  const filtered = useMemo(() => {
-    const qq = q.trim().toLowerCase();
-
-    return orgRows
-      .filter((r) => {
-        const o = r.org;
-        const status = ((o.status || "active") + "").toLowerCase();
-
-        if (statusFilter === "active" && status !== "active") return false;
-        if (statusFilter === "active+archived" && !(status === "active" || status === "archived")) return false;
-
-        if (sportFilter !== "all") {
-          const s = (o.sport || "").trim();
-          if (s !== sportFilter) return false;
-        }
-
-        if (!qq) return true;
-        const hay = `${o.slug} ${o.name || ""} ${o.sport || ""} ${r.role || ""}`.toLowerCase();
-        return hay.includes(qq);
-      })
-      .sort((a, b) => a.org.name.localeCompare(b.org.name));
-  }, [orgRows, q, statusFilter, sportFilter]);
-
-  async function doLogin(e: React.FormEvent) {
+  async function login(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
-    setLoggingIn(true);
-
+    setErr("");
+    setLoading(true);
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-
-      // reload hard: pour repartir proprement sur bootstrap()
-      window.location.href = window.location.origin + "/";
-    } catch (e: any) {
-      setError(e?.message || "Erreur login");
+    } catch (ex: any) {
+      setErr(ex?.message || "Erreur de connexion.");
     } finally {
-      setLoggingIn(false);
+      setLoading(false);
     }
   }
 
   async function logout() {
-    setError(null);
     await supabase.auth.signOut();
-    setSessionEmail(null);
-    setSessionTokens(null);
-    setIsSuperAdmin(false);
-    setOrgRows([]);
-    // force refresh
-    window.location.href = window.location.origin + "/?forceLogin=1";
   }
 
-  function toggleTheme() {
-    setTheme((t) => (t === "dark" ? "light" : "dark"));
+  async function loadOrgs() {
+    setErr("");
+    setLoading(true);
+    try {
+      const { data: s } = await supabase.auth.getSession();
+      const uid = s.session?.user?.id;
+      if (!uid) {
+        setOrgs([]);
+        setLoading(false);
+        return;
+      }
+
+      // ✅ IMPORTANT : on sélectionne orgs.sport (PAS org_sport)
+      const { data, error } = await supabase
+        .from("org_members")
+        .select("role, orgs(id, slug, name, status, sport)")
+        .eq("user_id", uid);
+
+      if (error) throw error;
+
+      const rows = (data || []) as MemberRow[];
+      const mapped: OrgView[] = rows
+        .filter((r) => r.orgs && r.orgs.slug)
+        .map((r) => ({
+          id: r.orgs!.id,
+          slug: r.orgs!.slug,
+          name: (r.orgs!.name || r.orgs!.slug) as string,
+          status: normalizeStatus(r.orgs!.status),
+          sport: normalizeSport(r.orgs!.sport),
+          role: (r.role || "member") as string,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      setOrgs(mapped);
+    } catch (ex: any) {
+      setOrgs([]);
+      setErr(ex?.message || "Erreur lors du chargement des organisations.");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function openAdmin() {
-    if (!ADMIN_URL) return setError("VITE_ADMIN_URL non configurée.");
-    if (!sessionTokens) return setError("Session absente, reconnecte-toi.");
-    redirectWithSession(ADMIN_URL, sessionTokens, "/");
-  }
+  useEffect(() => {
+    if (isLoggedIn) loadOrgs();
+    else setOrgs([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoggedIn]);
+
+  const filtered = useMemo(() => {
+    const qq = q.trim().toLowerCase();
+    return orgs.filter((o) => {
+      if (statusFilter !== "all" && o.status !== statusFilter) return false;
+      if (sportFilter !== "all" && o.sport !== sportFilter) return false;
+      if (!qq) return true;
+      return (
+        o.slug.toLowerCase().includes(qq) ||
+        o.name.toLowerCase().includes(qq) ||
+        o.role.toLowerCase().includes(qq) ||
+        o.sport.toLowerCase().includes(qq)
+      );
+    });
+  }, [orgs, q, statusFilter, sportFilter]);
+
+  const stats = useMemo(() => {
+    const active = orgs.filter((o) => o.status === "active").length;
+    const suspended = orgs.filter((o) => o.status === "suspended").length;
+    const archived = orgs.filter((o) => o.status === "archived").length;
+    return { total: orgs.length, active, suspended, archived };
+  }, [orgs]);
 
   function openOperator(orgSlug: string) {
-    if (!OPERATOR_URL) return setError("VITE_OPERATOR_URL non configurée.");
-    if (!sessionTokens) return setError("Session absente, reconnecte-toi.");
-
-    localStorage.setItem(LS_ACTIVE_ORG_KEY, orgSlug);
-
-    // On passe l'org en querystring (Operator ne doit plus picker)
-    const path = `/?org=${encodeURIComponent(orgSlug)}`;
-    redirectWithSession(OPERATOR_URL, sessionTokens, path);
+    if (!operatorUrl) {
+      alert("VITE_OPERATOR_URL manquant côté Home.");
+      return;
+    }
+    const url = new URL(operatorUrl);
+    url.searchParams.set("org", orgSlug);
+    window.location.href = url.toString();
   }
 
-  function openDisplay() {
-    const url = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-    if (!DISPLAY_URL) return setError("VITE_DISPLAY_URL non configurée.");
-    window.location.href = `${safeBaseUrl(DISPLAY_URL)}/${url.replace(/^\//, "")}`;
-  }
+  // style minimal (tu peux remplacer par ton CSS)
+  const bg =
+    theme === "dark"
+      ? "radial-gradient(1200px 600px at 30% 0%, #1b2430 0%, #0b0f14 45%, #06080b 100%)"
+      : "linear-gradient(180deg, #f7f8fb 0%, #eef1f6 55%, #e9edf5 100%)";
 
-  // --- UI states ---
-  if (booting) {
-    return (
-      <Shell theme={theme}>
-        <div style={{ maxWidth: 980, margin: "0 auto", padding: 22 }}>
-          <TopBar
-            theme={theme}
-            toggleTheme={toggleTheme}
-            isSuperAdmin={false}
-            openAdmin={() => {}}
-            openDisplay={openDisplay}
-            sessionEmail={null}
-            logout={logout}
-          />
-          <div style={ui.card}>Chargement…</div>
+  const card =
+    theme === "dark"
+      ? { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#e7eefc" }
+      : { background: "rgba(255,255,255,0.75)", border: "1px solid rgba(0,0,0,0.08)", color: "#0c1420" };
+
+  const subtle = theme === "dark" ? "rgba(255,255,255,0.65)" : "rgba(0,0,0,0.65)";
+
+  return (
+    <div style={{ minHeight: "100vh", padding: 24, background: bg, color: card.color as any }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: 0.2 }}>scoreDisplay</div>
+          <div style={{ fontSize: 12, opacity: 0.8 }}>
+            Hub d’accès — session persistée • forcer la page login : <code>?forceLogin=1</code>
+          </div>
         </div>
-      </Shell>
-    );
-  }
 
-  // Login screen
-  if (!sessionEmail || !sessionTokens) {
-    return (
-      <Shell theme={theme}>
-        <div style={{ maxWidth: 980, margin: "0 auto", padding: 22 }}>
-          <TopBar
-            theme={theme}
-            toggleTheme={toggleTheme}
-            isSuperAdmin={false}
-            openAdmin={() => {}}
-            openDisplay={openDisplay}
-            sessionEmail={null}
-            logout={logout}
-          />
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <button
+            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+            style={{ padding: "10px 12px", borderRadius: 12 }}
+          >
+            {theme === "dark" ? "☀️ Clair" : "🌙 Sombre"}
+          </button>
 
-          <div style={{ display: "grid", gap: 14 }}>
-            <div style={ui.hero}>
-              <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: -0.5 }}>scoreDisplay</div>
-              <div style={{ marginTop: 6, color: "var(--muted)" }}>
-                Hub d’accès (Home) — connexion unique pour accéder à <b>Operator</b>, <b>Admin</b> et <b>Display</b>.
+          {displayUrl ? (
+            <a href={displayUrl} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+              <button style={{ padding: "10px 12px", borderRadius: 12 }}>🖥️ Display</button>
+            </a>
+          ) : null}
+
+          {isLoggedIn ? (
+            <button onClick={logout} style={{ padding: "10px 12px", borderRadius: 12 }}>
+              Se déconnecter
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {/* LOGIN */}
+      {!isLoggedIn ? (
+        <div style={{ marginTop: 18, maxWidth: 520, ...card, borderRadius: 16, padding: 16 }}>
+          <h2 style={{ margin: 0 }}>Connexion</h2>
+          <p style={{ marginTop: 8, color: subtle as any }}>
+            Connecte-toi pour accéder à tes organisations, puis ouvre l’espace Operator correspondant.
+          </p>
+
+          {err ? (
+            <div style={{ marginTop: 10, padding: 10, borderRadius: 12, background: "rgba(220,38,38,0.12)", color: "#ff7b7b" }}>
+              {err}
+            </div>
+          ) : null}
+
+          <form onSubmit={login} style={{ display: "grid", gap: 10, marginTop: 12 }}>
+            <label style={{ display: "grid", gap: 6 }}>
+              <span style={{ fontSize: 12, opacity: 0.8 }}>Email</span>
+              <input value={email} onChange={(e) => setEmail(e.target.value)} style={{ padding: 10, borderRadius: 12 }} />
+            </label>
+
+            <label style={{ display: "grid", gap: 6 }}>
+              <span style={{ fontSize: 12, opacity: 0.8 }}>Mot de passe</span>
+              <input
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                type="password"
+                style={{ padding: 10, borderRadius: 12 }}
+              />
+            </label>
+
+            <button disabled={loading} style={{ padding: 12, borderRadius: 12, fontWeight: 800 }}>
+              {loading ? "Connexion..." : "Se connecter"}
+            </button>
+          </form>
+
+          <div style={{ marginTop: 10, fontSize: 12, color: subtle as any }}>
+            Astuce : si tu es coincé par une ancienne session → ouvre <code>/?forceLogin=1</code>.
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* HEADER CONNECTE */}
+          <div style={{ marginTop: 18, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+            <div style={{ fontSize: 13, color: subtle as any }}>
+              connecté : <b>{userEmail}</b>
+            </div>
+
+            {adminUrl ? (
+              <a href={adminUrl} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+                <button style={{ padding: "10px 12px", borderRadius: 12 }}>⚙️ Admin</button>
+              </a>
+            ) : null}
+          </div>
+
+          {/* STATS */}
+          <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+            <div style={{ ...card, borderRadius: 16, padding: 14 }}>
+              <div style={{ fontSize: 12, opacity: 0.8 }}>Organisations</div>
+              <div style={{ fontSize: 28, fontWeight: 900 }}>{stats.total}</div>
+              <div style={{ fontSize: 12, color: subtle as any }}>
+                actives {stats.active} • suspendues {stats.suspended} • archivées {stats.archived}
               </div>
             </div>
 
-            <div style={ui.grid2}>
-              <div style={ui.card}>
-                <h2 style={{ marginTop: 0 }}>Connexion</h2>
-
-                {error ? <div style={ui.err}>Erreur : {error}</div> : null}
-
-                <form onSubmit={doLogin} style={{ display: "grid", gap: 10 }}>
-                  <label style={{ display: "grid", gap: 6 }}>
-                    <span style={ui.small}>Email</span>
-                    <input style={ui.input} value={email} onChange={(e) => setEmail(e.target.value)} />
-                  </label>
-
-                  <label style={{ display: "grid", gap: 6 }}>
-                    <span style={ui.small}>Mot de passe</span>
-                    <input
-                      style={ui.input}
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                    />
-                  </label>
-
-                  <button style={ui.btnPrimary} type="submit" disabled={loggingIn}>
-                    {loggingIn ? "Connexion…" : "Se connecter"}
-                  </button>
-
-                  <div style={ui.small}>
-                    Astuce : pour forcer cet écran, ouvre{" "}
-                    <code style={ui.code}>{safeBaseUrl(window.location.origin)}/?forceLogin=1</code>
-                  </div>
-                </form>
+            <div style={{ ...card, borderRadius: 16, padding: 14 }}>
+              <div style={{ fontSize: 12, opacity: 0.8 }}>Mode d’emploi rapide</div>
+              <div style={{ fontSize: 12, lineHeight: 1.5, color: subtle as any, marginTop: 8 }}>
+                1) Choisis une organisation<br />
+                2) Clique <b>Ouvrir</b> → espace <b>Operator</b><br />
+                3) Dans Operator, gère les matchs et ouvre les Displays publics.
               </div>
+            </div>
 
-              <div style={ui.card}>
-                <h2 style={{ marginTop: 0 }}>Mode d’emploi (1 min)</h2>
-                <ol style={{ margin: 0, paddingLeft: 18, color: "var(--text)" }}>
-                  <li style={{ marginBottom: 8 }}>
-                    Connecte-toi avec ton compte <b>org_admin</b> / <b>operator</b> / <b>super_admin</b>.
-                  </li>
-                  <li style={{ marginBottom: 8 }}>
-                    Sélectionne une <b>organisation</b> (club / ville / structure).
-                  </li>
-                  <li style={{ marginBottom: 8 }}>
-                    Tu arrives dans <b>Operator</b> pour gérer les matchs, le live, et les liens Display.
-                  </li>
-                  <li>
-                    Si tu es <b>super_admin</b>, tu peux aussi ouvrir la console <b>Admin</b> (gestion orgs/membres).
-                  </li>
-                </ol>
-
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
-                  <div style={{ fontWeight: 800, marginBottom: 6 }}>Vérifs rapides</div>
-                  <div style={ui.small}>
-                    - VITE_SUPABASE_URL : {SUPABASE_URL ? "OK" : "MANQUANT"} <br />
-                    - VITE_SUPABASE_ANON_KEY : {SUPABASE_ANON_KEY ? "OK" : "MANQUANT"} <br />
-                    - VITE_OPERATOR_URL : {OPERATOR_URL ? "OK" : "MANQUANT"} <br />
-                    - VITE_ADMIN_URL : {ADMIN_URL ? "OK" : "MANQUANT"} <br />
-                    - VITE_DISPLAY_URL : {DISPLAY_URL ? "OK" : "MANQUANT"} <br />
-                  </div>
-                </div>
+            <div style={{ ...card, borderRadius: 16, padding: 14 }}>
+              <div style={{ fontSize: 12, opacity: 0.8 }}>Conseil démo</div>
+              <div style={{ fontSize: 12, lineHeight: 1.5, color: subtle as any, marginTop: 8 }}>
+                Prépare 1 match “scheduled” + 1 display public + lance la TV (stadium mode).
               </div>
             </div>
           </div>
-        </div>
-      </Shell>
-    );
-  }
 
-  // Logged-in view: org picker
-  return (
-    <Shell theme={theme}>
-      <div style={{ maxWidth: 1080, margin: "0 auto", padding: 22 }}>
-        <TopBar
-          theme={theme}
-          toggleTheme={toggleTheme}
-          isSuperAdmin={isSuperAdmin}
-          openAdmin={openAdmin}
-          openDisplay={openDisplay}
-          sessionEmail={sessionEmail}
-          logout={logout}
-        />
+          {/* FILTRES */}
+          <div style={{ marginTop: 14, ...card, borderRadius: 16, padding: 12 }}>
+            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Recherche org (slug / nom / sport / rôle)…"
+                style={{ flex: 1, minWidth: 260, padding: 12, borderRadius: 12 }}
+              />
 
-        {error ? <div style={{ ...ui.card, borderColor: "rgba(239,68,68,.5)" }}>{uiErrorBox(error)}</div> : null}
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} style={{ padding: 12, borderRadius: 12 }}>
+                <option value="active">Actives</option>
+                <option value="suspended">Suspendues</option>
+                <option value="archived">Archivées</option>
+                <option value="all">Tous statuts</option>
+              </select>
 
-        <div style={ui.kpis}>
-          <KPI title="Organisations" value={stats.total} sub={`actives ${stats.active} • suspendues ${stats.suspended} • archivées ${stats.archived}`} />
-          <KPI title="Sports" value={sports.length} sub={sports.length ? sports.join(" • ") : "—"} />
-          <KPI title="Rôle" value={isSuperAdmin ? "super_admin" : "membre"} sub={isSuperAdmin ? "accès global" : "accès limité à tes orgs"} />
-        </div>
+              <select value={sportFilter} onChange={(e) => setSportFilter(e.target.value)} style={{ padding: 12, borderRadius: 12 }}>
+                <option value="all">Tous sports</option>
+                <option value="football">Football</option>
+                <option value="basket">Basket</option>
+                <option value="handball">Handball</option>
+                <option value="rugby">Rugby</option>
+                <option value="volleyball">Volley</option>
+              </select>
 
-        <div style={ui.filters}>
-          <input
-            style={{ ...ui.input, flex: 1 }}
-            placeholder="Recherche org (slug / nom / sport / rôle)…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-
-          <select style={ui.select} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)}>
-            <option value="active">Actives</option>
-            <option value="active+archived">Actives + archivées</option>
-            <option value="all">Toutes</option>
-          </select>
-
-          <select style={ui.select} value={sportFilter} onChange={(e) => setSportFilter(e.target.value)}>
-            <option value="all">Tous sports</option>
-            {sports.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-
-          <div style={{ color: "var(--muted)", fontSize: 12 }}>{filtered.length} org(s)</div>
-        </div>
-
-        <div style={{ marginTop: 14 }}>
-          <h2 style={{ margin: "14px 0 10px" }}>Organisations</h2>
-
-          {loadingOrgs ? (
-            <div style={ui.card}>Chargement des organisations…</div>
-          ) : filtered.length === 0 ? (
-            <div style={ui.card}>
-              Aucune organisation.
-              <div style={{ marginTop: 8, color: "var(--muted)", fontSize: 12 }}>
-                Si tu es super_admin, vérifie que la RLS autorise bien <code style={ui.code}>select</code> sur <code style={ui.code}>orgs</code>.
-              </div>
+              <div style={{ fontSize: 12, opacity: 0.8 }}>{filtered.length} org(s)</div>
             </div>
-          ) : (
-            <div style={{ display: "grid", gap: 12 }}>
-              {filtered.map((r) => {
-                const o = r.org;
-                const st = ((o.status || "active") + "").toLowerCase();
-                const badge = st === "active" ? "Active" : st === "suspended" ? "Suspendue" : st === "archived" ? "Archivée" : st;
+          </div>
 
-                return (
-                  <div key={o.id} style={ui.orgCard}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                        <div style={{ fontWeight: 900, fontSize: 16, letterSpacing: -0.3, minWidth: 0 }}>
-                          {o.name}
+          {/* LISTE ORGS */}
+          <div style={{ marginTop: 14 }}>
+            <h2 style={{ margin: 0 }}>Organisations</h2>
+            {err ? (
+              <div style={{ marginTop: 10, padding: 12, borderRadius: 14, background: "rgba(220,38,38,0.12)", color: "#ff7b7b" }}>
+                Erreur : {err}
+              </div>
+            ) : null}
+
+            {loading ? (
+              <div style={{ marginTop: 12, opacity: 0.9 }}>Chargement des organisations …</div>
+            ) : filtered.length === 0 ? (
+              <div style={{ marginTop: 12, ...card, borderRadius: 16, padding: 12 }}>Aucune organisation.</div>
+            ) : (
+              <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                {filtered.map((o) => {
+                  const sb = statusBadge(o.status);
+                  return (
+                    <div
+                      key={o.id}
+                      style={{
+                        ...card,
+                        borderRadius: 16,
+                        padding: 14,
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        alignItems: "center",
+                      }}
+                    >
+                      <div style={{ display: "grid", gap: 4 }}>
+                        <div style={{ fontSize: 16, fontWeight: 900 }}>{o.name}</div>
+                        <div style={{ fontSize: 12, color: subtle as any }}>
+                          {o.slug} • {sb.dot} {sb.text} • ✍️ {labelSport(o.sport)} • rôle: {o.role}
                         </div>
-                        <span style={ui.badge}>{o.slug}</span>
-                        <span style={ui.badgeSoft}>{badge}</span>
-                        {o.sport ? <span style={ui.badgeSoft}>🏷 {o.sport}</span> : null}
                       </div>
 
-                      <div style={{ marginTop: 6, color: "var(--muted)", fontSize: 12 }}>
-                        Rôle : <b>{r.role || (isSuperAdmin ? "super_admin" : "member")}</b>
-                        {st !== "active" ? (
-                          <span style={{ marginLeft: 10 }}>
-                            • org en mode {st === "archived" ? "read-only" : "restreint"}
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                      <button
-                        style={ui.btnPrimary}
-                        onClick={() => openOperator(o.slug)}
-                        title="Ouvrir cette organisation dans Operator"
-                      >
+                      <button onClick={() => openOperator(o.slug)} style={{ padding: "10px 14px", borderRadius: 12, fontWeight: 800 }}>
                         Ouvrir
                       </button>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
+            )}
+
+            <div style={{ marginTop: 10, fontSize: 12, color: subtle as any }}>
+              Astuce : forcer l’écran de login → <code>https://scoreboard-home.vercel.app/?forceLogin=1</code>
             </div>
-          )}
-
-          <div style={{ marginTop: 14, color: "var(--muted)", fontSize: 12 }}>
-            Astuce : si tu veux toujours voir l’écran login → <code style={ui.code}>?forceLogin=1</code>
           </div>
-        </div>
-      </div>
-    </Shell>
-  );
-}
-
-/* ---------------- UI Components ---------------- */
-
-function uiErrorBox(msg: string) {
-  return (
-    <div>
-      <div style={{ fontWeight: 900, color: "var(--danger)" }}>Erreur</div>
-      <div style={{ marginTop: 6 }}>{msg}</div>
-      <div style={{ marginTop: 8, color: "var(--muted)", fontSize: 12 }}>
-        Vérifie notamment que la requête utilise bien <code style={ui.code}>sport</code> (pas org_sport).
-      </div>
+        </>
+      )}
     </div>
   );
 }
-
-function TopBar(props: {
-  theme: "dark" | "light";
-  toggleTheme: () => void;
-  isSuperAdmin: boolean;
-  openAdmin: () => void;
-  openDisplay: () => void;
-  sessionEmail: string | null;
-  logout: () => void;
-}) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-        <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: -0.5 }}>scoreDisplay</div>
-        {props.sessionEmail ? (
-          <div style={{ color: "var(--muted)", fontSize: 13 }}>
-            connecté : <b style={{ color: "var(--text)" }}>{props.sessionEmail}</b>
-          </div>
-        ) : null}
-      </div>
-
-      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <button style={ui.btn} onClick={props.toggleTheme}>
-          {props.theme === "dark" ? "☀️ Clair" : "🌙 Sombre"}
-        </button>
-
-        <button style={ui.btn} onClick={props.openDisplay} title="Ouvrir Display (redirige)">
-          🖥 Display
-        </button>
-
-        {props.isSuperAdmin ? (
-          <button style={ui.btnPrimary} onClick={props.openAdmin} title="Ouvrir la console Super Admin">
-            🛡 Admin
-          </button>
-        ) : null}
-
-        {props.sessionEmail ? (
-          <button style={ui.btn} onClick={props.logout}>
-            Se déconnecter
-          </button>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function KPI(props: { title: string; value: any; sub?: string }) {
-  return (
-    <div style={ui.kpi}>
-      <div style={{ color: "var(--muted)", fontSize: 12 }}>{props.title}</div>
-      <div style={{ fontSize: 26, fontWeight: 950, letterSpacing: -0.6, marginTop: 4 }}>{props.value}</div>
-      {props.sub ? <div style={{ color: "var(--muted)", fontSize: 12, marginTop: 4 }}>{props.sub}</div> : null}
-    </div>
-  );
-}
-
-function Shell(props: { theme: "dark" | "light"; children: React.ReactNode }) {
-  // Variables CSS simples (pas de fichier css nécessaire)
-  const isDark = props.theme === "dark";
-  const bg = isDark ? "#0b0d12" : "#f6f7fb";
-  const card = isDark ? "#0f141b" : "#ffffff";
-  const text = isDark ? "#e5e7eb" : "#0b1220";
-  const muted = isDark ? "rgba(229,231,235,.7)" : "rgba(11,18,32,.65)";
-  const border = isDark ? "#1f2a3a" : "#e5e7eb";
-  const danger = "#ef4444";
-
-  return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: bg,
-        color: text,
-        fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial",
-      }}
-    >
-      <style>{`
-        :root { --bg:${bg}; --card:${card}; --text:${text}; --muted:${muted}; --border:${border}; --danger:${danger}; }
-        code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-      `}</style>
-      {props.children}
-    </div>
-  );
-}
-
-/* ---------------- styles ---------------- */
-
-const ui: Record<string, React.CSSProperties> = {
-  hero: {
-    background: "linear-gradient(180deg, rgba(59,130,246,.12), rgba(0,0,0,0))",
-    border: "1px solid var(--border)",
-    borderRadius: 16,
-    padding: 16,
-  },
-  grid2: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: 14,
-  },
-  card: {
-    background: "var(--card)",
-    border: "1px solid var(--border)",
-    borderRadius: 16,
-    padding: 16,
-    boxShadow: "0 20px 60px rgba(0,0,0,.20)",
-  },
-  err: {
-    color: "var(--danger)",
-    fontWeight: 800,
-    marginBottom: 10,
-  },
-  input: {
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: "1px solid var(--border)",
-    background: "transparent",
-    color: "var(--text)",
-    outline: "none",
-  },
-  select: {
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: "1px solid var(--border)",
-    background: "transparent",
-    color: "var(--text)",
-    outline: "none",
-  },
-  btn: {
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: "1px solid var(--border)",
-    background: "transparent",
-    color: "var(--text)",
-    cursor: "pointer",
-    fontWeight: 800,
-  },
-  btnPrimary: {
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: "1px solid rgba(59,130,246,.35)",
-    background: "rgba(59,130,246,.18)",
-    color: "var(--text)",
-    cursor: "pointer",
-    fontWeight: 900,
-  },
-  small: {
-    color: "var(--muted)",
-    fontSize: 12,
-  },
-  code: {
-    padding: "2px 6px",
-    borderRadius: 8,
-    border: "1px solid var(--border)",
-    background: "rgba(0,0,0,.18)",
-  },
-  kpis: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr 1fr",
-    gap: 12,
-    marginTop: 14,
-  },
-  kpi: {
-    background: "var(--card)",
-    border: "1px solid var(--border)",
-    borderRadius: 16,
-    padding: 14,
-  },
-  filters: {
-    display: "flex",
-    gap: 10,
-    alignItems: "center",
-    marginTop: 14,
-    flexWrap: "wrap",
-  },
-  orgCard: {
-    background: "var(--card)",
-    border: "1px solid var(--border)",
-    borderRadius: 16,
-    padding: 14,
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 12,
-  },
-  badge: {
-    fontSize: 12,
-    padding: "4px 10px",
-    borderRadius: 999,
-    border: "1px solid var(--border)",
-    color: "var(--muted)",
-  },
-  badgeSoft: {
-    fontSize: 12,
-    padding: "4px 10px",
-    borderRadius: 999,
-    border: "1px solid rgba(148,163,184,.25)",
-    color: "var(--muted)",
-    background: "rgba(148,163,184,.08)",
-  },
-};
