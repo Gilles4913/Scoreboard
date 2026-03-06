@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "../supabase";
+import { sendTvBroadcast } from "../realtime";
 
 const LS_ACTIVE_ORG_ID = "scoreDisplay.activeOrgId";
 const LS_ACTIVE_ORG_SLUG = "scoreDisplay.activeOrgSlug";
@@ -70,12 +72,22 @@ function orgStatusBadge(status: string | null | undefined) {
   return { label: s, color: "#6b7280", bg: "rgba(107,114,128,.12)" };
 }
 
+function periodHintsBySport(sport: string) {
+  const v = (sport || "").toLowerCase();
+  if (v === "basket") return "Q1 • Q2 • Q3 • Q4";
+  if (v === "handball") return "1MT • 2MT";
+  if (v === "rugby") return "1MT • 2MT";
+  if (v === "volleyball") return "Set 1 • Set 2 • Set 3 • Set 4 • Set 5";
+  return "1MT • 2MT";
+}
+
 export default function MatchPage() {
   const [loading, setLoading] = useState(true);
   const [org, setOrg] = useState<OrgRow | null>(null);
   const [matches, setMatches] = useState<MatchRow[]>([]);
   const [err, setErr] = useState("");
   const [copyMsg, setCopyMsg] = useState("");
+  const [selectedQr, setSelectedQr] = useState<string>("");
 
   const activeOrgId = useMemo(() => (localStorage.getItem(LS_ACTIVE_ORG_ID) || "").trim(), []);
   const activeOrgSlug = useMemo(() => (localStorage.getItem(LS_ACTIVE_ORG_SLUG) || "").trim(), []);
@@ -88,7 +100,6 @@ export default function MatchPage() {
       setCopyMsg("");
       setLoading(true);
 
-      // 1) session auth obligatoire
       const { data: sess } = await supabase.auth.getSession();
       if (cancelled) return;
 
@@ -98,14 +109,12 @@ export default function MatchPage() {
         return;
       }
 
-      // 2) org obligatoire (choisie dans Home)
       if (!activeOrgId && !activeOrgSlug) {
         setErr("Aucune organisation sélectionnée. Reviens sur Home puis clique sur Ouvrir.");
         setLoading(false);
         return;
       }
 
-      // 3) charge org (id prioritaire, sinon slug)
       const orgQuery = supabase.from("orgs").select("id, slug, name, status");
       const { data: orgRow, error: orgErr } = activeOrgId
         ? await orgQuery.eq("id", activeOrgId).maybeSingle()
@@ -123,7 +132,6 @@ export default function MatchPage() {
 
       setOrg(orgRow as OrgRow);
 
-      // 4) charge matchs de l'org
       const { data: ms, error: mErr } = await supabase
         .from("matches")
         .select("id, name, status, scheduled_at, public_display, display_token, home_name, away_name")
@@ -179,6 +187,31 @@ export default function MatchPage() {
       setTimeout(() => setCopyMsg(""), 2500);
     } catch {
       setCopyMsg("Impossible de copier le lien.");
+      setTimeout(() => setCopyMsg(""), 2500);
+    }
+  }
+
+  async function pushDemoBroadcast(m: MatchRow) {
+    try {
+      await sendTvBroadcast(m.id, {
+        match_id: m.id,
+        match_name: matchTitle(m),
+        status: normalizeStatus(m.status),
+        home_name: m.home_name,
+        away_name: m.away_name,
+        venue: org?.name || "",
+        sponsors: org
+          ? [
+              { name: org.name, logo_url: null },
+              { name: "scoreDisplay", logo_url: null },
+            ]
+          : undefined,
+      });
+
+      setCopyMsg(`Broadcast démo envoyé pour "${matchTitle(m)}"`);
+      setTimeout(() => setCopyMsg(""), 2500);
+    } catch (e: any) {
+      setCopyMsg(e?.message || "Erreur broadcast");
       setTimeout(() => setCopyMsg(""), 2500);
     }
   }
@@ -281,8 +314,10 @@ export default function MatchPage() {
           <div>
             <div style={styles.heroTitle}>Espace Operator</div>
             <div style={styles.heroText}>
-              Ici tu gères les matchs de l’organisation sélectionnée, puis tu ouvres le Display public (TV / LED)
-              via le lien ou le QR code.
+              Prépare les matchs, ouvre le Display public, teste le broadcast TV temps réel, et pilote une démonstration complète club / ville.
+            </div>
+            <div style={{ marginTop: 10, fontSize: 13, opacity: 0.78 }}>
+              Règles sport fines : {periodHintsBySport("football")}
             </div>
           </div>
 
@@ -304,19 +339,44 @@ export default function MatchPage() {
 
         {copyMsg ? <div style={styles.copyInfo}>{copyMsg}</div> : null}
 
+        {selectedQr ? (
+          <div style={styles.qrPanel}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+              <div style={{ fontWeight: 900 }}>QR code Display</div>
+              <button onClick={() => setSelectedQr("")} style={styles.ghostBtnSmall}>
+                Fermer
+              </button>
+            </div>
+
+            <div style={{ display: "flex", gap: 16, alignItems: "center", marginTop: 14, flexWrap: "wrap" }}>
+              <div style={{ background: "white", padding: 10, borderRadius: 12 }}>
+                <QRCodeSVG value={selectedQr} size={180} />
+              </div>
+              <div style={{ maxWidth: 420 }}>
+                <div style={{ fontSize: 13, opacity: 0.82, lineHeight: 1.6 }}>
+                  Scanne ce QR code pour ouvrir directement le Display public du match sur un téléphone, une borne ou un écran TV.
+                </div>
+                <div style={{ marginTop: 10, wordBreak: "break-all", fontSize: 12, opacity: 0.72 }}>{selectedQr}</div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         <section style={{ marginTop: 22 }}>
           <div style={styles.sectionTitle}>Matchs à préparer</div>
 
           {upcomingMatches.length === 0 ? (
             <div style={styles.emptyCard}>Aucun match à préparer.</div>
           ) : (
-            <div style={styles.list}>
+            <div style={styles.listCompact}>
               {upcomingMatches.map((m) => (
                 <MatchCard
                   key={m.id}
                   match={m}
                   link={displayLink(m)}
                   onCopy={() => copyDisplayLink(m)}
+                  onShowQr={() => setSelectedQr(displayLink(m))}
+                  onBroadcast={() => pushDemoBroadcast(m)}
                 />
               ))}
             </div>
@@ -329,13 +389,15 @@ export default function MatchPage() {
           {archivedMatches.length === 0 ? (
             <div style={styles.emptyCard}>Aucun match archivé.</div>
           ) : (
-            <div style={styles.list}>
+            <div style={styles.listCompact}>
               {archivedMatches.map((m) => (
                 <MatchCard
                   key={m.id}
                   match={m}
                   link={displayLink(m)}
                   onCopy={() => copyDisplayLink(m)}
+                  onShowQr={() => setSelectedQr(displayLink(m))}
+                  onBroadcast={() => pushDemoBroadcast(m)}
                 />
               ))}
             </div>
@@ -350,21 +412,28 @@ function MatchCard({
   match,
   link,
   onCopy,
+  onShowQr,
+  onBroadcast,
 }: {
   match: MatchRow;
   link: string;
   onCopy: () => void;
+  onShowQr: () => void;
+  onBroadcast: () => void;
 }) {
   const sb = statusBadge(match.status || "scheduled");
 
   return (
-    <div style={styles.card}>
-      <div style={styles.cardHead}>
-        <div style={{ minWidth: 0 }}>
-          <div style={styles.matchTitle}>{matchTitle(match)}</div>
-          <div style={styles.matchMeta}>{fmtDate(match.scheduled_at)}</div>
+    <div style={styles.compactCard}>
+      <div style={{ minWidth: 0 }}>
+        <div style={styles.matchTitle}>{matchTitle(match)}</div>
+        <div style={styles.matchMeta}>
+          {fmtDate(match.scheduled_at)} • Display: <b>{match.public_display ? "public" : "privé"}</b> • Token:{" "}
+          <b>{match.display_token ? "OK" : "—"}</b>
         </div>
+      </div>
 
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
         <span
           style={{
             ...styles.badge,
@@ -375,35 +444,24 @@ function MatchCard({
         >
           {sb.label}
         </span>
-      </div>
 
-      <div style={styles.cardBody}>
-        <div style={styles.inlineMeta}>
-          <span>
-            Display: <b>{match.public_display ? "public" : "privé"}</b>
-          </span>
-          <span>
-            Token: <b>{match.display_token ? "OK" : "—"}</b>
-          </span>
-        </div>
+        {link ? (
+          <>
+            <a href={link} target="_blank" rel="noreferrer" style={styles.linkBtn}>
+              Display
+            </a>
+            <button onClick={onCopy} style={styles.ghostBtnSmall}>
+              Copier
+            </button>
+            <button onClick={onShowQr} style={styles.ghostBtnSmall}>
+              QR
+            </button>
+          </>
+        ) : null}
 
-        <div style={styles.actions}>
-          {link ? (
-            <>
-              <a href={link} target="_blank" rel="noreferrer" style={styles.linkBtn}>
-                Ouvrir Display
-              </a>
-
-              <button onClick={onCopy} style={styles.ghostBtnSmall}>
-                Copier lien
-              </button>
-            </>
-          ) : (
-            <span style={{ color: "crimson", fontSize: 13 }}>
-              VITE_DISPLAY_URL manquant côté operator.
-            </span>
-          )}
-        </div>
+        <button onClick={onBroadcast} style={styles.primaryBtnSmall}>
+          Broadcast
+        </button>
       </div>
     </div>
   );
@@ -419,7 +477,7 @@ const styles: Record<string, React.CSSProperties> = {
       'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"',
   },
   container: {
-    maxWidth: 1100,
+    maxWidth: 1120,
     margin: "0 auto",
   },
   centerBox: {
@@ -506,6 +564,13 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#cfe2ff",
     fontSize: 13,
   },
+  qrPanel: {
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 16,
+    background: "rgba(255,255,255,.05)",
+    border: "1px solid rgba(255,255,255,.08)",
+  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 900,
@@ -518,51 +583,28 @@ const styles: Record<string, React.CSSProperties> = {
     border: "1px solid rgba(255,255,255,.08)",
     opacity: 0.84,
   },
-  list: {
+  listCompact: {
     display: "grid",
-    gap: 12,
+    gap: 10,
   },
-  card: {
-    padding: 14,
-    borderRadius: 16,
+  compactCard: {
+    padding: 12,
+    borderRadius: 14,
     background: "rgba(255,255,255,.04)",
     border: "1px solid rgba(255,255,255,.08)",
-  },
-  cardHead: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 12,
-    alignItems: "flex-start",
-  },
-  cardBody: {
-    marginTop: 10,
-    display: "flex",
-    justifyContent: "space-between",
+    display: "grid",
+    gridTemplateColumns: "1fr auto",
     gap: 12,
     alignItems: "center",
-    flexWrap: "wrap",
   },
   matchTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: 800,
   },
   matchMeta: {
     marginTop: 4,
     fontSize: 12,
     opacity: 0.72,
-  },
-  inlineMeta: {
-    display: "flex",
-    gap: 16,
-    flexWrap: "wrap",
-    fontSize: 13,
-    opacity: 0.92,
-  },
-  actions: {
-    display: "flex",
-    gap: 10,
-    alignItems: "center",
-    flexWrap: "wrap",
   },
   badge: {
     display: "inline-flex",
@@ -582,6 +624,16 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#e7eefc",
     cursor: "pointer",
     fontWeight: 800,
+  },
+  primaryBtnSmall: {
+    padding: "8px 12px",
+    borderRadius: 10,
+    border: "1px solid rgba(59,130,246,.35)",
+    background: "rgba(59,130,246,.18)",
+    color: "#e7eefc",
+    cursor: "pointer",
+    fontWeight: 800,
+    fontSize: 13,
   },
   ghostBtn: {
     padding: "10px 14px",
