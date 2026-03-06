@@ -1,14 +1,15 @@
-// apps/operator/src/pages/MatchPage.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
 
 const LS_ACTIVE_ORG_ID = "scoreDisplay.activeOrgId";
 const LS_ACTIVE_ORG_SLUG = "scoreDisplay.activeOrgSlug";
 
+type MatchStatus = "scheduled" | "live" | "finished" | "archived" | string;
+
 type MatchRow = {
   id: string;
   name: string | null;
-  status: string | null;
+  status: MatchStatus | null;
   scheduled_at: string | null;
   public_display: boolean | null;
   display_token: string | null;
@@ -23,13 +24,58 @@ type OrgRow = {
   status?: string | null;
 };
 
+function getEnv(name: string): string {
+  const v = (import.meta as any).env?.[name];
+  return typeof v === "string" ? v : "";
+}
+
+const HOME_URL = getEnv("VITE_HOME_URL") || "https://scoreboard-home.vercel.app";
+const DISPLAY_URL = getEnv("VITE_DISPLAY_URL") || "";
+
+function fmtDate(input: string | null) {
+  if (!input) return "Date non définie";
+  try {
+    return new Date(input).toLocaleString();
+  } catch {
+    return input;
+  }
+}
+
+function normalizeStatus(status: string | null | undefined): MatchStatus {
+  return ((status || "scheduled") + "").toLowerCase();
+}
+
+function matchTitle(m: MatchRow) {
+  return m.name || `${m.home_name || "Équipe A"} vs ${m.away_name || "Équipe B"}`;
+}
+
+function statusBadge(status: MatchStatus) {
+  const s = normalizeStatus(status);
+
+  if (s === "scheduled") return { label: "À préparer", color: "#2563eb", bg: "rgba(37,99,235,.12)" };
+  if (s === "live") return { label: "En cours", color: "#dc2626", bg: "rgba(220,38,38,.12)" };
+  if (s === "finished") return { label: "Terminé", color: "#16a34a", bg: "rgba(22,163,74,.12)" };
+  if (s === "archived") return { label: "Archivé", color: "#6b7280", bg: "rgba(107,114,128,.12)" };
+
+  return { label: s, color: "#6b7280", bg: "rgba(107,114,128,.12)" };
+}
+
+function orgStatusBadge(status: string | null | undefined) {
+  const s = ((status || "active") + "").toLowerCase();
+
+  if (s === "active") return { label: "Active", color: "#16a34a", bg: "rgba(22,163,74,.12)" };
+  if (s === "suspended") return { label: "Suspendue", color: "#d97706", bg: "rgba(217,119,6,.12)" };
+  if (s === "archived") return { label: "Archivée", color: "#6b7280", bg: "rgba(107,114,128,.12)" };
+
+  return { label: s, color: "#6b7280", bg: "rgba(107,114,128,.12)" };
+}
+
 export default function MatchPage() {
   const [loading, setLoading] = useState(true);
   const [org, setOrg] = useState<OrgRow | null>(null);
   const [matches, setMatches] = useState<MatchRow[]>([]);
   const [err, setErr] = useState("");
-
-  const displayBaseUrl = ((import.meta as any).env?.VITE_DISPLAY_URL as string | undefined) || "";
+  const [copyMsg, setCopyMsg] = useState("");
 
   const activeOrgId = useMemo(() => (localStorage.getItem(LS_ACTIVE_ORG_ID) || "").trim(), []);
   const activeOrgSlug = useMemo(() => (localStorage.getItem(LS_ACTIVE_ORG_SLUG) || "").trim(), []);
@@ -39,25 +85,27 @@ export default function MatchPage() {
 
     async function run() {
       setErr("");
+      setCopyMsg("");
       setLoading(true);
 
-      // 1) il faut une session auth (sinon RLS refuse)
+      // 1) session auth obligatoire
       const { data: sess } = await supabase.auth.getSession();
       if (cancelled) return;
+
       if (!sess.session?.user) {
         setErr("Non connecté. Reviens sur Home pour te connecter.");
         setLoading(false);
         return;
       }
 
-      // 2) il faut une org sélectionnée dans Home
+      // 2) org obligatoire (choisie dans Home)
       if (!activeOrgId && !activeOrgSlug) {
-        setErr("Aucune organisation sélectionnée. Reviens sur Home et clique sur Ouvrir.");
+        setErr("Aucune organisation sélectionnée. Reviens sur Home puis clique sur Ouvrir.");
         setLoading(false);
         return;
       }
 
-      // charge org (par id si dispo, sinon slug)
+      // 3) charge org (id prioritaire, sinon slug)
       const orgQuery = supabase.from("orgs").select("id, slug, name, status");
       const { data: orgRow, error: orgErr } = activeOrgId
         ? await orgQuery.eq("id", activeOrgId).maybeSingle()
@@ -73,13 +121,13 @@ export default function MatchPage() {
         return;
       }
 
-      setOrg(orgRow as any);
+      setOrg(orgRow as OrgRow);
 
-      // charge matchs
+      // 4) charge matchs de l'org
       const { data: ms, error: mErr } = await supabase
         .from("matches")
         .select("id, name, status, scheduled_at, public_display, display_token, home_name, away_name")
-        .eq("org_id", (orgRow as any).id)
+        .eq("org_id", (orgRow as OrgRow).id)
         .order("scheduled_at", { ascending: true, nullsFirst: true });
 
       if (cancelled) return;
@@ -88,13 +136,18 @@ export default function MatchPage() {
         setErr(mErr.message);
         setMatches([]);
       } else {
-        setMatches((ms as any) || []);
+        setMatches(((ms as MatchRow[]) || []).sort((a, b) => {
+          const da = a.scheduled_at ? new Date(a.scheduled_at).getTime() : 0;
+          const db = b.scheduled_at ? new Date(b.scheduled_at).getTime() : 0;
+          return da - db;
+        }));
       }
 
       setLoading(false);
     }
 
     run();
+
     return () => {
       cancelled = true;
     };
@@ -102,96 +155,461 @@ export default function MatchPage() {
 
   async function logout() {
     await supabase.auth.signOut();
-    window.location.reload();
+    window.location.href = `${HOME_URL.replace(/\/$/, "")}/?forceLogin=1`;
+  }
+
+  function backHome() {
+    window.location.href = HOME_URL;
   }
 
   function displayLink(m: MatchRow) {
-    if (!displayBaseUrl) return "";
-    const base = displayBaseUrl.replace(/\/$/, "");
+    if (!DISPLAY_URL) return "";
+    const base = DISPLAY_URL.replace(/\/$/, "");
     if (m.display_token) return `${base}/?token=${encodeURIComponent(m.display_token)}`;
     return `${base}/?matchId=${encodeURIComponent(m.id)}`;
   }
 
-  if (loading) return <div style={{ padding: 24 }}>Chargement…</div>;
+  async function copyDisplayLink(m: MatchRow) {
+    const link = displayLink(m);
+    if (!link) return;
 
-  if (err)
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopyMsg(`Lien copié pour "${matchTitle(m)}"`);
+      setTimeout(() => setCopyMsg(""), 2500);
+    } catch {
+      setCopyMsg("Impossible de copier le lien.");
+      setTimeout(() => setCopyMsg(""), 2500);
+    }
+  }
+
+  const upcomingMatches = useMemo(() => {
+    return matches.filter((m) => {
+      const s = normalizeStatus(m.status);
+      return s === "scheduled" || s === "live";
+    });
+  }, [matches]);
+
+  const archivedMatches = useMemo(() => {
+    return matches.filter((m) => {
+      const s = normalizeStatus(m.status);
+      return s === "finished" || s === "archived";
+    });
+  }, [matches]);
+
+  if (loading) {
     return (
-      <div style={{ padding: 24 }}>
-        <div style={{ color: "crimson", fontWeight: 700 }}>Erreur: {err}</div>
-        <div style={{ marginTop: 12 }}>
-          <button onClick={logout}>Se déconnecter</button>
+      <div style={styles.page}>
+        <div style={styles.centerBox}>Chargement des matchs…</div>
+      </div>
+    );
+  }
+
+  if (err) {
+    return (
+      <div style={styles.page}>
+        <div style={styles.errorBox}>
+          <div style={{ fontWeight: 900, fontSize: 18 }}>Erreur</div>
+          <div style={{ marginTop: 8 }}>{err}</div>
+
+          <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
+            <button onClick={backHome} style={styles.primaryBtn}>
+              Retour Home
+            </button>
+            <button onClick={logout} style={styles.ghostBtn}>
+              Se déconnecter
+            </button>
+          </div>
         </div>
       </div>
     );
+  }
 
-  if (!org) return <div style={{ padding: 24 }}>Organisation non définie.</div>;
+  if (!org) {
+    return (
+      <div style={styles.page}>
+        <div style={styles.errorBox}>
+          <div style={{ fontWeight: 900, fontSize: 18 }}>Organisation non définie</div>
+          <div style={{ marginTop: 8 }}>Reviens sur Home et sélectionne une organisation.</div>
 
-  return (
-    <div style={{ padding: 24, maxWidth: 1000, margin: "0 auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-        <div>
-          <h1 style={{ margin: 0 }}>{org.name}</h1>
-          <div style={{ opacity: 0.75, fontSize: 12 }}>
-            slug: {org.slug} {org.status ? `• status: ${org.status}` : null}
+          <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+            <button onClick={backHome} style={styles.primaryBtn}>
+              Retour Home
+            </button>
           </div>
         </div>
-        <button onClick={logout}>Déconnexion</button>
       </div>
+    );
+  }
 
-      <h2 style={{ marginTop: 18 }}>Matchs</h2>
+  const orgBadge = orgStatusBadge(org.status);
 
-      {matches.length === 0 ? (
-        <div>Aucun match.</div>
-      ) : (
-        <div style={{ display: "grid", gap: 12 }}>
-          {matches.map((m) => {
-            const link = displayLink(m);
-            return (
-              <div
-                key={m.id}
-                style={{
-                  border: "1px solid #3333",
-                  borderRadius: 12,
-                  padding: 12,
-                  display: "grid",
-                  gap: 6,
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                  <div style={{ fontWeight: 700 }}>
-                    {m.name || `${m.home_name || "Home"} vs ${m.away_name || "Away"}`}
-                  </div>
-                  <div style={{ fontSize: 12, opacity: 0.8 }}>
-                    {m.status || "scheduled"} {m.scheduled_at ? `• ${new Date(m.scheduled_at).toLocaleString()}` : ""}
-                  </div>
-                </div>
+  return (
+    <div style={styles.page}>
+      <div style={styles.container}>
+        <div style={styles.topbar}>
+          <div>
+            <div style={styles.title}>{org.name}</div>
+            <div style={styles.subtitle}>
+              slug: <b>{org.slug}</b>
+            </div>
+          </div>
 
-                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 12, opacity: 0.9 }}>
-                    Display: {m.public_display ? "public" : "privé"} {m.display_token ? "• token OK" : ""}
-                  </span>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <span
+              style={{
+                ...styles.badge,
+                color: orgBadge.color,
+                background: orgBadge.bg,
+                borderColor: `${orgBadge.color}33`,
+              }}
+            >
+              {orgBadge.label}
+            </span>
 
-                  {link ? (
-                    <>
-                      <a href={link} target="_blank" rel="noreferrer">
-                        Ouvrir Display
-                      </a>
-                      <button
-                        onClick={() => navigator.clipboard.writeText(link)}
-                        style={{ fontSize: 12, padding: "6px 10px" }}
-                      >
-                        Copier lien
-                      </button>
-                    </>
-                  ) : (
-                    <span style={{ fontSize: 12, color: "crimson" }}>VITE_DISPLAY_URL manquant côté operator.</span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+            <button onClick={backHome} style={styles.ghostBtn}>
+              Home
+            </button>
+
+            <button onClick={logout} style={styles.ghostBtn}>
+              Déconnexion
+            </button>
+          </div>
         </div>
-      )}
+
+        <div style={styles.hero}>
+          <div>
+            <div style={styles.heroTitle}>Espace Operator</div>
+            <div style={styles.heroText}>
+              Ici tu gères les matchs de l’organisation sélectionnée, puis tu ouvres le Display public (TV / LED)
+              via le lien ou le QR code.
+            </div>
+          </div>
+
+          <div style={styles.kpis}>
+            <div style={styles.kpiCard}>
+              <div style={styles.kpiLabel}>À préparer</div>
+              <div style={styles.kpiValue}>{upcomingMatches.length}</div>
+            </div>
+            <div style={styles.kpiCard}>
+              <div style={styles.kpiLabel}>Archives</div>
+              <div style={styles.kpiValue}>{archivedMatches.length}</div>
+            </div>
+            <div style={styles.kpiCard}>
+              <div style={styles.kpiLabel}>Total matchs</div>
+              <div style={styles.kpiValue}>{matches.length}</div>
+            </div>
+          </div>
+        </div>
+
+        {copyMsg ? <div style={styles.copyInfo}>{copyMsg}</div> : null}
+
+        <section style={{ marginTop: 22 }}>
+          <div style={styles.sectionTitle}>Matchs à préparer</div>
+
+          {upcomingMatches.length === 0 ? (
+            <div style={styles.emptyCard}>Aucun match à préparer.</div>
+          ) : (
+            <div style={styles.list}>
+              {upcomingMatches.map((m) => (
+                <MatchCard
+                  key={m.id}
+                  match={m}
+                  link={displayLink(m)}
+                  onCopy={() => copyDisplayLink(m)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section style={{ marginTop: 28 }}>
+          <div style={styles.sectionTitle}>Archives / Matchs joués</div>
+
+          {archivedMatches.length === 0 ? (
+            <div style={styles.emptyCard}>Aucun match archivé.</div>
+          ) : (
+            <div style={styles.list}>
+              {archivedMatches.map((m) => (
+                <MatchCard
+                  key={m.id}
+                  match={m}
+                  link={displayLink(m)}
+                  onCopy={() => copyDisplayLink(m)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
+
+function MatchCard({
+  match,
+  link,
+  onCopy,
+}: {
+  match: MatchRow;
+  link: string;
+  onCopy: () => void;
+}) {
+  const sb = statusBadge(match.status || "scheduled");
+
+  return (
+    <div style={styles.card}>
+      <div style={styles.cardHead}>
+        <div style={{ minWidth: 0 }}>
+          <div style={styles.matchTitle}>{matchTitle(match)}</div>
+          <div style={styles.matchMeta}>{fmtDate(match.scheduled_at)}</div>
+        </div>
+
+        <span
+          style={{
+            ...styles.badge,
+            color: sb.color,
+            background: sb.bg,
+            borderColor: `${sb.color}33`,
+          }}
+        >
+          {sb.label}
+        </span>
+      </div>
+
+      <div style={styles.cardBody}>
+        <div style={styles.inlineMeta}>
+          <span>
+            Display: <b>{match.public_display ? "public" : "privé"}</b>
+          </span>
+          <span>
+            Token: <b>{match.display_token ? "OK" : "—"}</b>
+          </span>
+        </div>
+
+        <div style={styles.actions}>
+          {link ? (
+            <>
+              <a href={link} target="_blank" rel="noreferrer" style={styles.linkBtn}>
+                Ouvrir Display
+              </a>
+
+              <button onClick={onCopy} style={styles.ghostBtnSmall}>
+                Copier lien
+              </button>
+            </>
+          ) : (
+            <span style={{ color: "crimson", fontSize: 13 }}>
+              VITE_DISPLAY_URL manquant côté operator.
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const styles: Record<string, React.CSSProperties> = {
+  page: {
+    minHeight: "100vh",
+    background: "#0b0f14",
+    color: "#e7eefc",
+    padding: 24,
+    fontFamily:
+      'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"',
+  },
+  container: {
+    maxWidth: 1100,
+    margin: "0 auto",
+  },
+  centerBox: {
+    maxWidth: 500,
+    margin: "60px auto",
+    padding: 18,
+    borderRadius: 16,
+    background: "rgba(255,255,255,0.05)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    textAlign: "center",
+  },
+  errorBox: {
+    maxWidth: 620,
+    margin: "60px auto",
+    padding: 18,
+    borderRadius: 16,
+    background: "rgba(220,38,38,.10)",
+    border: "1px solid rgba(220,38,38,.28)",
+  },
+  topbar: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    flexWrap: "wrap",
+    marginBottom: 18,
+  },
+  title: {
+    fontSize: 30,
+    fontWeight: 900,
+    letterSpacing: -0.6,
+  },
+  subtitle: {
+    marginTop: 4,
+    fontSize: 13,
+    opacity: 0.72,
+  },
+  hero: {
+    display: "grid",
+    gridTemplateColumns: "1.3fr .9fr",
+    gap: 16,
+    padding: 18,
+    borderRadius: 18,
+    background: "linear-gradient(180deg, rgba(59,130,246,.12), rgba(255,255,255,.02))",
+    border: "1px solid rgba(255,255,255,.08)",
+  },
+  heroTitle: {
+    fontSize: 20,
+    fontWeight: 900,
+  },
+  heroText: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 1.55,
+    opacity: 0.84,
+  },
+  kpis: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr 1fr",
+    gap: 10,
+  },
+  kpiCard: {
+    padding: 14,
+    borderRadius: 14,
+    background: "rgba(255,255,255,.05)",
+    border: "1px solid rgba(255,255,255,.08)",
+  },
+  kpiLabel: {
+    fontSize: 12,
+    opacity: 0.75,
+  },
+  kpiValue: {
+    marginTop: 6,
+    fontSize: 28,
+    fontWeight: 900,
+    letterSpacing: -0.6,
+  },
+  copyInfo: {
+    marginTop: 14,
+    padding: 10,
+    borderRadius: 12,
+    background: "rgba(37,99,235,.14)",
+    border: "1px solid rgba(37,99,235,.28)",
+    color: "#cfe2ff",
+    fontSize: 13,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 900,
+    marginBottom: 12,
+  },
+  emptyCard: {
+    padding: 14,
+    borderRadius: 14,
+    background: "rgba(255,255,255,.04)",
+    border: "1px solid rgba(255,255,255,.08)",
+    opacity: 0.84,
+  },
+  list: {
+    display: "grid",
+    gap: 12,
+  },
+  card: {
+    padding: 14,
+    borderRadius: 16,
+    background: "rgba(255,255,255,.04)",
+    border: "1px solid rgba(255,255,255,.08)",
+  },
+  cardHead: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    alignItems: "flex-start",
+  },
+  cardBody: {
+    marginTop: 10,
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    alignItems: "center",
+    flexWrap: "wrap",
+  },
+  matchTitle: {
+    fontSize: 16,
+    fontWeight: 800,
+  },
+  matchMeta: {
+    marginTop: 4,
+    fontSize: 12,
+    opacity: 0.72,
+  },
+  inlineMeta: {
+    display: "flex",
+    gap: 16,
+    flexWrap: "wrap",
+    fontSize: 13,
+    opacity: 0.92,
+  },
+  actions: {
+    display: "flex",
+    gap: 10,
+    alignItems: "center",
+    flexWrap: "wrap",
+  },
+  badge: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "5px 10px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 700,
+    border: "1px solid rgba(255,255,255,.12)",
+  },
+  primaryBtn: {
+    padding: "10px 14px",
+    borderRadius: 12,
+    border: "1px solid rgba(59,130,246,.35)",
+    background: "rgba(59,130,246,.18)",
+    color: "#e7eefc",
+    cursor: "pointer",
+    fontWeight: 800,
+  },
+  ghostBtn: {
+    padding: "10px 14px",
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,.12)",
+    background: "transparent",
+    color: "#e7eefc",
+    cursor: "pointer",
+    fontWeight: 700,
+  },
+  ghostBtnSmall: {
+    padding: "8px 12px",
+    borderRadius: 10,
+    border: "1px solid rgba(255,255,255,.12)",
+    background: "transparent",
+    color: "#e7eefc",
+    cursor: "pointer",
+    fontWeight: 700,
+    fontSize: 13,
+  },
+  linkBtn: {
+    padding: "8px 12px",
+    borderRadius: 10,
+    border: "1px solid rgba(59,130,246,.35)",
+    background: "rgba(59,130,246,.18)",
+    color: "#e7eefc",
+    textDecoration: "none",
+    fontWeight: 800,
+    fontSize: 13,
+  },
+};
