@@ -1,147 +1,143 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const supabase = createClient(
-  Deno.env.get("SUPABASE_URL")!,
-  Deno.env.get("SUPABASE_ANON_KEY")!,
-  {
-    global: {
-      headers: {
-        Authorization: req.headers.get("Authorization") ?? "",
-      },
-    },
-  }
-);
-
-const { data: userData, error: userErr } = await supabase.auth.getUser();
-
-if (userErr || !userData.user) {
-  return new Response(
-    JSON.stringify({ code: 401, message: "Invalid JWT" }),
-    {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    }
-  );
-}
-
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const TV_WS_RELAY_URL = Deno.env.get("TV_WS_RELAY_URL")!; // ex: https://<project>.functions.supabase.co/tv-ws-relay
+const TV_WS_RELAY_URL = Deno.env.get("TV_WS_RELAY_URL")!;
 
-function corsHeaders(origin?: string) {
+function buildCorsHeaders(origin?: string) {
   return {
     "access-control-allow-origin": origin ?? "*",
     "access-control-allow-methods": "POST,OPTIONS",
-    "access-control-allow-headers": "authorization,content-type",
+    "access-control-allow-headers": "authorization,apikey,content-type,x-client-info",
+    "content-type": "application/json",
   };
 }
 
-async function getUserIdFromJwt(jwt: string): Promise<string | null> {
-  const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-    headers: {
-      "apikey": ANON_KEY,
-      "authorization": `Bearer ${jwt}`,
+function json(body: unknown, status = 200, origin?: string) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: buildCorsHeaders(origin),
+  });
+}
+
+const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
+
+async function getAuthenticatedUser(authHeader: string) {
+  const userClient = createClient(SUPABASE_URL, ANON_KEY, {
+    global: {
+      headers: {
+        Authorization: authHeader,
+      },
     },
   });
-  if (!res.ok) return null;
-  const json = await res.json();
-  return json?.id ?? null;
+
+  const { data, error } = await userClient.auth.getUser();
+  if (error || !data.user) return null;
+  return data.user;
 }
 
 async function getMatchOrgId(matchId: string): Promise<string | null> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/matches?select=org_id&id=eq.${matchId}&limit=1`, {
-    headers: { apikey: SERVICE_ROLE, authorization: `Bearer ${SERVICE_ROLE}` },
-  });
-  if (!res.ok) return null;
-  const json = await res.json();
-  return json?.[0]?.org_id ?? null;
+  const { data, error } = await admin
+    .from("matches")
+    .select("org_id")
+    .eq("id", matchId)
+    .maybeSingle();
+
+  if (error || !data?.org_id) return null;
+  return data.org_id as string;
 }
 
-async function isMember(userId: string, orgId: string): Promise<boolean> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/org_members?select=user_id&org_id=eq.${orgId}&user_id=eq.${userId}&limit=1`, {
-    headers: { apikey: SERVICE_ROLE, authorization: `Bearer ${SERVICE_ROLE}` },
-  });
-  if (!res.ok) return false;
-  const json = await res.json();
-  return Array.isArray(json) && json.length > 0;
+async function isOrgMember(userId: string, orgId: string): Promise<boolean> {
+  const { data, error } = await admin
+    .from("org_members")
+    .select("user_id")
+    .eq("org_id", orgId)
+    .eq("user_id", userId)
+    .limit(1);
+
+  if (error) return false;
+  return Array.isArray(data) && data.length > 0;
 }
 
 serve(async (req) => {
   const origin = req.headers.get("origin") ?? "*";
 
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders(origin) });
-  if (req.method !== "POST") return new Response("Not found", { status: 404, headers: corsHeaders(origin) });
-
-  const auth = req.headers.get("authorization") || "";
-  if (!auth.startsWith("Bearer ")) {
-    return new Response(JSON.stringify({ error: "Missing Authorization Bearer" }), {
-      status: 401,
-      headers: { ...corsHeaders(origin), "content-type": "application/json" },
-    });
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: buildCorsHeaders(origin) });
   }
-  const jwt = auth.slice("Bearer ".length);
+
+  if (req.method !== "POST") {
+    return json({ error: "Not found" }, 404, origin);
+  }
+
+  if (!SUPABASE_URL || !ANON_KEY || !SERVICE_ROLE || !TV_WS_RELAY_URL) {
+    return json(
+      { error: "Missing SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY or TV_WS_RELAY_URL" },
+      500,
+      origin,
+    );
+  }
+
+  const authHeader = req.headers.get("authorization") || "";
+  if (!authHeader.startsWith("Bearer ")) {
+    return json({ error: "Missing Authorization Bearer" }, 401, origin);
+  }
+
+  const user = await getAuthenticatedUser(authHeader);
+  if (!user) {
+    return json({ error: "Invalid JWT" }, 401, origin);
+  }
 
   const body = await req.json().catch(() => null);
-  if (!body?.match_id || !body?.type) {
-    return new Response(JSON.stringify({ error: "match_id and type required" }), {
-      status: 400,
-      headers: { ...corsHeaders(origin), "content-type": "application/json" },
-    });
+  if (!body?.match_id) {
+    return json({ error: "match_id required" }, 400, origin);
   }
 
-  const userId = await getUserIdFromJwt(jwt);
-  if (!userId) {
-    return new Response(JSON.stringify({ error: "Invalid JWT" }), {
-      status: 401,
-      headers: { ...corsHeaders(origin), "content-type": "application/json" },
-    });
-  }
+  const matchId = String(body.match_id).trim();
+  const type = String(body.type || "patch").trim();
+  const payload = body.payload && typeof body.payload === "object" ? body.payload : {};
+  const ts = Number.isFinite(body.ts) ? body.ts : Date.now();
+  const seq = Number.isFinite(body.seq) ? body.seq : 0;
 
-  const orgId = await getMatchOrgId(body.match_id);
+  const orgId = await getMatchOrgId(matchId);
   if (!orgId) {
-    return new Response(JSON.stringify({ error: "Match not found" }), {
-      status: 404,
-      headers: { ...corsHeaders(origin), "content-type": "application/json" },
-    });
+    return json({ error: "Match not found" }, 404, origin);
   }
 
-  const ok = await isMember(userId, orgId);
-  if (!ok) {
-    return new Response(JSON.stringify({ error: "Forbidden (not org member)" }), {
-      status: 403,
-      headers: { ...corsHeaders(origin), "content-type": "application/json" },
-    });
+  const member = await isOrgMember(user.id, orgId);
+  if (!member) {
+    return json({ error: "Forbidden (not org member)" }, 403, origin);
   }
 
-  // fanout vers tv-ws-relay
+  const relayPayload = {
+    match_id: matchId,
+    org_id: orgId,
+    type,
+    ts,
+    seq,
+    payload,
+    patch: payload,
+  };
+
   const relayRes = await fetch(TV_WS_RELAY_URL, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      // important: relay accepte bearer (peut être n'importe quoi) dans la version simple,
-      // ici on met service role pour permettre un hardening futur
       "authorization": `Bearer ${SERVICE_ROLE}`,
     },
-    body: JSON.stringify({
-      match_id: body.match_id,
-      type: body.type,
-      ts: body.ts ?? Date.now(),
-      seq: body.seq ?? 0,
-      payload: body.payload ?? {},
-    }),
+    body: JSON.stringify(relayPayload),
   });
 
   if (!relayRes.ok) {
-    const text = await relayRes.text();
-    return new Response(JSON.stringify({ error: "Relay failed", details: text }), {
-      status: 502,
-      headers: { ...corsHeaders(origin), "content-type": "application/json" },
-    });
+    const text = await relayRes.text().catch(() => "");
+    return json(
+      { error: "Relay failed", details: text || `HTTP ${relayRes.status}` },
+      502,
+      origin,
+    );
   }
 
-  return new Response(JSON.stringify({ ok: true }), {
-    headers: { ...corsHeaders(origin), "content-type": "application/json" },
-  });
+  return json({ ok: true, relayed: relayPayload }, 200, origin);
 });
