@@ -58,7 +58,7 @@ serve(async (req) => {
 
       const { data: org, error: orgErr } = await supa
         .from("orgs")
-        .select("id, slug, is_master, org_sport, display_settings")
+        .select("id, slug, is_master, sport, display_settings")
         .eq("id", match.org_id)
         .maybeSingle();
 
@@ -74,7 +74,7 @@ serve(async (req) => {
     // 2) mode org slug: find org then live match else fallback scheduled
     const { data: org, error: orgError } = await supa
       .from("orgs")
-      .select("id, slug, is_master, org_sport, display_settings")
+      .select("id, slug, is_master, sport, display_settings")
       .eq("slug", orgSlug)
       .maybeSingle();
 
