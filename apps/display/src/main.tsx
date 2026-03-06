@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
+import { createClient, RealtimeChannel } from "@supabase/supabase-js";
 import Scoreboard, { ScoreboardContext } from "./components/Scoreboard";
 
 function getEnv(name: string): string {
@@ -8,8 +9,10 @@ function getEnv(name: string): string {
 }
 
 const EDGE_CONTEXT_URL = getEnv("VITE_EDGE_CONTEXT_URL");
-const TV_WS_RELAY_URL = getEnv("VITE_TV_WS_RELAY_URL");
+const SUPABASE_URL = getEnv("VITE_SUPABASE_URL");
 const SUPABASE_ANON_KEY = getEnv("VITE_SUPABASE_ANON_KEY");
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 function getSearchParam(name: string) {
   try {
@@ -18,11 +21,6 @@ function getSearchParam(name: string) {
   } catch {
     return "";
   }
-}
-
-function toWsUrl(httpLike: string) {
-  if (!httpLike) return "";
-  return httpLike.replace(/^https:/, "wss:").replace(/^http:/, "ws:");
 }
 
 function mergeContext(prev: ScoreboardContext, patch: Partial<ScoreboardContext>): ScoreboardContext {
@@ -36,12 +34,13 @@ function mergeContext(prev: ScoreboardContext, patch: Partial<ScoreboardContext>
 
 function App() {
   const token = getSearchParam("token");
-  const matchId = getSearchParam("matchId");
+  const matchIdFromUrl = getSearchParam("matchId");
 
   const [ctx, setCtx] = useState<ScoreboardContext | null>(null);
+  const [resolvedMatchId, setResolvedMatchId] = useState("");
   const [err, setErr] = useState("");
 
-  const wsRef = useRef<WebSocket | null>(null);
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
   const [localTick, setLocalTick] = useState(0);
   const lastBaseClockRef = useRef<number | null>(null);
@@ -87,19 +86,22 @@ function App() {
         return;
       }
 
+      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+        setErr("VITE_SUPABASE_URL ou VITE_SUPABASE_ANON_KEY manquante.");
+        return;
+      }
+
       const base = EDGE_CONTEXT_URL.replace(/\/$/, "");
       const url = new URL(base);
 
       if (token) url.searchParams.set("token", token);
-      if (matchId) url.searchParams.set("matchId", matchId);
+      if (matchIdFromUrl) url.searchParams.set("matchId", matchIdFromUrl);
 
       try {
-        const headers: Record<string, string> = {};
-
-        if (SUPABASE_ANON_KEY) {
-          headers.apikey = SUPABASE_ANON_KEY;
-          headers.Authorization = `Bearer ${SUPABASE_ANON_KEY}`;
-        }
+        const headers: Record<string, string> = {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        };
 
         const res = await fetch(url.toString(), {
           method: "GET",
@@ -112,17 +114,43 @@ function App() {
         }
 
         const json = await res.json();
-
         if (cancelled) return;
 
+        const match = json?.match || {};
+        const org = json?.org || {};
+        const settings = json?.display_settings || {};
+
+        setResolvedMatchId(match?.id || matchIdFromUrl || "");
+
         setCtx({
-          theme: "dark",
-          dual_language: true,
-          lang_primary: "FR",
-          lang_secondary: "EN",
-          show_lower_third: true,
-          show_logos: true,
-          sponsor_rotate_s: 10,
+          theme: settings.theme ?? "dark",
+          dual_language: settings.dual_language ?? true,
+          lang_primary: settings.lang_primary ?? "FR",
+          lang_secondary: settings.lang_secondary ?? "EN",
+          show_lower_third: settings.show_lower_third ?? true,
+          show_logos: settings.show_logos ?? true,
+          sponsor_rotate_s: settings.sponsor_rotate_s ?? 10,
+
+          show_score: settings.show_score ?? true,
+          show_clock: settings.show_clock ?? true,
+          show_period: settings.show_period ?? true,
+          show_status: settings.show_status ?? true,
+          show_sponsors: settings.show_sponsors ?? true,
+          layout_mode: settings.layout_mode ?? "stadium",
+
+          match_id: match.id,
+          match_name: match.name ?? "",
+          status: match.status ?? "scheduled",
+          scheduled_at: match.scheduled_at ?? null,
+          sport: org.sport ?? "football",
+          venue: org.name ?? "",
+          home_name: match.home_name ?? "Domicile",
+          away_name: match.away_name ?? "Extérieur",
+          home_score: match.home_score ?? 0,
+          away_score: match.away_score ?? 0,
+          clock_ms: 0,
+          clock_running: false,
+          period_label: "",
           ...json,
         });
       } catch (e: any) {
@@ -137,48 +165,36 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [token, matchId]);
+  }, [token, matchIdFromUrl]);
 
   useEffect(() => {
-    if (!TV_WS_RELAY_URL) return;
-    if (!token && !matchId) return;
+    if (!resolvedMatchId) return;
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
 
-    const wsUrlBase = toWsUrl(TV_WS_RELAY_URL);
-    if (!wsUrlBase) return;
+    const topic = `match:${resolvedMatchId}`;
+    const channel = supabase.channel(topic);
 
-    const url = new URL(wsUrlBase);
-    if (token) url.searchParams.set("token", token);
-    if (matchId) url.searchParams.set("matchId", matchId);
+    channelRef.current = channel;
 
-    try {
-      const ws = new WebSocket(url.toString());
-      wsRef.current = ws;
+    channel
+      .on("broadcast", { event: "*" }, (message) => {
+        const patch = message?.payload?.patch || message?.payload || message;
+        if (!patch || typeof patch !== "object") return;
 
-      ws.onmessage = (ev) => {
-        try {
-          const msg = JSON.parse(ev.data);
-          const patch = msg?.patch || msg;
+        setCtx((prev) => {
+          if (!prev) return prev;
+          return mergeContext(prev, patch);
+        });
+      })
+      .subscribe((status) => {
+        console.log("[display] realtime status:", status, topic);
+      });
 
-          setCtx((prev) => {
-            if (!prev) return prev;
-            return mergeContext(prev, patch);
-          });
-        } catch {
-          // ignore malformed payload
-        }
-      };
-
-      ws.onerror = () => {
-        // silencieux pour la démo
-      };
-
-      return () => {
-        ws.close();
-      };
-    } catch {
-      // ignore
-    }
-  }, [token, matchId]);
+    return () => {
+      supabase.removeChannel(channel);
+      channelRef.current = null;
+    };
+  }, [resolvedMatchId]);
 
   if (err) {
     return (
