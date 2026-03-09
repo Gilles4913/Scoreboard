@@ -302,20 +302,35 @@ export default function ControlPage() {
       setHomeRedCards(0);
       setAwayRedCards(0);
 
-      if (currentMatch.team_id) {
-        const { data: playersData, error: playersErr } = await supabase
-          .from("players")
-          .select("id, name, number, team_id")
-          .eq("team_id", currentMatch.team_id)
-          .eq("is_active", true)
-          .order("number", { ascending: true });
+      {
+  const { data: matchPlayersData, error: matchPlayersErr } = await supabase
+    .from("match_players")
+    .select(`
+      id,
+      player_id,
+      shirt_number,
+      fouls,
+      points,
+      yellow_cards,
+      red_cards,
+      is_selected,
+      is_starter,
+      player:players (
+        id,
+        name,
+        number
+      )
+    `)
+    .eq("match_id", currentMatch.id)
+    .order("shirt_number", { ascending: true });
 
-        if (!cancelled && !playersErr) {
-          const basePlayers = (playersData as PlayerRow[]) || [];
-          setHomePlayers(toPlayerFoulRows(basePlayers));
-          setAwayPlayers(toPlayerFoulRows(basePlayers));
-        }
-      }
+  if (!cancelled && !matchPlayersErr) {
+    const mp = (matchPlayersData as unknown as MatchPlayerRow[]) || [];
+    const baseRows = toPlayerFoulRows(mp);
+    setHomePlayers(baseRows);
+    setAwayPlayers(baseRows);
+  }
+}
 
       setLoading(false);
     }
@@ -549,24 +564,40 @@ export default function ControlPage() {
   }
 
   async function changePlayerFoul(side: "home" | "away", playerId: string, delta: number) {
-    const source = side === "home" ? homePlayers : awayPlayers;
-    const next = source.map((p) =>
-      p.id === playerId ? { ...p, fouls: clampMin(p.fouls + delta) } : p,
-    );
+  const source = side === "home" ? homePlayers : awayPlayers;
+  const player = source.find((p) => p.id === playerId);
+  if (!player) return;
 
-    if (side === "home") setHomePlayers(next);
-    else setAwayPlayers(next);
+  const nextFouls = clampMin(player.fouls + delta);
 
-    if (autoLive) {
-      try {
-        await pushPatch({
-          [side === "home" ? "home_players" : "away_players"]: next,
-        });
-      } catch (e: any) {
-        flash(e?.message || "Erreur broadcast.");
-      }
+  const next = source.map((p) =>
+    p.id === playerId ? { ...p, fouls: nextFouls } : p,
+  );
+
+  if (side === "home") setHomePlayers(next);
+  else setAwayPlayers(next);
+
+  const { error } = await supabase
+    .from("match_players")
+    .update({ fouls: nextFouls })
+    .eq("match_id", match!.id)
+    .eq("player_id", playerId);
+
+  if (error) {
+    flash(`Erreur mise à jour faute joueur : ${error.message}`);
+    return;
+  }
+
+  if (autoLive) {
+    try {
+      await pushPatch({
+        [side === "home" ? "home_players" : "away_players"]: next,
+      });
+    } catch (e: any) {
+      flash(e?.message || "Erreur broadcast.");
     }
   }
+}
 
   async function openFullscreen() {
     const el = document.documentElement as any;
