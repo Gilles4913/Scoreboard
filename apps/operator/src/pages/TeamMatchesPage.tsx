@@ -16,6 +16,7 @@ type OrgRow = {
 type TeamRow = {
   id: string;
   org_id: string;
+  slug: string | null;
   name: string;
   category: string | null;
   code: string | null;
@@ -106,7 +107,7 @@ export default function TeamMatchesPage() {
       setOrg(orgRow as OrgRow);
 
       const [{ data: teamRow, error: teamErr }, { data: matchRows, error: matchErr }] = await Promise.all([
-        supabase.from("teams").select("id, org_id, name, category, code").eq("id", teamId).maybeSingle(),
+        supabase.from("teams").select("id, org_id, slug, name, category, code").eq("id", teamId).maybeSingle(),
         supabase
           .from("matches")
           .select("id, team_id, name, status, scheduled_at, public_display, display_token, home_name, away_name")
@@ -142,7 +143,7 @@ export default function TeamMatchesPage() {
 
   function flash(message: string) {
     setInfo(message);
-    window.setTimeout(() => setInfo(""), 2500);
+    window.setTimeout(() => setInfo(""), 2600);
   }
 
   function displayLink(m: MatchRow) {
@@ -154,6 +155,12 @@ export default function TeamMatchesPage() {
 
   function controlLink(m: MatchRow) {
     return `${window.location.origin}/matches/${encodeURIComponent(m.id)}/control`;
+  }
+
+  function stableTeamDisplayLink() {
+    if (!DISPLAY_URL || !team?.slug) return "";
+    const base = DISPLAY_URL.replace(/\/$/, "");
+    return `${base}/?teamSlug=${encodeURIComponent(team.slug)}`;
   }
 
   async function copyText(value: string) {
@@ -203,8 +210,14 @@ export default function TeamMatchesPage() {
   const activeMatches = matches.filter((m) => ["scheduled", "live", "paused"].includes(normalizeStatus(m.status)));
   const archivedMatches = matches.filter((m) => ["finished", "archived"].includes(normalizeStatus(m.status)));
 
+  const stableLink = stableTeamDisplayLink();
+
   if (loading) {
-    return <div style={styles.page}><div style={styles.centerBox}>Chargement des matchs…</div></div>;
+    return (
+      <div style={styles.page}>
+        <div style={styles.centerBox}>Chargement des matchs…</div>
+      </div>
+    );
   }
 
   if (err) {
@@ -229,6 +242,23 @@ export default function TeamMatchesPage() {
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <button onClick={() => nav("/teams")} style={styles.ghostBtn}>Retour équipes</button>
             <button onClick={() => nav(`/teams/${teamId}/matches/new`)} style={styles.primaryBtn}>Préparer un match</button>
+            <button onClick={() => nav(`/teams/${teamId}/players`)} style={styles.ghostBtn}>Joueurs</button>
+            {stableLink ? (
+              <a href={stableLink} target="_blank" rel="noreferrer" style={styles.linkBtn}>
+                Écran stable équipe
+              </a>
+            ) : null}
+            {stableLink ? (
+              <button
+                onClick={() => {
+                  setSelectedQr(stableLink);
+                  setSelectedQrTitle(`QR écran stable — ${team?.name || "Équipe"}`);
+                }}
+                style={styles.ghostBtn}
+              >
+                QR écran stable
+              </button>
+            ) : null}
             <button onClick={() => nav("/display-settings")} style={styles.ghostBtn}>Paramètres Display</button>
           </div>
         </div>
@@ -246,12 +276,47 @@ export default function TeamMatchesPage() {
               <div style={{ background: "white", padding: 10, borderRadius: 12 }}>
                 <QRCodeSVG value={selectedQr} size={180} />
               </div>
-              <div style={{ maxWidth: 420 }}>
+              <div style={{ maxWidth: 520 }}>
                 <div style={{ fontSize: 13, opacity: 0.82, lineHeight: 1.6, wordBreak: "break-all" }}>{selectedQr}</div>
               </div>
             </div>
           </div>
         ) : null}
+
+        <section style={styles.panel}>
+          <div style={styles.sectionTitle}>Écran public stable</div>
+          <div style={styles.sectionText}>
+            Cette URL est pensée pour un panneau LED ou un écran fixe affecté à cette équipe. Elle charge automatiquement le match en cours, ou sinon le prochain match prévu.
+          </div>
+
+          <div style={styles.stableLinkBox}>
+            <div style={styles.stableLinkLabel}>URL stable équipe</div>
+            <div style={styles.stableLinkValue}>
+              {stableLink || "Aucun slug d’équipe disponible."}
+            </div>
+
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
+              {stableLink ? (
+                <>
+                  <button onClick={() => copyText(stableLink)} style={styles.primaryBtn}>Copier l’URL stable</button>
+                  <button
+                    onClick={() => {
+                      setSelectedQr(stableLink);
+                      setSelectedQrTitle(`QR écran stable — ${team?.name || "Équipe"}`);
+                    }}
+                    style={styles.ghostBtn}
+                  >
+                    Afficher le QR stable
+                  </button>
+                </>
+              ) : (
+                <div style={{ fontSize: 13, opacity: 0.75 }}>
+                  Ajoute un slug public sur cette équipe pour activer l’URL stable.
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
 
         <Section title="Matchs à venir / en cours">
           {activeMatches.length === 0 ? (
@@ -271,20 +336,59 @@ export default function TeamMatchesPage() {
                         <div style={styles.cardTitle}>{matchTitle(m)}</div>
                         <div style={styles.cardMeta}>{fmtDate(m.scheduled_at)}</div>
                       </div>
-                      <span style={{ ...styles.badge, color: badge.color, background: badge.bg, borderColor: `${badge.color}33` }}>
+                      <span
+                        style={{
+                          ...styles.badge,
+                          color: badge.color,
+                          background: badge.bg,
+                          borderColor: `${badge.color}33`,
+                        }}
+                      >
                         {badge.label}
                       </span>
                     </div>
 
                     <div style={styles.actionRow}>
-                      <button onClick={() => nav(`/matches/${m.id}/control`)} style={styles.primaryBtn}>Éditer / régie</button>
-                      {dLink ? <a href={dLink} target="_blank" rel="noreferrer" style={styles.linkBtn}>Écran public</a> : null}
-                      {dLink ? <button onClick={() => copyText(dLink)} style={styles.ghostBtnSmall}>Copier lien écran</button> : null}
-                      <button onClick={() => copyText(cLink)} style={styles.ghostBtnSmall}>Copier lien régie</button>
-                      {dLink ? <button onClick={() => { setSelectedQr(dLink); setSelectedQrTitle(`QR écran — ${matchTitle(m)}`); }} style={styles.ghostBtnSmall}>QR écran</button> : null}
-                      <button onClick={() => { setSelectedQr(cLink); setSelectedQrTitle(`QR régie — ${matchTitle(m)}`); }} style={styles.ghostBtnSmall}>QR régie</button>
+                      <button onClick={() => nav(`/matches/${m.id}/control`)} style={styles.primaryBtn}>
+                        Éditer / régie
+                      </button>
+                      {dLink ? (
+                        <a href={dLink} target="_blank" rel="noreferrer" style={styles.linkBtn}>
+                          Écran public
+                        </a>
+                      ) : null}
+                      {dLink ? (
+                        <button onClick={() => copyText(dLink)} style={styles.ghostBtnSmall}>
+                          Copier lien écran
+                        </button>
+                      ) : null}
+                      <button onClick={() => copyText(cLink)} style={styles.ghostBtnSmall}>
+                        Copier lien régie
+                      </button>
+                      {dLink ? (
+                        <button
+                          onClick={() => {
+                            setSelectedQr(dLink);
+                            setSelectedQrTitle(`QR écran — ${matchTitle(m)}`);
+                          }}
+                          style={styles.ghostBtnSmall}
+                        >
+                          QR écran
+                        </button>
+                      ) : null}
+                      <button
+                        onClick={() => {
+                          setSelectedQr(cLink);
+                          setSelectedQrTitle(`QR régie — ${matchTitle(m)}`);
+                        }}
+                        style={styles.ghostBtnSmall}
+                      >
+                        QR régie
+                      </button>
                       {status === "scheduled" ? (
-                        <button onClick={() => deleteMatch(m.id)} style={styles.dangerBtn}>Supprimer</button>
+                        <button onClick={() => deleteMatch(m.id)} style={styles.dangerBtn}>
+                          Supprimer
+                        </button>
                       ) : null}
                     </div>
                   </div>
@@ -310,15 +414,26 @@ export default function TeamMatchesPage() {
                         <div style={styles.cardTitle}>{matchTitle(m)}</div>
                         <div style={styles.cardMeta}>{fmtDate(m.scheduled_at)}</div>
                       </div>
-                      <span style={{ ...styles.badge, color: badge.color, background: badge.bg, borderColor: `${badge.color}33` }}>
+                      <span
+                        style={{
+                          ...styles.badge,
+                          color: badge.color,
+                          background: badge.bg,
+                          borderColor: `${badge.color}33`,
+                        }}
+                      >
                         {badge.label}
                       </span>
                     </div>
 
                     <div style={styles.actionRow}>
-                      <button onClick={() => nav(`/matches/${m.id}/control`)} style={styles.ghostBtn}>Ouvrir</button>
+                      <button onClick={() => nav(`/matches/${m.id}/control`)} style={styles.ghostBtn}>
+                        Ouvrir
+                      </button>
                       {status === "finished" ? (
-                        <button onClick={() => archiveMatch(m.id)} style={styles.ghostBtn}>Archiver</button>
+                        <button onClick={() => archiveMatch(m.id)} style={styles.ghostBtn}>
+                          Archiver
+                        </button>
                       ) : null}
                     </div>
                   </div>
@@ -386,8 +501,33 @@ const styles: Record<string, React.CSSProperties> = {
   },
   title: { fontSize: 30, fontWeight: 900 },
   subtitle: { marginTop: 4, fontSize: 13, opacity: 0.72 },
+  panel: {
+    padding: 16,
+    borderRadius: 18,
+    background: "rgba(255,255,255,.03)",
+    border: "1px solid rgba(255,255,255,.08)",
+  },
+  sectionTitle: { fontSize: 18, fontWeight: 900, marginBottom: 10 },
+  sectionText: { fontSize: 14, lineHeight: 1.65, opacity: 0.86, marginBottom: 14 },
+  stableLinkBox: {
+    padding: 16,
+    borderRadius: 16,
+    background: "rgba(255,255,255,.04)",
+    border: "1px solid rgba(255,255,255,.08)",
+  },
+  stableLinkLabel: { fontSize: 13, opacity: 0.7, marginBottom: 8 },
+  stableLinkValue: {
+    fontSize: 13,
+    lineHeight: 1.6,
+    wordBreak: "break-all",
+    background: "rgba(255,255,255,.03)",
+    border: "1px solid rgba(255,255,255,.08)",
+    borderRadius: 12,
+    padding: 12,
+  },
   qrPanel: {
     marginTop: 14,
+    marginBottom: 18,
     padding: 16,
     borderRadius: 16,
     background: "rgba(255,255,255,.04)",
