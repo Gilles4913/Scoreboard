@@ -19,6 +19,24 @@ type MatchRow = {
   away_name: string | null;
   home_score: number | null;
   away_score: number | null;
+
+  period_label: string | null;
+  clock_ms: number | null;
+  clock_running: boolean | null;
+
+  home_team_fouls: number | null;
+  away_team_fouls: number | null;
+  home_timeouts: number | null;
+  away_timeouts: number | null;
+  home_bonus: boolean | null;
+  away_bonus: boolean | null;
+  shot_clock_s: number | null;
+  home_sets_won: number | null;
+  away_sets_won: number | null;
+  home_yellow_cards: number | null;
+  away_yellow_cards: number | null;
+  home_red_cards: number | null;
+  away_red_cards: number | null;
 };
 
 type OrgRow = {
@@ -87,12 +105,15 @@ type SportSettings = {
   shot_clock_s: number | null;
 };
 
-type PlayerFoulsRow = {
+type PlayerStatRow = {
   id: string;
   team_id?: string;
   name: string;
   number: string;
   fouls: number;
+  points?: number;
+  yellow_cards?: number;
+  red_cards?: number;
 };
 
 function getEnv(name: string): string {
@@ -156,7 +177,7 @@ function clampMin(n: number, min = 0) {
   return Math.max(min, n);
 }
 
-function toPlayerFoulRows(matchPlayers: MatchPlayerRow[]) {
+function toPlayerStatRows(matchPlayers: MatchPlayerRow[]) {
   return matchPlayers
     .filter((p) => p.is_selected)
     .map((p) => ({
@@ -165,6 +186,9 @@ function toPlayerFoulRows(matchPlayers: MatchPlayerRow[]) {
       name: p.player?.name || "Joueur",
       number: p.shirt_number || p.player?.number || "?",
       fouls: p.fouls || 0,
+      points: p.points || 0,
+      yellow_cards: p.yellow_cards || 0,
+      red_cards: p.red_cards || 0,
     }));
 }
 
@@ -209,8 +233,8 @@ export default function ControlPage() {
   const [homeRedCards, setHomeRedCards] = useState(0);
   const [awayRedCards, setAwayRedCards] = useState(0);
 
-  const [homePlayers, setHomePlayers] = useState<PlayerFoulsRow[]>([]);
-  const [awayPlayers, setAwayPlayers] = useState<PlayerFoulsRow[]>([]);
+  const [homePlayers, setHomePlayers] = useState<PlayerStatRow[]>([]);
+  const [awayPlayers, setAwayPlayers] = useState<PlayerStatRow[]>([]);
 
   const timerRef = useRef<number | null>(null);
 
@@ -231,7 +255,7 @@ export default function ControlPage() {
       const { data: matchRow, error: matchErr } = await supabase
         .from("matches")
         .select(
-          "id, org_id, team_id, home_team_id, away_team_id, name, status, scheduled_at, public_display, display_token, home_name, away_name, home_score, away_score",
+          "id, org_id, team_id, home_team_id, away_team_id, name, status, scheduled_at, public_display, display_token, home_name, away_name, home_score, away_score, period_label, clock_ms, clock_running, home_team_fouls, away_team_fouls, home_timeouts, away_timeouts, home_bonus, away_bonus, shot_clock_s, home_sets_won, away_sets_won, home_yellow_cards, away_yellow_cards, home_red_cards, away_red_cards",
         )
         .eq("id", matchId)
         .maybeSingle();
@@ -286,25 +310,37 @@ export default function ControlPage() {
       setHomeName(currentMatch.home_name || "Domicile");
       setAwayName(currentMatch.away_name || "Extérieur");
       setStatus((currentMatch.status || "scheduled").toLowerCase());
-      setPeriodLabel(periodOptionsBySport(sportValue, ss?.period_count)[0] || "1MT");
+      setPeriodLabel(
+        currentMatch.period_label ||
+          periodOptionsBySport(sportValue, ss?.period_count)[0] ||
+          "1MT",
+      );
       setHomeScore(Number(currentMatch.home_score || 0));
       setAwayScore(Number(currentMatch.away_score || 0));
-      setClockMs(defaultClockMsBySport(sportValue, ss?.period_duration_s));
-      setClockRunning(false);
+      setClockMs(
+        typeof currentMatch.clock_ms === "number"
+          ? currentMatch.clock_ms
+          : defaultClockMsBySport(sportValue, ss?.period_duration_s),
+      );
+      setClockRunning(!!currentMatch.clock_running);
 
-      setHomeTeamFouls(0);
-      setAwayTeamFouls(0);
-      setHomeTimeouts(0);
-      setAwayTimeouts(0);
-      setHomeBonus(false);
-      setAwayBonus(false);
-      setShotClockS(Number(ss?.shot_clock_s || 24));
-      setHomeSetsWon(0);
-      setAwaySetsWon(0);
-      setHomeYellowCards(0);
-      setAwayYellowCards(0);
-      setHomeRedCards(0);
-      setAwayRedCards(0);
+      setHomeTeamFouls(Number(currentMatch.home_team_fouls || 0));
+      setAwayTeamFouls(Number(currentMatch.away_team_fouls || 0));
+      setHomeTimeouts(Number(currentMatch.home_timeouts || 0));
+      setAwayTimeouts(Number(currentMatch.away_timeouts || 0));
+      setHomeBonus(!!currentMatch.home_bonus);
+      setAwayBonus(!!currentMatch.away_bonus);
+      setShotClockS(
+        typeof currentMatch.shot_clock_s === "number"
+          ? currentMatch.shot_clock_s
+          : Number(ss?.shot_clock_s || 24),
+      );
+      setHomeSetsWon(Number(currentMatch.home_sets_won || 0));
+      setAwaySetsWon(Number(currentMatch.away_sets_won || 0));
+      setHomeYellowCards(Number(currentMatch.home_yellow_cards || 0));
+      setAwayYellowCards(Number(currentMatch.away_yellow_cards || 0));
+      setHomeRedCards(Number(currentMatch.home_red_cards || 0));
+      setAwayRedCards(Number(currentMatch.away_red_cards || 0));
 
       const { data: matchPlayersData, error: matchPlayersErr } = await supabase
         .from("match_players")
@@ -334,12 +370,12 @@ export default function ControlPage() {
         const homeTeamId = currentMatch.home_team_id || currentMatch.team_id || null;
         const awayTeamId = currentMatch.away_team_id || null;
 
-        const homeRows = toPlayerFoulRows(
+        const homeRows = toPlayerStatRows(
           mp.filter((p) => !homeTeamId || p.team_id === homeTeamId),
         );
 
         const awayRows = awayTeamId
-          ? toPlayerFoulRows(mp.filter((p) => p.team_id === awayTeamId))
+          ? toPlayerStatRows(mp.filter((p) => p.team_id === awayTeamId))
           : [];
 
         setHomePlayers(homeRows);
@@ -392,6 +428,22 @@ export default function ControlPage() {
     window.setTimeout(() => setInfo(""), 2600);
   }
 
+  async function persistLiveState(patch: Partial<MatchRow>) {
+    if (!match) return;
+
+    const { error } = await supabase
+      .from("matches")
+      .update(patch)
+      .eq("id", match.id);
+
+    if (error) {
+      flash(`Erreur persistance match : ${error.message}`);
+      throw error;
+    }
+
+    setMatch((prev) => (prev ? { ...prev, ...patch } : prev));
+  }
+
   async function pushPatch(patch: Record<string, any>) {
     if (!match) return;
 
@@ -408,6 +460,7 @@ export default function ControlPage() {
       clock_ms: clockMs,
       clock_running: clockRunning,
       period_label: periodLabel,
+
       show_score: displaySettings?.show_score ?? true,
       show_clock: displaySettings?.show_clock ?? true,
       show_period: displaySettings?.show_period ?? true,
@@ -415,6 +468,7 @@ export default function ControlPage() {
       show_lower_third: displaySettings?.show_lower_third ?? true,
       show_logos: displaySettings?.show_logos ?? true,
       show_sponsors: displaySettings?.show_sponsors ?? true,
+
       show_team_fouls: sportSettings?.show_team_fouls ?? false,
       show_player_fouls: sportSettings?.show_player_fouls ?? false,
       show_timeouts: sportSettings?.show_timeouts ?? false,
@@ -422,9 +476,16 @@ export default function ControlPage() {
       show_sets: sportSettings?.show_sets ?? false,
       show_cards: sportSettings?.show_cards ?? false,
       show_shot_clock: sportSettings?.show_shot_clock ?? false,
+
       layout_mode: displaySettings?.layout_mode ?? "stadium",
-      home: {name: homeName,},
-      away: {name: awayName,},
+
+      home: {
+        name: homeName,
+      },
+      away: {
+        name: awayName,
+      },
+
       home_team_fouls: homeTeamFouls,
       away_team_fouls: awayTeamFouls,
       home_timeouts: homeTimeouts,
@@ -449,30 +510,37 @@ export default function ControlPage() {
   async function saveMatch() {
     if (!match) return;
 
-    const payload = {
+    const payload: Partial<MatchRow> = {
       name: matchName.trim() || `${homeName.trim() || "Domicile"} vs ${awayName.trim() || "Extérieur"}`,
       home_name: homeName.trim() || "Domicile",
       away_name: awayName.trim() || "Extérieur",
       status,
       home_score: homeScore,
       away_score: awayScore,
+      period_label: periodLabel,
+      clock_ms: clockMs,
+      clock_running: clockRunning,
+      home_team_fouls: homeTeamFouls,
+      away_team_fouls: awayTeamFouls,
+      home_timeouts: homeTimeouts,
+      away_timeouts: awayTimeouts,
+      home_bonus: homeBonus,
+      away_bonus: awayBonus,
+      shot_clock_s: shotClockS,
+      home_sets_won: homeSetsWon,
+      away_sets_won: awaySetsWon,
+      home_yellow_cards: homeYellowCards,
+      away_yellow_cards: awayYellowCards,
+      home_red_cards: homeRedCards,
+      away_red_cards: awayRedCards,
     };
 
-    const { data, error } = await supabase
-      .from("matches")
-      .update(payload)
-      .eq("id", match.id)
-      .select("id, name, home_name, away_name, status, home_score, away_score")
-      .maybeSingle();
-
-    if (error) {
-      flash(`Erreur sauvegarde : ${error.message}`);
-      return;
+    try {
+      await persistLiveState(payload);
+      flash("Match sauvegardé avec succès.");
+    } catch {
+      // message already shown
     }
-
-    setMatch((prev) => (prev ? { ...prev, ...payload } : prev));
-    console.log("[control] saveMatch success:", data);
-    flash("Match sauvegardé avec succès.");
   }
 
   async function syncNow() {
@@ -487,50 +555,71 @@ export default function ControlPage() {
   async function changeScore(side: "home" | "away", delta: number) {
     const nextHome = side === "home" ? Math.max(0, homeScore + delta) : homeScore;
     const nextAway = side === "away" ? Math.max(0, awayScore + delta) : awayScore;
+
     setHomeScore(nextHome);
     setAwayScore(nextAway);
 
-    if (autoLive) {
-      try {
+    try {
+      await persistLiveState({
+        home_score: nextHome,
+        away_score: nextAway,
+      });
+
+      if (autoLive) {
         await pushPatch({ home_score: nextHome, away_score: nextAway });
-      } catch (e: any) {
-        flash(e?.message || "Erreur broadcast.");
       }
+    } catch {
+      // handled
     }
   }
 
   async function changePeriod(next: string) {
     setPeriodLabel(next);
-    if (autoLive) {
-      try {
+
+    try {
+      await persistLiveState({ period_label: next });
+
+      if (autoLive) {
         await pushPatch({ period_label: next });
-      } catch (e: any) {
-        flash(e?.message || "Erreur broadcast.");
       }
+    } catch {
+      // handled
     }
   }
 
   async function startClock() {
     setClockRunning(true);
     setStatus("live");
-    if (autoLive) {
-      try {
+
+    try {
+      await persistLiveState({
+        clock_running: true,
+        status: "live",
+      });
+
+      if (autoLive) {
         await pushPatch({ clock_running: true, status: "live" });
-      } catch (e: any) {
-        flash(e?.message || "Erreur broadcast.");
       }
+    } catch {
+      // handled
     }
   }
 
   async function pauseClock() {
     setClockRunning(false);
     setStatus("paused");
-    if (autoLive) {
-      try {
+
+    try {
+      await persistLiveState({
+        clock_running: false,
+        status: "paused",
+      });
+
+      if (autoLive) {
         await pushPatch({ clock_running: false, status: "paused" });
-      } catch (e: any) {
-        flash(e?.message || "Erreur broadcast.");
       }
+    } catch {
+      // handled
     }
   }
 
@@ -538,12 +627,33 @@ export default function ControlPage() {
     const next = defaultClockMsBySport(sport, sportSettings?.period_duration_s);
     setClockMs(next);
     setClockRunning(false);
-    if (autoLive) {
-      try {
+
+    try {
+      await persistLiveState({
+        clock_ms: next,
+        clock_running: false,
+      });
+
+      if (autoLive) {
         await pushPatch({ clock_ms: next, clock_running: false });
-      } catch (e: any) {
-        flash(e?.message || "Erreur broadcast.");
       }
+    } catch {
+      // handled
+    }
+  }
+
+  async function adjustClock(deltaMs: number) {
+    const next = Math.max(0, clockMs + deltaMs);
+    setClockMs(next);
+
+    try {
+      await persistLiveState({ clock_ms: next });
+
+      if (autoLive) {
+        await pushPatch({ clock_ms: next });
+      }
+    } catch {
+      // handled
     }
   }
 
@@ -551,48 +661,99 @@ export default function ControlPage() {
     setter: React.Dispatch<React.SetStateAction<number>>,
     currentValue: number,
     delta: number,
-    patchName: string,
+    patchName:
+      | "home_team_fouls"
+      | "away_team_fouls"
+      | "home_timeouts"
+      | "away_timeouts"
+      | "home_sets_won"
+      | "away_sets_won"
+      | "home_yellow_cards"
+      | "away_yellow_cards"
+      | "home_red_cards"
+      | "away_red_cards",
   ) {
     const next = clampMin(currentValue + delta);
     setter(next);
 
-    if (autoLive) {
-      try {
+    try {
+      await persistLiveState({ [patchName]: next } as Partial<MatchRow>);
+
+      if (autoLive) {
         await pushPatch({ [patchName]: next });
-      } catch (e: any) {
-        flash(e?.message || "Erreur broadcast.");
       }
+    } catch {
+      // handled
     }
   }
 
   async function toggleBoolStat(
     setter: React.Dispatch<React.SetStateAction<boolean>>,
     currentValue: boolean,
-    patchName: string,
+    patchName: "home_bonus" | "away_bonus",
   ) {
     const next = !currentValue;
     setter(next);
 
-    if (autoLive) {
-      try {
+    try {
+      await persistLiveState({ [patchName]: next } as Partial<MatchRow>);
+
+      if (autoLive) {
         await pushPatch({ [patchName]: next });
-      } catch (e: any) {
-        flash(e?.message || "Erreur broadcast.");
       }
+    } catch {
+      // handled
     }
   }
 
-  async function changePlayerFoul(side: "home" | "away", playerId: string, delta: number) {
+  async function changeShotClock(delta: number | null, reset = false) {
+    const next = reset
+      ? Number(sportSettings?.shot_clock_s || 24)
+      : Math.max(0, shotClockS + (delta || 0));
+
+    setShotClockS(next);
+
+    try {
+      await persistLiveState({ shot_clock_s: next });
+
+      if (autoLive) {
+        await pushPatch({ shot_clock_s: next });
+      }
+    } catch {
+      // handled
+    }
+  }
+
+  async function changePlayerStat(
+    side: "home" | "away",
+    playerId: string,
+    field: "fouls" | "points" | "yellow_cards" | "red_cards",
+    delta: number,
+  ) {
     if (!match) return;
 
     const source = side === "home" ? homePlayers : awayPlayers;
     const player = source.find((p) => p.id === playerId);
     if (!player) return;
 
-    const nextFouls = clampMin(player.fouls + delta);
+    const currentValue =
+      field === "fouls"
+        ? player.fouls || 0
+        : field === "points"
+        ? player.points || 0
+        : field === "yellow_cards"
+        ? player.yellow_cards || 0
+        : player.red_cards || 0;
+
+    const nextValue = clampMin(currentValue + delta);
 
     const next = source.map((p) =>
-      p.id === playerId ? { ...p, fouls: nextFouls } : p,
+      p.id === playerId
+        ? {
+            ...p,
+            [field]: nextValue,
+          }
+        : p,
     );
 
     if (side === "home") setHomePlayers(next);
@@ -600,12 +761,12 @@ export default function ControlPage() {
 
     const { error } = await supabase
       .from("match_players")
-      .update({ fouls: nextFouls })
+      .update({ [field]: nextValue })
       .eq("match_id", match.id)
       .eq("player_id", playerId);
 
     if (error) {
-      flash(`Erreur mise à jour faute joueur : ${error.message}`);
+      flash(`Erreur mise à jour statistique joueur : ${error.message}`);
       return;
     }
 
@@ -671,6 +832,9 @@ export default function ControlPage() {
             <button onClick={() => nav(team?.id ? `/teams/${team.id}/matches` : "/teams")} style={styles.ghostBtn}>
               Retour
             </button>
+            <button onClick={() => nav(`/matches/${match.id}/roster`)} style={styles.ghostBtn}>
+              Feuille de match
+            </button>
             <button onClick={openFullscreen} style={styles.ghostBtn}>
               Plein écran
             </button>
@@ -686,7 +850,7 @@ export default function ControlPage() {
           <div>
             <div style={styles.heroTitle}>{matchName}</div>
             <div style={styles.heroText}>
-              Cette régie pilote le match courant. En mode <b>Auto live</b>, chaque action part immédiatement vers l’écran public.
+              Cette régie pilote le match courant. En mode <b>Auto live</b>, chaque action part immédiatement vers l’écran public et est persistée en base.
             </div>
 
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 14 }}>
@@ -813,10 +977,10 @@ export default function ControlPage() {
                 </div>
 
                 <div style={{ ...styles.scoreActions, marginTop: 12 }}>
-                  <button onClick={() => setClockMs((v) => Math.max(0, v - 60_000))} style={styles.ghostBtnSmall}>-1 min</button>
-                  <button onClick={() => setClockMs((v) => v + 60_000)} style={styles.ghostBtnSmall}>+1 min</button>
-                  <button onClick={() => setClockMs((v) => Math.max(0, v - 1000))} style={styles.ghostBtnSmall}>-1 sec</button>
-                  <button onClick={() => setClockMs((v) => v + 1000)} style={styles.ghostBtnSmall}>+1 sec</button>
+                  <button onClick={() => adjustClock(-60_000)} style={styles.ghostBtnSmall}>-1 min</button>
+                  <button onClick={() => adjustClock(60_000)} style={styles.ghostBtnSmall}>+1 min</button>
+                  <button onClick={() => adjustClock(-1000)} style={styles.ghostBtnSmall}>-1 sec</button>
+                  <button onClick={() => adjustClock(1000)} style={styles.ghostBtnSmall}>+1 sec</button>
                 </div>
 
                 {showShotClock ? (
@@ -824,36 +988,9 @@ export default function ControlPage() {
                     <div style={{ fontSize: 12, opacity: 0.72 }}>Shot clock</div>
                     <div style={{ fontSize: 28, fontWeight: 900, marginTop: 4 }}>{shotClockS}s</div>
                     <div style={{ ...styles.scoreActions, marginTop: 8 }}>
-                      <button
-                        onClick={() => {
-                          const next = Math.max(0, shotClockS - 1);
-                          setShotClockS(next);
-                          if (autoLive) pushPatch({ shot_clock_s: next }).catch((e: any) => flash(e?.message || "Erreur broadcast."));
-                        }}
-                        style={styles.ghostBtnSmall}
-                      >
-                        -1
-                      </button>
-                      <button
-                        onClick={() => {
-                          const next = shotClockS + 1;
-                          setShotClockS(next);
-                          if (autoLive) pushPatch({ shot_clock_s: next }).catch((e: any) => flash(e?.message || "Erreur broadcast."));
-                        }}
-                        style={styles.primaryBtnSmall}
-                      >
-                        +1
-                      </button>
-                      <button
-                        onClick={() => {
-                          const next = Number(sportSettings?.shot_clock_s || 24);
-                          setShotClockS(next);
-                          if (autoLive) pushPatch({ shot_clock_s: next }).catch((e: any) => flash(e?.message || "Erreur broadcast."));
-                        }}
-                        style={styles.ghostBtnSmall}
-                      >
-                        Reset
-                      </button>
+                      <button onClick={() => changeShotClock(-1)} style={styles.ghostBtnSmall}>-1</button>
+                      <button onClick={() => changeShotClock(1)} style={styles.primaryBtnSmall}>+1</button>
+                      <button onClick={() => changeShotClock(null, true)} style={styles.ghostBtnSmall}>Reset</button>
                     </div>
                   </div>
                 ) : null}
@@ -927,7 +1064,7 @@ export default function ControlPage() {
 
                 {showCards ? (
                   <div style={styles.statCard}>
-                    <div style={styles.statCardTitle}>Cartons</div>
+                    <div style={styles.statCardTitle}>Cartons équipe</div>
 
                     <div style={styles.cardsGrid}>
                       <MiniStat
@@ -983,21 +1120,23 @@ export default function ControlPage() {
 
           {showPlayerFouls ? (
             <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
-              <div style={styles.sectionTitle}>Fautes joueurs</div>
+              <div style={styles.sectionTitle}>Statistiques joueurs</div>
 
               <div style={styles.playerTablesGrid}>
-                <PlayerFoulsTable
+                <PlayerStatsTable
                   title={homeName}
                   players={homePlayers}
                   maxFouls={sportSettings?.max_player_fouls ?? null}
-                  onChange={(playerId, delta) => changePlayerFoul("home", playerId, delta)}
+                  sport={sport}
+                  onChange={(playerId, field, delta) => changePlayerStat("home", playerId, field, delta)}
                 />
 
-                <PlayerFoulsTable
+                <PlayerStatsTable
                   title={awayName}
                   players={awayPlayers}
                   maxFouls={sportSettings?.max_player_fouls ?? null}
-                  onChange={(playerId, delta) => changePlayerFoul("away", playerId, delta)}
+                  sport={sport}
+                  onChange={(playerId, field, delta) => changePlayerStat("away", playerId, field, delta)}
                 />
               </div>
             </section>
@@ -1072,42 +1211,120 @@ function MiniStat({
   );
 }
 
-function PlayerFoulsTable({
+function PlayerStatsTable({
   title,
   players,
   maxFouls,
+  sport,
   onChange,
 }: {
   title: string;
-  players: PlayerFoulsRow[];
+  players: PlayerStatRow[];
   maxFouls: number | null;
-  onChange: (playerId: string, delta: number) => void;
+  sport: string;
+  onChange: (
+    playerId: string,
+    field: "fouls" | "points" | "yellow_cards" | "red_cards",
+    delta: number,
+  ) => void;
 }) {
+  const normalizedSport = (sport || "").toLowerCase();
+  const showPoints =
+    normalizedSport === "basket" ||
+    normalizedSport === "rugby" ||
+    normalizedSport === "handball";
+  const showCards =
+    normalizedSport === "football" ||
+    normalizedSport === "rugby";
+
   return (
     <div style={styles.playerTableCard}>
       <div style={styles.statCardTitle}>{title}</div>
       <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
         {players.map((player) => {
-          const isCritical = maxFouls ? player.fouls >= maxFouls : false;
+          const isCritical = maxFouls ? (player.fouls || 0) >= maxFouls : false;
 
           return (
-            <div key={player.id} style={styles.playerRow}>
+            <div key={player.id} style={styles.playerRowExtended}>
               <div>
                 <div style={{ fontWeight: 800 }}>
                   #{player.number} {player.name}
                 </div>
-                <div style={{ fontSize: 12, opacity: 0.72 }}>
-                  Fautes : <b style={{ color: isCritical ? "#fca5a5" : "#e7eefc" }}>{player.fouls}</b>
-                </div>
               </div>
 
-              <div style={styles.scoreActions}>
-                <button onClick={() => onChange(player.id, -1)} style={styles.ghostBtnSmall}>-1</button>
-                <button onClick={() => onChange(player.id, 1)} style={styles.primaryBtnSmall}>+1</button>
+              <div style={styles.playerStatsGrid}>
+                <MiniPlayerStat
+                  label="Fautes"
+                  value={player.fouls || 0}
+                  danger={isCritical}
+                  onMinus={() => onChange(player.id, "fouls", -1)}
+                  onPlus={() => onChange(player.id, "fouls", 1)}
+                />
+
+                {showPoints ? (
+                  <MiniPlayerStat
+                    label="Points"
+                    value={player.points || 0}
+                    onMinus={() => onChange(player.id, "points", -1)}
+                    onPlus={() => onChange(player.id, "points", 1)}
+                  />
+                ) : null}
+
+                {showCards ? (
+                  <>
+                    <MiniPlayerStat
+                      label="Jaunes"
+                      value={player.yellow_cards || 0}
+                      onMinus={() => onChange(player.id, "yellow_cards", -1)}
+                      onPlus={() => onChange(player.id, "yellow_cards", 1)}
+                    />
+                    <MiniPlayerStat
+                      label="Rouges"
+                      value={player.red_cards || 0}
+                      onMinus={() => onChange(player.id, "red_cards", -1)}
+                      onPlus={() => onChange(player.id, "red_cards", 1)}
+                    />
+                  </>
+                ) : null}
               </div>
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function MiniPlayerStat({
+  label,
+  value,
+  onMinus,
+  onPlus,
+  danger = false,
+}: {
+  label: string;
+  value: number;
+  onMinus: () => void;
+  onPlus: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <div style={styles.playerMiniStat}>
+      <div style={{ fontSize: 11, opacity: 0.72 }}>{label}</div>
+      <div
+        style={{
+          fontSize: 20,
+          fontWeight: 900,
+          color: danger ? "#fca5a5" : "#e7eefc",
+          marginTop: 4,
+          marginBottom: 8,
+        }}
+      >
+        {value}
+      </div>
+      <div style={styles.scoreActions}>
+        <button onClick={onMinus} style={styles.ghostBtnSmall}>-1</button>
+        <button onClick={onPlus} style={styles.primaryBtnSmall}>+1</button>
       </div>
     </div>
   );
@@ -1260,15 +1477,27 @@ const styles: Record<string, any> = {
     background: "rgba(255,255,255,.04)",
     border: "1px solid rgba(255,255,255,.08)",
   },
-  playerRow: {
-    display: "flex",
-    justifyContent: "space-between",
+  playerRowExtended: {
+    display: "grid",
+    gridTemplateColumns: "220px 1fr",
     gap: 12,
     alignItems: "center",
     padding: 10,
     borderRadius: 12,
     background: "rgba(255,255,255,.03)",
     border: "1px solid rgba(255,255,255,.06)",
+  },
+  playerStatsGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+    gap: 10,
+  },
+  playerMiniStat: {
+    padding: 10,
+    borderRadius: 12,
+    background: "rgba(255,255,255,.04)",
+    border: "1px solid rgba(255,255,255,.08)",
+    textAlign: "center",
   },
   primaryBtn: {
     background: "#2563eb",
