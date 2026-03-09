@@ -17,6 +17,8 @@ type MatchRow = {
   away_name: string | null;
   home_score: number | null;
   away_score: number | null;
+  home_team_id: string | null;
+  away_team_id: string | null;
 };
 
 type OrgRow = {
@@ -34,6 +36,7 @@ type TeamRow = {
 type MatchPlayerRow = {
   id: string;
   player_id: string;
+  team_id: string;
   shirt_number: string | null;
   fouls: number;
   points: number;
@@ -93,6 +96,7 @@ type PlayerRow = {
 
 type PlayerFoulsRow = {
   id: string;
+  team_id?: string;
   name: string;
   number: string;
   fouls: number;
@@ -164,6 +168,7 @@ function toPlayerFoulRows(matchPlayers: MatchPlayerRow[]) {
     .filter((p) => p.is_selected)
     .map((p) => ({
       id: p.player_id,
+      team_id: p.team_id,
       name: p.player?.name || "Joueur",
       number: p.shirt_number || p.player?.number || "?",
       fouls: p.fouls || 0,
@@ -232,7 +237,7 @@ export default function ControlPage() {
 
       const { data: matchRow, error: matchErr } = await supabase
         .from("matches")
-        .select("id, org_id, team_id, name, status, scheduled_at, public_display, display_token, home_name, away_name, home_score, away_score")
+        .select("id, org_id, team_id, home_team_id, away_team_id, name, status, scheduled_at, public_display, display_token, home_name, away_name, home_score, away_score")
         .eq("id", matchId)
         .maybeSingle();
 
@@ -303,11 +308,13 @@ export default function ControlPage() {
       setAwayRedCards(0);
 
       {
+  {
   const { data: matchPlayersData, error: matchPlayersErr } = await supabase
     .from("match_players")
     .select(`
       id,
       player_id,
+      team_id,
       shirt_number,
       fouls,
       points,
@@ -326,9 +333,20 @@ export default function ControlPage() {
 
   if (!cancelled && !matchPlayersErr) {
     const mp = (matchPlayersData as unknown as MatchPlayerRow[]) || [];
-    const baseRows = toPlayerFoulRows(mp);
-    setHomePlayers(baseRows);
-    setAwayPlayers(baseRows);
+
+    const homeTeamId = (currentMatch as any).home_team_id || currentMatch.team_id || null;
+    const awayTeamId = (currentMatch as any).away_team_id || null;
+
+    const homeRows = toPlayerFoulRows(
+      mp.filter((p) => !homeTeamId || p.team_id === homeTeamId),
+    );
+
+    const awayRows = awayTeamId
+      ? toPlayerFoulRows(mp.filter((p) => p.team_id === awayTeamId))
+      : [];
+
+    setHomePlayers(homeRows);
+    setAwayPlayers(awayRows);
   }
 }
 
@@ -563,7 +581,7 @@ export default function ControlPage() {
     }
   }
 
-  async function changePlayerFoul(side: "home" | "away", playerId: string, delta: number) {
+ async function changePlayerFoul(side: "home" | "away", playerId: string, delta: number) {
   const source = side === "home" ? homePlayers : awayPlayers;
   const player = source.find((p) => p.id === playerId);
   if (!player) return;
