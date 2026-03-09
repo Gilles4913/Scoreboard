@@ -76,7 +76,7 @@ function presetDisplayForSport(sport: string): Partial<DisplaySettingsRow> {
       show_lower_third: true,
       show_logos: true,
       show_sponsors: true,
-      dual_language: true,
+      dual_language: false,
       lang_primary: "FR",
       lang_secondary: "EN",
       sponsor_rotate_s: 10,
@@ -94,7 +94,7 @@ function presetDisplayForSport(sport: string): Partial<DisplaySettingsRow> {
       show_lower_third: true,
       show_logos: true,
       show_sponsors: true,
-      dual_language: true,
+      dual_language: false,
       lang_primary: "FR",
       lang_secondary: "EN",
       sponsor_rotate_s: 10,
@@ -112,7 +112,7 @@ function presetDisplayForSport(sport: string): Partial<DisplaySettingsRow> {
       show_lower_third: true,
       show_logos: true,
       show_sponsors: true,
-      dual_language: true,
+      dual_language: false,
       lang_primary: "FR",
       lang_secondary: "EN",
       sponsor_rotate_s: 10,
@@ -130,7 +130,7 @@ function presetDisplayForSport(sport: string): Partial<DisplaySettingsRow> {
       show_lower_third: true,
       show_logos: true,
       show_sponsors: true,
-      dual_language: true,
+      dual_language: false,
       lang_primary: "FR",
       lang_secondary: "EN",
       sponsor_rotate_s: 10,
@@ -147,7 +147,7 @@ function presetDisplayForSport(sport: string): Partial<DisplaySettingsRow> {
     show_lower_third: true,
     show_logos: true,
     show_sponsors: true,
-    dual_language: true,
+    dual_language: false,
     lang_primary: "FR",
     lang_secondary: "EN",
     sponsor_rotate_s: 10,
@@ -265,7 +265,7 @@ const THEME_CARDS: ThemeCardDef[] = [
   {
     id: "stadium",
     title: "Stade classique",
-    subtitle: "Très lisible, idéal gymnase / LED / panneau",
+    subtitle: "Très lisible, idéal gymnase, LED ou panneau sportif.",
     recommendedFor: ["football", "rugby", "handball"],
     theme: "dark",
     layout_mode: "stadium",
@@ -273,7 +273,7 @@ const THEME_CARDS: ThemeCardDef[] = [
   {
     id: "arena",
     title: "Arena premium",
-    subtitle: "Score et chrono très mis en avant",
+    subtitle: "Score et chrono très mis en avant.",
     recommendedFor: ["basket", "handball"],
     theme: "dark",
     layout_mode: "arena",
@@ -281,7 +281,7 @@ const THEME_CARDS: ThemeCardDef[] = [
   {
     id: "compact",
     title: "Compact",
-    subtitle: "Peu d’éléments, efficace sur petits écrans",
+    subtitle: "Peu d’éléments, très efficace sur petits écrans.",
     recommendedFor: ["football", "basket", "rugby", "handball", "volleyball"],
     theme: "dark",
     layout_mode: "compact",
@@ -289,7 +289,7 @@ const THEME_CARDS: ThemeCardDef[] = [
   {
     id: "volley",
     title: "Volley sets",
-    subtitle: "Accent sur les sets et le score",
+    subtitle: "Accent sur les sets et le score.",
     recommendedFor: ["volleyball"],
     theme: "dark",
     layout_mode: "volley",
@@ -297,7 +297,7 @@ const THEME_CARDS: ThemeCardDef[] = [
   {
     id: "tv-light",
     title: "TV clair",
-    subtitle: "Look diffusion TV, plus éditorial",
+    subtitle: "Style plus éditorial pour écran intérieur ou diffusion.",
     recommendedFor: ["football", "basket", "volleyball"],
     theme: "light",
     layout_mode: "arena",
@@ -383,7 +383,7 @@ export default function DisplaySettingsPage() {
           show_lower_third: true,
           show_logos: true,
           show_sponsors: true,
-          dual_language: true,
+          dual_language: false,
           lang_primary: "FR",
           lang_secondary: "EN",
           sponsor_rotate_s: 10,
@@ -423,7 +423,7 @@ export default function DisplaySettingsPage() {
 
   function flash(message: string) {
     setInfo(message);
-    window.setTimeout(() => setInfo(""), 2200);
+    window.setTimeout(() => setInfo(""), 2400);
   }
 
   function patchDisplay(next: Partial<DisplaySettingsRow>) {
@@ -446,7 +446,7 @@ export default function DisplaySettingsPage() {
       theme: card.theme,
       layout_mode: card.layout_mode,
     });
-    flash(`Thème "${card.title}" sélectionné.`);
+    flash(`Modèle "${card.title}" sélectionné.`);
   }
 
   async function save() {
@@ -471,7 +471,7 @@ export default function DisplaySettingsPage() {
       return;
     }
 
-    flash("Paramètres Display et Sport sauvegardés.");
+    flash("Paramètres sauvegardés.");
   }
 
   if (loading || !displayForm || !sportForm) {
@@ -492,6 +492,9 @@ export default function DisplaySettingsPage() {
 
   const currentSport = normalizeSport(org?.sport);
   const activeThemeId = `${displayForm.theme}:${displayForm.layout_mode}`;
+
+  const recommendedThemes = THEME_CARDS.filter((card) => card.recommendedFor.includes(currentSport));
+  const otherThemes = THEME_CARDS.filter((card) => !card.recommendedFor.includes(currentSport));
 
   return (
     <div style={styles.page}>
@@ -520,15 +523,14 @@ export default function DisplaySettingsPage() {
         {info ? <div style={styles.infoBox}>{info}</div> : null}
 
         <section style={styles.panel}>
-          <div style={styles.sectionTitle}>Thèmes d’affichage</div>
+          <div style={styles.sectionTitle}>Modèles d’affichage recommandés</div>
           <div style={styles.sectionText}>
-            Choisis un habillage visuel adapté à ton sport et à ton type d’écran. Ensuite, affine les éléments visibles plus bas.
+            Ces modèles sont les plus adaptés au sport de cette organisation.
           </div>
 
           <div style={styles.themeGrid}>
-            {THEME_CARDS.map((card) => {
+            {recommendedThemes.map((card) => {
               const isActive = activeThemeId === `${card.theme}:${card.layout_mode}`;
-              const isRecommended = card.recommendedFor.includes(currentSport);
 
               return (
                 <button
@@ -554,10 +556,7 @@ export default function DisplaySettingsPage() {
                       <div style={styles.themeTitle}>{card.title}</div>
                       <div style={styles.themeSubtitle}>{card.subtitle}</div>
                     </div>
-
-                    {isRecommended ? (
-                      <span style={styles.recommendedBadge}>Recommandé</span>
-                    ) : null}
+                    <span style={styles.recommendedBadge}>Recommandé</span>
                   </div>
                 </button>
               );
@@ -565,9 +564,51 @@ export default function DisplaySettingsPage() {
           </div>
         </section>
 
+        {otherThemes.length > 0 ? (
+          <section style={{ ...styles.panel, marginTop: 18 }}>
+            <div style={styles.sectionTitle}>Autres modèles</div>
+            <div style={styles.themeGrid}>
+              {otherThemes.map((card) => {
+                const isActive = activeThemeId === `${card.theme}:${card.layout_mode}`;
+
+                return (
+                  <button
+                    key={card.id}
+                    onClick={() => selectThemeCard(card)}
+                    style={{
+                      ...styles.themeCard,
+                      border: isActive
+                        ? "1px solid rgba(59,130,246,.55)"
+                        : "1px solid rgba(255,255,255,.10)",
+                      boxShadow: isActive ? "0 0 0 1px rgba(59,130,246,.22) inset" : "none",
+                    }}
+                  >
+                    <ThemePreview
+                      theme={card.theme}
+                      layout={card.layout_mode}
+                      showClock={displayForm.show_clock}
+                      showPeriod={displayForm.show_period}
+                    />
+
+                    <div style={styles.themeHeader}>
+                      <div>
+                        <div style={styles.themeTitle}>{card.title}</div>
+                        <div style={styles.themeSubtitle}>{card.subtitle}</div>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
         <div style={styles.grid}>
           <section style={styles.panel}>
-            <div style={styles.sectionTitle}>Réglages d’affichage</div>
+            <div style={styles.sectionTitle}>Apparence de l’écran</div>
+            <div style={styles.sectionText}>
+              Ces options contrôlent l’habillage visuel et les éléments visibles sur le Display.
+            </div>
 
             <div style={styles.formGrid}>
               <Field label="Thème">
@@ -594,7 +635,7 @@ export default function DisplaySettingsPage() {
                 </select>
               </Field>
 
-              <Field label="Langue primaire">
+              <Field label="Langue principale">
                 <input
                   value={displayForm.lang_primary}
                   onChange={(e) => patchDisplay({ lang_primary: e.target.value })}
@@ -602,24 +643,10 @@ export default function DisplaySettingsPage() {
                 />
               </Field>
 
-              <Field label="Langue secondaire">
+              <Field label="Seconde langue">
                 <input
                   value={displayForm.lang_secondary}
                   onChange={(e) => patchDisplay({ lang_secondary: e.target.value })}
-                  style={styles.input}
-                />
-              </Field>
-
-              <Field label="Rotation sponsors (s)">
-                <input
-                  type="number"
-                  min={1}
-                  value={displayForm.sponsor_rotate_s}
-                  onChange={(e) =>
-                    patchDisplay({
-                      sponsor_rotate_s: Math.max(1, Number(e.target.value || 1)),
-                    })
-                  }
                   style={styles.input}
                 />
               </Field>
@@ -630,15 +657,17 @@ export default function DisplaySettingsPage() {
               <Toggle label="Afficher horloge" value={displayForm.show_clock} onChange={(v) => patchDisplay({ show_clock: v })} />
               <Toggle label="Afficher période" value={displayForm.show_period} onChange={(v) => patchDisplay({ show_period: v })} />
               <Toggle label="Afficher statut" value={displayForm.show_status} onChange={(v) => patchDisplay({ show_status: v })} />
-              <Toggle label="Afficher lower-third" value={displayForm.show_lower_third} onChange={(v) => patchDisplay({ show_lower_third: v })} />
-              <Toggle label="Afficher logos" value={displayForm.show_logos} onChange={(v) => patchDisplay({ show_logos: v })} />
-              <Toggle label="Afficher sponsors" value={displayForm.show_sponsors} onChange={(v) => patchDisplay({ show_sponsors: v })} />
-              <Toggle label="Mode bilingue" value={displayForm.dual_language} onChange={(v) => patchDisplay({ dual_language: v })} />
+              <Toggle label="Afficher bandeau bas d’écran" value={displayForm.show_lower_third} onChange={(v) => patchDisplay({ show_lower_third: v })} />
+              <Toggle label="Afficher logos club" value={displayForm.show_logos} onChange={(v) => patchDisplay({ show_logos: v })} />
+              <Toggle label="Afficher une seconde langue" value={displayForm.dual_language} onChange={(v) => patchDisplay({ dual_language: v })} />
             </div>
           </section>
 
           <section style={styles.panel}>
             <div style={styles.sectionTitle}>Paramètres sport</div>
+            <div style={styles.sectionText}>
+              Ces options définissent les informations métier exploitables pour ce sport.
+            </div>
 
             <div style={styles.formGrid}>
               <Field label="Sport">
@@ -716,6 +745,33 @@ export default function DisplaySettingsPage() {
               <Toggle label="Afficher sets" value={sportForm.show_sets} onChange={(v) => patchSport({ show_sets: v })} />
               <Toggle label="Afficher cartons" value={sportForm.show_cards} onChange={(v) => patchSport({ show_cards: v })} />
               <Toggle label="Afficher shot clock" value={sportForm.show_shot_clock} onChange={(v) => patchSport({ show_shot_clock: v })} />
+            </div>
+          </section>
+
+          <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
+            <div style={styles.sectionTitle}>Sponsors</div>
+            <div style={styles.sectionText}>
+              Cette section regroupe uniquement les éléments liés aux sponsors sur l’écran public.
+            </div>
+
+            <div style={styles.formGrid}>
+              <Field label="Rotation des sponsors (secondes)">
+                <input
+                  type="number"
+                  min={1}
+                  value={displayForm.sponsor_rotate_s}
+                  onChange={(e) =>
+                    patchDisplay({
+                      sponsor_rotate_s: Math.max(1, Number(e.target.value || 1)),
+                    })
+                  }
+                  style={styles.input}
+                />
+              </Field>
+            </div>
+
+            <div style={styles.flagsGrid}>
+              <Toggle label="Afficher sponsors" value={displayForm.show_sponsors} onChange={(v) => patchDisplay({ show_sponsors: v })} />
             </div>
           </section>
         </div>
@@ -834,7 +890,7 @@ function ThemePreview({
           opacity: 0.82,
         }}
       >
-        LOWER-THIRD • SPONSOR • STATUS
+        BANDEAU BAS • INFO MATCH • SPONSOR
       </div>
     </div>
   );
