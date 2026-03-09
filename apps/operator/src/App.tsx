@@ -6,6 +6,7 @@ import TeamMatchesPage from "./pages/TeamMatchesPage";
 import ControlPage from "./pages/ControlPage";
 import DisplaySettingsPage from "./pages/DisplaySettingsPage";
 import NewMatchPage from "./pages/NewMatchPage";
+import PlayersPage from "./pages/PlayersPage";
 
 const LS_ACTIVE_ORG_KEY = "scoreDisplay.activeOrgSlug";
 
@@ -83,6 +84,8 @@ export default function App() {
       <Route path="/display-settings" element={<DisplaySettingsPage />} />
       <Route path="/matches" element={<Navigate to="/teams" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="/teams/:teamId/players" element={<PlayersPage />} />
     </Routes>
   );
 }
+
