@@ -67,6 +67,13 @@ type SportSettings = {
   shot_clock_s: number | null;
 };
 
+type PlayerRow = {
+  id: string;
+  name: string;
+  number: string;
+  team_id: string;
+};
+
 type PlayerFoulsRow = {
   id: string;
   name: string;
@@ -135,6 +142,15 @@ function clampMin(n: number, min = 0) {
   return Math.max(min, n);
 }
 
+function toPlayerFoulRows(players: PlayerRow[]) {
+  return players.map((p) => ({
+    id: p.id,
+    name: p.name,
+    number: p.number,
+    fouls: 0,
+  }));
+}
+
 export default function ControlPage() {
   const nav = useNavigate();
   const { matchId = "" } = useParams();
@@ -176,20 +192,8 @@ export default function ControlPage() {
   const [homeRedCards, setHomeRedCards] = useState(0);
   const [awayRedCards, setAwayRedCards] = useState(0);
 
-  const [homePlayers, setHomePlayers] = useState<PlayerFoulsRow[]>([
-    { id: "h1", name: "Joueur 1", number: "4", fouls: 0 },
-    { id: "h2", name: "Joueur 2", number: "7", fouls: 0 },
-    { id: "h3", name: "Joueur 3", number: "10", fouls: 0 },
-    { id: "h4", name: "Joueur 4", number: "12", fouls: 0 },
-    { id: "h5", name: "Joueur 5", number: "15", fouls: 0 },
-  ]);
-  const [awayPlayers, setAwayPlayers] = useState<PlayerFoulsRow[]>([
-    { id: "a1", name: "Joueur 1", number: "5", fouls: 0 },
-    { id: "a2", name: "Joueur 2", number: "8", fouls: 0 },
-    { id: "a3", name: "Joueur 3", number: "11", fouls: 0 },
-    { id: "a4", name: "Joueur 4", number: "13", fouls: 0 },
-    { id: "a5", name: "Joueur 5", number: "14", fouls: 0 },
-  ]);
+  const [homePlayers, setHomePlayers] = useState<PlayerFoulsRow[]>([]);
+  const [awayPlayers, setAwayPlayers] = useState<PlayerFoulsRow[]>([]);
 
   const timerRef = useRef<number | null>(null);
 
@@ -279,6 +283,21 @@ export default function ControlPage() {
       setHomeRedCards(0);
       setAwayRedCards(0);
 
+      if (currentMatch.team_id) {
+        const { data: playersData, error: playersErr } = await supabase
+          .from("players")
+          .select("id, name, number, team_id")
+          .eq("team_id", currentMatch.team_id)
+          .eq("is_active", true)
+          .order("number", { ascending: true });
+
+        if (!cancelled && !playersErr) {
+          const basePlayers = (playersData as PlayerRow[]) || [];
+          setHomePlayers(toPlayerFoulRows(basePlayers));
+          setAwayPlayers(toPlayerFoulRows(basePlayers));
+        }
+      }
+
       setLoading(false);
     }
 
@@ -322,7 +341,7 @@ export default function ControlPage() {
 
   function flash(message: string) {
     setInfo(message);
-    window.setTimeout(() => setInfo(""), 2400);
+    window.setTimeout(() => setInfo(""), 2600);
   }
 
   async function pushPatch(patch: Record<string, any>) {
@@ -349,7 +368,6 @@ export default function ControlPage() {
       show_logos: displaySettings?.show_logos ?? true,
       show_sponsors: displaySettings?.show_sponsors ?? true,
       layout_mode: displaySettings?.layout_mode ?? "stadium",
-
       home_team_fouls: homeTeamFouls,
       away_team_fouls: awayTeamFouls,
       home_timeouts: homeTimeouts,
@@ -365,7 +383,6 @@ export default function ControlPage() {
       away_red_cards: awayRedCards,
       home_players: homePlayers,
       away_players: awayPlayers,
-
       ...patch,
     };
 
@@ -373,45 +390,37 @@ export default function ControlPage() {
   }
 
   async function saveMatch() {
-  if (!match) return;
+    if (!match) return;
 
-  const payload = {
-    name: matchName.trim() || `${homeName.trim() || "Domicile"} vs ${awayName.trim() || "Extérieur"}`,
-    home_name: homeName.trim() || "Domicile",
-    away_name: awayName.trim() || "Extérieur",
-    status,
-    home_score: homeScore,
-    away_score: awayScore,
-  };
+    const payload = {
+      name: matchName.trim() || `${homeName.trim() || "Domicile"} vs ${awayName.trim() || "Extérieur"}`,
+      home_name: homeName.trim() || "Domicile",
+      away_name: awayName.trim() || "Extérieur",
+      status,
+      home_score: homeScore,
+      away_score: awayScore,
+    };
 
-  console.log("[control] saveMatch payload:", payload);
+    console.log("[control] saveMatch payload:", payload);
 
-  const { data, error } = await supabase
-    .from("matches")
-    .update(payload)
-    .eq("id", match.id)
-    .select("id, name, home_name, away_name, status, home_score, away_score")
-    .maybeSingle();
+    const { data, error } = await supabase
+      .from("matches")
+      .update(payload)
+      .eq("id", match.id)
+      .select("id, name, home_name, away_name, status, home_score, away_score")
+      .maybeSingle();
 
-  if (error) {
-    console.error("[control] saveMatch error:", error);
-    flash(`Erreur sauvegarde : ${error.message}`);
-    return;
+    if (error) {
+      console.error("[control] saveMatch error:", error);
+      flash(`Erreur sauvegarde : ${error.message}`);
+      return;
+    }
+
+    console.log("[control] saveMatch success:", data);
+
+    setMatch((prev) => (prev ? { ...prev, ...payload } : prev));
+    flash("Match sauvegardé avec succès.");
   }
-
-  console.log("[control] saveMatch success:", data);
-
-  setMatch((prev) =>
-    prev
-      ? {
-          ...prev,
-          ...payload,
-        }
-      : prev,
-  );
-
-  flash("Match sauvegardé.");
-}
 
   async function syncNow() {
     try {
@@ -614,11 +623,6 @@ export default function ControlPage() {
                 <input type="checkbox" checked={autoLive} onChange={(e) => setAutoLive(e.target.checked)} />
                 <span>Auto live</span>
               </label>
-
-              <label style={styles.switchRow}>
-                <input type="checkbox" checked={displaySettings?.show_score ?? true} onChange={() => {}} disabled />
-                <span>Score affiché</span>
-              </label>
             </div>
           </div>
 
@@ -732,30 +736,16 @@ export default function ControlPage() {
                 </div>
 
                 <div style={styles.scoreActions}>
-                  <button onClick={startClock} style={styles.primaryBtnSmall}>
-                    Start
-                  </button>
-                  <button onClick={pauseClock} style={styles.ghostBtnSmall}>
-                    Pause
-                  </button>
-                  <button onClick={resetClock} style={styles.ghostBtnSmall}>
-                    Reset
-                  </button>
+                  <button onClick={startClock} style={styles.primaryBtnSmall}>Start</button>
+                  <button onClick={pauseClock} style={styles.ghostBtnSmall}>Pause</button>
+                  <button onClick={resetClock} style={styles.ghostBtnSmall}>Reset</button>
                 </div>
 
                 <div style={{ ...styles.scoreActions, marginTop: 12 }}>
-                  <button onClick={() => setClockMs((v) => Math.max(0, v - 60_000))} style={styles.ghostBtnSmall}>
-                    -1 min
-                  </button>
-                  <button onClick={() => setClockMs((v) => v + 60_000)} style={styles.ghostBtnSmall}>
-                    +1 min
-                  </button>
-                  <button onClick={() => setClockMs((v) => Math.max(0, v - 1000))} style={styles.ghostBtnSmall}>
-                    -1 sec
-                  </button>
-                  <button onClick={() => setClockMs((v) => v + 1000)} style={styles.ghostBtnSmall}>
-                    +1 sec
-                  </button>
+                  <button onClick={() => setClockMs((v) => Math.max(0, v - 60_000))} style={styles.ghostBtnSmall}>-1 min</button>
+                  <button onClick={() => setClockMs((v) => v + 60_000)} style={styles.ghostBtnSmall}>+1 min</button>
+                  <button onClick={() => setClockMs((v) => Math.max(0, v - 1000))} style={styles.ghostBtnSmall}>-1 sec</button>
+                  <button onClick={() => setClockMs((v) => v + 1000)} style={styles.ghostBtnSmall}>+1 sec</button>
                 </div>
 
                 {showShotClock ? (
@@ -941,26 +931,6 @@ export default function ControlPage() {
               </div>
             </section>
           ) : null}
-
-          <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
-            <div style={styles.sectionTitle}>Paramètres actifs</div>
-            <div style={styles.flagsGrid}>
-              <Flag label="Score" value={displaySettings?.show_score ?? true} />
-              <Flag label="Horloge" value={displaySettings?.show_clock ?? true} />
-              <Flag label="Période" value={displaySettings?.show_period ?? true} />
-              <Flag label="Statut" value={displaySettings?.show_status ?? true} />
-              <Flag label="Lower third" value={displaySettings?.show_lower_third ?? true} />
-              <Flag label="Sponsors" value={displaySettings?.show_sponsors ?? true} />
-              <Flag label="Logos" value={displaySettings?.show_logos ?? true} />
-              <Flag label="Fautes équipe" value={showTeamFouls} />
-              <Flag label="Fautes joueur" value={showPlayerFouls} />
-              <Flag label="Temps morts" value={showTimeouts} />
-              <Flag label="Bonus" value={showBonus} />
-              <Flag label="Sets" value={showSets} />
-              <Flag label="Cartons" value={showCards} />
-              <Flag label="Shot clock" value={showShotClock} />
-            </div>
-          </section>
         </div>
       </div>
     </div>
@@ -973,22 +943,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <div style={{ fontSize: 13, opacity: 0.78, marginBottom: 6 }}>{label}</div>
       {children}
     </label>
-  );
-}
-
-function Flag({ label, value }: { label: string; value: boolean }) {
-  return (
-    <div
-      style={{
-        padding: 12,
-        borderRadius: 12,
-        border: "1px solid rgba(255,255,255,.08)",
-        background: "rgba(255,255,255,.04)",
-      }}
-    >
-      <div style={{ fontSize: 13, opacity: 0.72 }}>{label}</div>
-      <div style={{ marginTop: 4, fontWeight: 900 }}>{value ? "Actif" : "Inactif"}</div>
-    </div>
   );
 }
 
@@ -1040,12 +994,8 @@ function MiniStat({
       <div style={styles.miniStatTitle}>{title}</div>
       <div style={styles.miniStatValue}>{value}</div>
       <div style={styles.scoreActions}>
-        <button onClick={onMinus} style={styles.ghostBtnSmall}>
-          -1
-        </button>
-        <button onClick={onPlus} style={styles.primaryBtnSmall}>
-          +1
-        </button>
+        <button onClick={onMinus} style={styles.ghostBtnSmall}>-1</button>
+        <button onClick={onPlus} style={styles.primaryBtnSmall}>+1</button>
       </div>
     </div>
   );
@@ -1081,12 +1031,8 @@ function PlayerFoulsTable({
               </div>
 
               <div style={styles.scoreActions}>
-                <button onClick={() => onChange(player.id, -1)} style={styles.ghostBtnSmall}>
-                  -1
-                </button>
-                <button onClick={() => onChange(player.id, 1)} style={styles.primaryBtnSmall}>
-                  +1
-                </button>
+                <button onClick={() => onChange(player.id, -1)} style={styles.ghostBtnSmall}>-1</button>
+                <button onClick={() => onChange(player.id, 1)} style={styles.primaryBtnSmall}>+1</button>
               </div>
             </div>
           );
@@ -1124,11 +1070,12 @@ const styles: Record<string, any> = {
   },
   infoBox: {
     marginBottom: 14,
-    padding: 12,
-    borderRadius: 12,
-    background: "rgba(37,99,235,.12)",
-    border: "1px solid rgba(37,99,235,.28)",
+    padding: 14,
+    borderRadius: 14,
+    background: "rgba(37,99,235,.16)",
+    border: "1px solid rgba(37,99,235,.32)",
     color: "#dbeafe",
+    fontWeight: 800,
   },
   topbar: {
     display: "flex",
@@ -1151,13 +1098,7 @@ const styles: Record<string, any> = {
   },
   heroTitle: { fontSize: 22, fontWeight: 900 },
   heroText: { marginTop: 8, lineHeight: 1.6, opacity: 0.9 },
-  heroActions: {
-    display: "flex",
-    gap: 10,
-    flexWrap: "wrap",
-    alignItems: "flex-start",
-    justifyContent: "flex-end",
-  },
+  heroActions: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-start", justifyContent: "flex-end" },
   switchRow: { display: "inline-flex", alignItems: "center", gap: 8, fontSize: 14 },
   grid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginTop: 22 },
   panel: {
@@ -1258,7 +1199,6 @@ const styles: Record<string, any> = {
     background: "rgba(255,255,255,.03)",
     border: "1px solid rgba(255,255,255,.06)",
   },
-  flagsGrid: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 },
   primaryBtn: {
     background: "#2563eb",
     color: "white",
