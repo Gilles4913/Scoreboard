@@ -62,6 +62,19 @@ function toLocalDatetimeInputValue(date: Date) {
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
 }
 
+function buildInitialSelection(players: PlayerRow[]) {
+  const out: Record<string, SelectedPlayer> = {};
+  players.forEach((p, index) => {
+    out[p.id] = {
+      player_id: p.id,
+      shirt_number: p.number,
+      is_selected: true,
+      is_starter: index < 5,
+    };
+  });
+  return out;
+}
+
 export default function NewMatchPage() {
   const nav = useNavigate();
   const { teamId = "" } = useParams();
@@ -72,10 +85,19 @@ export default function NewMatchPage() {
   const [info, setInfo] = useState("");
 
   const [org, setOrg] = useState<OrgRow | null>(null);
-  const [team, setTeam] = useState<TeamRow | null>(null);
+  const [homeTeam, setHomeTeam] = useState<TeamRow | null>(null);
+  const [allTeams, setAllTeams] = useState<TeamRow[]>([]);
   const [sportSettings, setSportSettings] = useState<SportSettingsRow | null>(null);
-  const [players, setPlayers] = useState<PlayerRow[]>([]);
-  const [selectedPlayers, setSelectedPlayers] = useState<Record<string, SelectedPlayer>>({});
+
+  const [homePlayers, setHomePlayers] = useState<PlayerRow[]>([]);
+  const [awayPlayers, setAwayPlayers] = useState<PlayerRow[]>([]);
+
+  const [selectedHomePlayers, setSelectedHomePlayers] = useState<Record<string, SelectedPlayer>>({});
+  const [selectedAwayPlayers, setSelectedAwayPlayers] = useState<Record<string, SelectedPlayer>>({});
+
+  const [awayTeamMode, setAwayTeamMode] = useState<"internal" | "external">("external");
+  const [awayTeamId, setAwayTeamId] = useState("");
+  const [awayExternalName, setAwayExternalName] = useState("Adversaire");
 
   const [matchName, setMatchName] = useState("");
   const [homeName, setHomeName] = useState("");
@@ -118,30 +140,39 @@ export default function NewMatchPage() {
       const currentOrg = orgRow as OrgRow;
       setOrg(currentOrg);
 
-      const [{ data: teamRow, error: teamErr }, { data: sportRow, error: sportErr }, { data: playersRows, error: playersErr }] =
-        await Promise.all([
-          supabase
-            .from("teams")
-            .select("id, org_id, name, category, code")
-            .eq("id", teamId)
-            .maybeSingle(),
-          supabase
-            .from("org_sport_settings")
-            .select("org_id, sport, period_count, period_duration_s")
-            .eq("org_id", currentOrg.id)
-            .maybeSingle(),
-          supabase
-            .from("players")
-            .select("id, org_id, team_id, number, name, position, is_active")
-            .eq("team_id", teamId)
-            .eq("is_active", true)
-            .order("number", { ascending: true }),
-        ]);
+      const [
+        { data: homeTeamRow, error: homeTeamErr },
+        { data: sportRow, error: sportErr },
+        { data: teamsRows, error: teamsErr },
+        { data: homePlayersRows, error: homePlayersErr },
+      ] = await Promise.all([
+        supabase
+          .from("teams")
+          .select("id, org_id, name, category, code")
+          .eq("id", teamId)
+          .maybeSingle(),
+        supabase
+          .from("org_sport_settings")
+          .select("org_id, sport, period_count, period_duration_s")
+          .eq("org_id", currentOrg.id)
+          .maybeSingle(),
+        supabase
+          .from("teams")
+          .select("id, org_id, name, category, code")
+          .eq("org_id", currentOrg.id)
+          .order("name", { ascending: true }),
+        supabase
+          .from("players")
+          .select("id, org_id, team_id, number, name, position, is_active")
+          .eq("team_id", teamId)
+          .eq("is_active", true)
+          .order("number", { ascending: true }),
+      ]);
 
       if (cancelled) return;
 
-      if (teamErr || !teamRow) {
-        setErr(teamErr?.message || "Équipe introuvable.");
+      if (homeTeamErr || !homeTeamRow) {
+        setErr(homeTeamErr?.message || "Équipe domicile introuvable.");
         setLoading(false);
         return;
       }
@@ -152,36 +183,35 @@ export default function NewMatchPage() {
         return;
       }
 
-      if (playersErr) {
-        setErr(playersErr.message);
+      if (teamsErr) {
+        setErr(teamsErr.message);
         setLoading(false);
         return;
       }
 
-      const currentTeam = teamRow as TeamRow;
-      const currentSportSettings = (sportRow as SportSettingsRow | null) || null;
-      const currentPlayers = (playersRows as PlayerRow[]) || [];
+      if (homePlayersErr) {
+        setErr(homePlayersErr.message);
+        setLoading(false);
+        return;
+      }
 
-      setTeam(currentTeam);
-      setSportSettings(currentSportSettings);
-      setPlayers(currentPlayers);
+      const currentHomeTeam = homeTeamRow as TeamRow;
+      const currentTeams = (teamsRows as TeamRow[]) || [];
+      const currentHomePlayers = (homePlayersRows as PlayerRow[]) || [];
 
-      const defaultHome = currentOrg.name || "Équipe domicile";
+      setHomeTeam(currentHomeTeam);
+      setSportSettings((sportRow as SportSettingsRow | null) || null);
+      setAllTeams(currentTeams);
+      setHomePlayers(currentHomePlayers);
+      setSelectedHomePlayers(buildInitialSelection(currentHomePlayers));
+
+      const defaultHome = currentHomeTeam.name || currentOrg.name || "Équipe domicile";
       const defaultAway = "Adversaire";
+
       setHomeName(defaultHome);
       setAwayName(defaultAway);
-      setMatchName(`${currentTeam.name} vs ${defaultAway}`);
-
-      const initialSelection: Record<string, SelectedPlayer> = {};
-      currentPlayers.forEach((p, index) => {
-        initialSelection[p.id] = {
-          player_id: p.id,
-          shirt_number: p.number,
-          is_selected: true,
-          is_starter: index < 5,
-        };
-      });
-      setSelectedPlayers(initialSelection);
+      setAwayExternalName(defaultAway);
+      setMatchName(`${defaultHome} vs ${defaultAway}`);
 
       setLoading(false);
     }
@@ -192,13 +222,69 @@ export default function NewMatchPage() {
     };
   }, [activeOrgId, activeOrgSlug, teamId]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAwayPlayers() {
+      if (awayTeamMode !== "internal" || !awayTeamId) {
+        setAwayPlayers([]);
+        setSelectedAwayPlayers({});
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("players")
+        .select("id, org_id, team_id, number, name, position, is_active")
+        .eq("team_id", awayTeamId)
+        .eq("is_active", true)
+        .order("number", { ascending: true });
+
+      if (cancelled) return;
+
+      if (error) {
+        flash(`Erreur chargement joueurs extérieurs : ${error.message}`);
+        setAwayPlayers([]);
+        setSelectedAwayPlayers({});
+        return;
+      }
+
+      const rows = (data as PlayerRow[]) || [];
+      setAwayPlayers(rows);
+      setSelectedAwayPlayers(buildInitialSelection(rows));
+    }
+
+    loadAwayPlayers();
+    return () => {
+      cancelled = true;
+    };
+  }, [awayTeamMode, awayTeamId]);
+
+  useEffect(() => {
+    if (!homeTeam) return;
+
+    const homeLabel = homeTeam.name || "Domicile";
+    const awayLabel =
+      awayTeamMode === "internal"
+        ? allTeams.find((t) => t.id === awayTeamId)?.name || "Équipe extérieure"
+        : awayExternalName || "Adversaire";
+
+    setHomeName(homeLabel);
+    setAwayName(awayLabel);
+    setMatchName(`${homeLabel} vs ${awayLabel}`);
+  }, [homeTeam, awayTeamMode, awayTeamId, awayExternalName, allTeams]);
+
   function flash(message: string) {
     setInfo(message);
     window.setTimeout(() => setInfo(""), 2600);
   }
 
-  function togglePlayerSelection(player: PlayerRow) {
-    setSelectedPlayers((prev) => {
+  function togglePlayerSelection(
+    player: PlayerRow,
+    side: "home" | "away",
+  ) {
+    const setter = side === "home" ? setSelectedHomePlayers : setSelectedAwayPlayers;
+
+    setter((prev) => {
       const current = prev[player.id] || {
         player_id: player.id,
         shirt_number: player.number,
@@ -217,8 +303,10 @@ export default function NewMatchPage() {
     });
   }
 
-  function toggleStarter(player: PlayerRow) {
-    setSelectedPlayers((prev) => {
+  function toggleStarter(player: PlayerRow, side: "home" | "away") {
+    const setter = side === "home" ? setSelectedHomePlayers : setSelectedAwayPlayers;
+
+    setter((prev) => {
       const current = prev[player.id] || {
         player_id: player.id,
         shirt_number: player.number,
@@ -237,8 +325,14 @@ export default function NewMatchPage() {
     });
   }
 
-  function updateShirtNumber(player: PlayerRow, shirtNumber: string) {
-    setSelectedPlayers((prev) => {
+  function updateShirtNumber(
+    player: PlayerRow,
+    side: "home" | "away",
+    shirtNumber: string,
+  ) {
+    const setter = side === "home" ? setSelectedHomePlayers : setSelectedAwayPlayers;
+
+    setter((prev) => {
       const current = prev[player.id] || {
         player_id: player.id,
         shirt_number: player.number,
@@ -257,11 +351,31 @@ export default function NewMatchPage() {
   }
 
   async function createMatch() {
-    if (!org || !team) return;
+    if (!org || !homeTeam) return;
 
-    const selected = Object.values(selectedPlayers).filter((p) => p.is_selected);
-    if (selected.length === 0) {
-      flash("Sélectionne au moins un joueur pour la feuille de match.");
+    const homeSelected = Object.values(selectedHomePlayers).filter((p) => p.is_selected);
+    if (homeSelected.length === 0) {
+      flash("Sélectionne au moins un joueur domicile.");
+      return;
+    }
+
+    const resolvedAwayTeam =
+      awayTeamMode === "internal"
+        ? allTeams.find((t) => t.id === awayTeamId) || null
+        : null;
+
+    const awaySelected =
+      awayTeamMode === "internal"
+        ? Object.values(selectedAwayPlayers).filter((p) => p.is_selected)
+        : [];
+
+    if (awayTeamMode === "internal" && !resolvedAwayTeam) {
+      flash("Choisis une équipe extérieure.");
+      return;
+    }
+
+    if (awayTeamMode === "internal" && awaySelected.length === 0) {
+      flash("Sélectionne au moins un joueur extérieur.");
       return;
     }
 
@@ -269,12 +383,14 @@ export default function NewMatchPage() {
 
     const payload: Record<string, any> = {
       org_id: org.id,
-      team_id: team.id,
-      name: matchName.trim() || `${team.name} vs ${awayName.trim() || "Adversaire"}`,
+      team_id: homeTeam.id,
+      home_team_id: homeTeam.id,
+      away_team_id: resolvedAwayTeam?.id || null,
+      name: matchName.trim() || `${homeName.trim() || homeTeam.name} vs ${awayName.trim() || "Adversaire"}`,
       status: "scheduled",
       scheduled_at: scheduledAt ? new Date(scheduledAt).toISOString() : null,
-      home_name: homeName.trim() || org.name || "Équipe domicile",
-      away_name: awayName.trim() || "Adversaire",
+      home_name: homeName.trim() || homeTeam.name,
+      away_name: awayName.trim() || resolvedAwayTeam?.name || "Adversaire",
       home_score: 0,
       away_score: 0,
       public_display: publicDisplay,
@@ -296,21 +412,42 @@ export default function NewMatchPage() {
 
     const matchId = data.id as string;
 
-    const matchPlayersPayload = players
-      .filter((p) => selectedPlayers[p.id]?.is_selected)
+    const homeMatchPlayersPayload = homePlayers
+      .filter((p) => selectedHomePlayers[p.id]?.is_selected)
       .map((p) => ({
         org_id: org.id,
         match_id: matchId,
-        team_id: team.id,
+        team_id: homeTeam.id,
         player_id: p.id,
-        shirt_number: selectedPlayers[p.id]?.shirt_number?.trim() || p.number,
-        is_starter: !!selectedPlayers[p.id]?.is_starter,
+        shirt_number: selectedHomePlayers[p.id]?.shirt_number?.trim() || p.number,
+        is_starter: !!selectedHomePlayers[p.id]?.is_starter,
         is_selected: true,
         fouls: 0,
         points: 0,
         yellow_cards: 0,
         red_cards: 0,
       }));
+
+    const awayMatchPlayersPayload =
+      awayTeamMode === "internal" && resolvedAwayTeam
+        ? awayPlayers
+            .filter((p) => selectedAwayPlayers[p.id]?.is_selected)
+            .map((p) => ({
+              org_id: org.id,
+              match_id: matchId,
+              team_id: resolvedAwayTeam.id,
+              player_id: p.id,
+              shirt_number: selectedAwayPlayers[p.id]?.shirt_number?.trim() || p.number,
+              is_starter: !!selectedAwayPlayers[p.id]?.is_starter,
+              is_selected: true,
+              fouls: 0,
+              points: 0,
+              yellow_cards: 0,
+              red_cards: 0,
+            }))
+        : [];
+
+    const matchPlayersPayload = [...homeMatchPlayersPayload, ...awayMatchPlayersPayload];
 
     if (matchPlayersPayload.length > 0) {
       const { error: mpErr } = await supabase.from("match_players").insert(matchPlayersPayload);
@@ -334,7 +471,7 @@ export default function NewMatchPage() {
     );
   }
 
-  if (err || !org || !team) {
+  if (err || !org || !homeTeam) {
     return (
       <div style={styles.page}>
         <div style={styles.errorBox}>{err || "Contexte introuvable."}</div>
@@ -342,9 +479,10 @@ export default function NewMatchPage() {
     );
   }
 
-  const selectedCount = Object.values(selectedPlayers).filter((p) => p.is_selected).length;
-  const startersCount = Object.values(selectedPlayers).filter((p) => p.is_selected && p.is_starter).length;
+  const selectedHomeCount = Object.values(selectedHomePlayers).filter((p) => p.is_selected).length;
+  const selectedAwayCount = Object.values(selectedAwayPlayers).filter((p) => p.is_selected).length;
   const sport = normalizeSport(org.sport);
+  const awayInternalChoices = allTeams.filter((t) => t.id !== homeTeam.id);
 
   return (
     <div style={styles.page}>
@@ -353,20 +491,22 @@ export default function NewMatchPage() {
           <div>
             <div style={styles.title}>Préparer un match</div>
             <div style={styles.subtitle}>
-              {org.name} • {team.name} • sport : <b>{sport}</b>
+              {org.name} • {homeTeam.name} • sport : <b>{sport}</b>
             </div>
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button onClick={() => nav(`/teams/${team.id}/matches`)} style={styles.ghostBtn}>
+            <button onClick={() => nav(`/teams/${homeTeam.id}/matches`)} style={styles.ghostBtn}>
               Retour matchs
             </button>
-            <button onClick={() => nav(`/teams/${team.id}/players`)} style={styles.ghostBtn}>
-              Gérer joueurs
+            <button onClick={() => nav(`/teams/${homeTeam.id}/players`)} style={styles.ghostBtn}>
+              Gérer joueurs domicile
             </button>
-            <button onClick={() => nav("/display-settings")} style={styles.ghostBtn}>
-              Paramètres Display
-            </button>
+            {awayTeamMode === "internal" && awayTeamId ? (
+              <button onClick={() => nav(`/teams/${awayTeamId}/players`)} style={styles.ghostBtn}>
+                Gérer joueurs extérieur
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -374,24 +514,24 @@ export default function NewMatchPage() {
 
         <div style={styles.hero}>
           <div>
-            <div style={styles.heroTitle}>Nouveau match</div>
+            <div style={styles.heroTitle}>Création match V2</div>
             <div style={styles.heroText}>
-              Prépare une rencontre et constitue la feuille de match. Une fois créée, tu seras redirigé directement vers la régie live.
+              Cette version prépare un vrai match domicile / extérieur, avec feuille de match pour les deux côtés.
             </div>
           </div>
 
           <div style={styles.kpiGrid}>
             <div style={styles.kpiCard}>
-              <div style={styles.kpiLabel}>Joueurs actifs</div>
-              <div style={styles.kpiValue}>{players.length}</div>
+              <div style={styles.kpiLabel}>Joueurs domicile</div>
+              <div style={styles.kpiValue}>{selectedHomeCount}</div>
             </div>
             <div style={styles.kpiCard}>
-              <div style={styles.kpiLabel}>Sélectionnés</div>
-              <div style={styles.kpiValue}>{selectedCount}</div>
+              <div style={styles.kpiLabel}>Joueurs extérieur</div>
+              <div style={styles.kpiValue}>{awayTeamMode === "internal" ? selectedAwayCount : 0}</div>
             </div>
             <div style={styles.kpiCard}>
-              <div style={styles.kpiLabel}>Titulaires</div>
-              <div style={styles.kpiValue}>{startersCount}</div>
+              <div style={styles.kpiLabel}>Display public</div>
+              <div style={styles.kpiValue}>{publicDisplay ? "Oui" : "Non"}</div>
             </div>
           </div>
         </div>
@@ -417,7 +557,43 @@ export default function NewMatchPage() {
               <input value={homeName} onChange={(e) => setHomeName(e.target.value)} style={styles.input} />
             </Field>
 
-            <Field label="Équipe extérieure">
+            <Field label="Mode équipe extérieure">
+              <select
+                value={awayTeamMode}
+                onChange={(e) => setAwayTeamMode(e.target.value as "internal" | "external")}
+                style={styles.input}
+              >
+                <option value="external">Adversaire externe (texte)</option>
+                <option value="internal">Équipe interne</option>
+              </select>
+            </Field>
+
+            {awayTeamMode === "internal" ? (
+              <Field label="Équipe extérieure">
+                <select
+                  value={awayTeamId}
+                  onChange={(e) => setAwayTeamId(e.target.value)}
+                  style={styles.input}
+                >
+                  <option value="">Choisir une équipe</option>
+                  {awayInternalChoices.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            ) : (
+              <Field label="Nom adversaire extérieur">
+                <input
+                  value={awayExternalName}
+                  onChange={(e) => setAwayExternalName(e.target.value)}
+                  style={styles.input}
+                />
+              </Field>
+            )}
+
+            <Field label="Nom affiché équipe extérieure">
               <input value={awayName} onChange={(e) => setAwayName(e.target.value)} style={styles.input} />
             </Field>
 
@@ -438,81 +614,52 @@ export default function NewMatchPage() {
           </div>
         </section>
 
-        <Section title="Feuille de match — joueurs participants">
-          {players.length === 0 ? (
-            <div style={styles.emptyCard}>
-              Aucun joueur actif sur cette équipe. Commence par ajouter des joueurs.
-            </div>
+        <Section title="Feuille de match — domicile">
+          {homePlayers.length === 0 ? (
+            <div style={styles.emptyCard}>Aucun joueur actif sur l’équipe domicile.</div>
           ) : (
-            <div style={styles.list}>
-              {players.map((player) => {
-                const selection = selectedPlayers[player.id] || {
-                  player_id: player.id,
-                  shirt_number: player.number,
-                  is_selected: false,
-                  is_starter: false,
-                };
-
-                return (
-                  <div key={player.id} style={styles.playerCard}>
-                    <div style={styles.playerCardGrid}>
-                      <div>
-                        <div style={styles.playerName}>
-                          #{selection.shirt_number || player.number} {player.name}
-                        </div>
-                        <div style={styles.playerMeta}>
-                          {player.position || "Poste libre"}
-                        </div>
-                      </div>
-
-                      <div style={styles.playerControls}>
-                        <label style={styles.checkboxRow}>
-                          <input
-                            type="checkbox"
-                            checked={selection.is_selected}
-                            onChange={() => togglePlayerSelection(player)}
-                          />
-                          <span>Sélectionné</span>
-                        </label>
-
-                        <label style={styles.checkboxRow}>
-                          <input
-                            type="checkbox"
-                            checked={selection.is_starter}
-                            onChange={() => toggleStarter(player)}
-                          />
-                          <span>Titulaire</span>
-                        </label>
-
-                        <div style={{ minWidth: 110 }}>
-                          <div style={{ fontSize: 12, opacity: 0.72, marginBottom: 6 }}>N° match</div>
-                          <input
-                            value={selection.shirt_number}
-                            onChange={(e) => updateShirtNumber(player, e.target.value)}
-                            style={styles.input}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <PlayerSelectionList
+              players={homePlayers}
+              selectedPlayers={selectedHomePlayers}
+              side="home"
+              onTogglePlayer={togglePlayerSelection}
+              onToggleStarter={toggleStarter}
+              onUpdateShirtNumber={updateShirtNumber}
+            />
           )}
         </Section>
+
+        {awayTeamMode === "internal" ? (
+          <Section title="Feuille de match — extérieur">
+            {!awayTeamId ? (
+              <div style={styles.emptyCard}>Choisis d’abord une équipe extérieure.</div>
+            ) : awayPlayers.length === 0 ? (
+              <div style={styles.emptyCard}>Aucun joueur actif sur l’équipe extérieure.</div>
+            ) : (
+              <PlayerSelectionList
+                players={awayPlayers}
+                selectedPlayers={selectedAwayPlayers}
+                side="away"
+                onTogglePlayer={togglePlayerSelection}
+                onToggleStarter={toggleStarter}
+                onUpdateShirtNumber={updateShirtNumber}
+              />
+            )}
+          </Section>
+        ) : null}
 
         <section style={styles.noticeCard}>
           <div style={styles.noticeTitle}>Préconfiguration</div>
           <div style={styles.noticeText}>
             Le match sera créé avec :
             <br />
-            • score à 0 - 0
+            • `home_team_id` = équipe actuelle
             <br />
-            • statut “À préparer”
+            • `away_team_id` = équipe extérieure si interne
             <br />
-            • sport hérité de l’organisation
+            • feuille de match persistée dans <b>match_players</b>
             <br />
-            • feuille de match enregistrée dans <b>match_players</b>
+            • fallback texte conservé via `home_name` / `away_name`
           </div>
         </section>
 
@@ -520,11 +667,82 @@ export default function NewMatchPage() {
           <button onClick={createMatch} style={styles.primaryBtn} disabled={saving}>
             {saving ? "Création..." : "Créer et ouvrir la régie"}
           </button>
-          <button onClick={() => nav(`/teams/${team.id}/matches`)} style={styles.ghostBtn}>
+          <button onClick={() => nav(`/teams/${homeTeam.id}/matches`)} style={styles.ghostBtn}>
             Annuler
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function PlayerSelectionList({
+  players,
+  selectedPlayers,
+  side,
+  onTogglePlayer,
+  onToggleStarter,
+  onUpdateShirtNumber,
+}: {
+  players: PlayerRow[];
+  selectedPlayers: Record<string, SelectedPlayer>;
+  side: "home" | "away";
+  onTogglePlayer: (player: PlayerRow, side: "home" | "away") => void;
+  onToggleStarter: (player: PlayerRow, side: "home" | "away") => void;
+  onUpdateShirtNumber: (player: PlayerRow, side: "home" | "away", shirtNumber: string) => void;
+}) {
+  return (
+    <div style={styles.list}>
+      {players.map((player) => {
+        const selection = selectedPlayers[player.id] || {
+          player_id: player.id,
+          shirt_number: player.number,
+          is_selected: false,
+          is_starter: false,
+        };
+
+        return (
+          <div key={player.id} style={styles.playerCard}>
+            <div style={styles.playerCardGrid}>
+              <div>
+                <div style={styles.playerName}>
+                  #{selection.shirt_number || player.number} {player.name}
+                </div>
+                <div style={styles.playerMeta}>{player.position || "Poste libre"}</div>
+              </div>
+
+              <div style={styles.playerControls}>
+                <label style={styles.checkboxRow}>
+                  <input
+                    type="checkbox"
+                    checked={selection.is_selected}
+                    onChange={() => onTogglePlayer(player, side)}
+                  />
+                  <span>Sélectionné</span>
+                </label>
+
+                <label style={styles.checkboxRow}>
+                  <input
+                    type="checkbox"
+                    checked={selection.is_starter}
+                    onChange={() => onToggleStarter(player, side)}
+                  />
+                  <span>Titulaire</span>
+                </label>
+
+                <div style={{ minWidth: 110 }}>
+                  <div style={{ fontSize: 12, opacity: 0.72, marginBottom: 6 }}>N° match</div>
+                  <input
+                    value={selection.shirt_number}
+                    onChange={(e) => onUpdateShirtNumber(player, side, e.target.value)}
+                    style={styles.input}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
