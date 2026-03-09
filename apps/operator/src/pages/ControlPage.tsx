@@ -373,25 +373,45 @@ export default function ControlPage() {
   }
 
   async function saveMatch() {
-    if (!match) return;
+  if (!match) return;
 
-    const payload = {
-      name: matchName,
-      home_name: homeName,
-      away_name: awayName,
-      status,
-      home_score: homeScore,
-      away_score: awayScore,
-    };
+  const payload = {
+    name: matchName.trim() || `${homeName.trim() || "Domicile"} vs ${awayName.trim() || "Extérieur"}`,
+    home_name: homeName.trim() || "Domicile",
+    away_name: awayName.trim() || "Extérieur",
+    status,
+    home_score: homeScore,
+    away_score: awayScore,
+  };
 
-    const { error } = await supabase.from("matches").update(payload).eq("id", match.id);
-    if (error) {
-      flash(error.message);
-      return;
-    }
+  console.log("[control] saveMatch payload:", payload);
 
-    flash("Match sauvegardé.");
+  const { data, error } = await supabase
+    .from("matches")
+    .update(payload)
+    .eq("id", match.id)
+    .select("id, name, home_name, away_name, status, home_score, away_score")
+    .maybeSingle();
+
+  if (error) {
+    console.error("[control] saveMatch error:", error);
+    flash(`Erreur sauvegarde : ${error.message}`);
+    return;
   }
+
+  console.log("[control] saveMatch success:", data);
+
+  setMatch((prev) =>
+    prev
+      ? {
+          ...prev,
+          ...payload,
+        }
+      : prev,
+  );
+
+  flash("Match sauvegardé.");
+}
 
   async function syncNow() {
     try {
