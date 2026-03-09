@@ -35,6 +35,8 @@ function mergeContext(prev: ScoreboardContext, patch: Partial<ScoreboardContext>
 function App() {
   const token = getSearchParam("token");
   const matchIdFromUrl = getSearchParam("matchId");
+  const teamSlug = getSearchParam("teamSlug");
+  const teamId = getSearchParam("teamId");
 
   const [ctx, setCtx] = useState<ScoreboardContext | null>(null);
   const [resolvedMatchId, setResolvedMatchId] = useState("");
@@ -96,6 +98,8 @@ function App() {
 
       if (token) url.searchParams.set("token", token);
       if (matchIdFromUrl) url.searchParams.set("matchId", matchIdFromUrl);
+      if (teamSlug) url.searchParams.set("teamSlug", teamSlug);
+      if (teamId) url.searchParams.set("teamId", teamId);
 
       try {
         const headers: Record<string, string> = {
@@ -124,7 +128,7 @@ function App() {
 
         setCtx({
           theme: settings.theme ?? "dark",
-          dual_language: settings.dual_language ?? true,
+          dual_language: settings.dual_language ?? false,
           lang_primary: settings.lang_primary ?? "FR",
           lang_secondary: settings.lang_secondary ?? "EN",
           show_lower_third: settings.show_lower_third ?? true,
@@ -165,7 +169,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [token, matchIdFromUrl]);
+  }, [token, matchIdFromUrl, teamSlug, teamId]);
 
   useEffect(() => {
     if (!resolvedMatchId) return;
