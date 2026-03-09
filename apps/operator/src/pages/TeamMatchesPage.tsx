@@ -17,6 +17,8 @@ type TeamRow = {
   id: string;
   org_id: string;
   name: string;
+  category: string | null;
+  code: string | null;
 };
 
 type MatchRow = {
@@ -61,6 +63,7 @@ function statusBadge(status: string | null | undefined) {
   if (s === "live") return { label: "En cours", color: "#dc2626", bg: "rgba(220,38,38,.12)" };
   if (s === "paused") return { label: "Pause", color: "#d97706", bg: "rgba(217,119,6,.12)" };
   if (s === "finished") return { label: "Terminé", color: "#16a34a", bg: "rgba(22,163,74,.12)" };
+  if (s === "archived") return { label: "Archivé", color: "#94a3b8", bg: "rgba(148,163,184,.12)" };
   return { label: s || "—", color: "#94a3b8", bg: "rgba(148,163,184,.12)" };
 }
 
@@ -73,6 +76,7 @@ export default function TeamMatchesPage() {
   const [team, setTeam] = useState<TeamRow | null>(null);
   const [matches, setMatches] = useState<MatchRow[]>([]);
   const [err, setErr] = useState("");
+  const [info, setInfo] = useState("");
   const [selectedQr, setSelectedQr] = useState("");
   const [selectedQrTitle, setSelectedQrTitle] = useState("");
 
@@ -102,7 +106,7 @@ export default function TeamMatchesPage() {
       setOrg(orgRow as OrgRow);
 
       const [{ data: teamRow, error: teamErr }, { data: matchRows, error: matchErr }] = await Promise.all([
-        supabase.from("teams").select("id, org_id, name").eq("id", teamId).maybeSingle(),
+        supabase.from("teams").select("id, org_id, name, category, code").eq("id", teamId).maybeSingle(),
         supabase
           .from("matches")
           .select("id, team_id, name, status, scheduled_at, public_display, display_token, home_name, away_name")
@@ -136,6 +140,11 @@ export default function TeamMatchesPage() {
     };
   }, [activeOrgId, activeOrgSlug, teamId]);
 
+  function flash(message: string) {
+    setInfo(message);
+    window.setTimeout(() => setInfo(""), 2500);
+  }
+
   function displayLink(m: MatchRow) {
     if (!DISPLAY_URL) return "";
     const base = DISPLAY_URL.replace(/\/$/, "");
@@ -150,13 +159,49 @@ export default function TeamMatchesPage() {
   async function copyText(value: string) {
     try {
       await navigator.clipboard.writeText(value);
+      flash("Lien copié.");
     } catch {
-      // ignore
+      flash("Copie impossible.");
     }
   }
 
-  const upcoming = matches.filter((m) => ["scheduled", "live", "paused"].includes(normalizeStatus(m.status)));
-  const archived = matches.filter((m) => ["finished", "archived"].includes(normalizeStatus(m.status)));
+  async function deleteMatch(matchId: string) {
+    const ok = window.confirm("Supprimer ce match ? Cette action est réservée aux matchs non joués.");
+    if (!ok) return;
+
+    const { error } = await supabase.from("matches").delete().eq("id", matchId);
+
+    if (error) {
+      flash(`Erreur suppression : ${error.message}`);
+      return;
+    }
+
+    setMatches((prev) => prev.filter((m) => m.id !== matchId));
+    flash("Match supprimé.");
+  }
+
+  async function archiveMatch(matchId: string) {
+    const ok = window.confirm("Archiver ce match ?");
+    if (!ok) return;
+
+    const { error } = await supabase
+      .from("matches")
+      .update({ status: "archived" })
+      .eq("id", matchId);
+
+    if (error) {
+      flash(`Erreur archivage : ${error.message}`);
+      return;
+    }
+
+    setMatches((prev) =>
+      prev.map((m) => (m.id === matchId ? { ...m, status: "archived" } : m)),
+    );
+    flash("Match archivé.");
+  }
+
+  const activeMatches = matches.filter((m) => ["scheduled", "live", "paused"].includes(normalizeStatus(m.status)));
+  const archivedMatches = matches.filter((m) => ["finished", "archived"].includes(normalizeStatus(m.status)));
 
   if (loading) {
     return <div style={styles.page}><div style={styles.centerBox}>Chargement des matchs…</div></div>;
@@ -176,15 +221,19 @@ export default function TeamMatchesPage() {
         <div style={styles.topbar}>
           <div>
             <div style={styles.title}>{team?.name || "Équipe"}</div>
-            <div style={styles.subtitle}>{org?.name}</div>
+            <div style={styles.subtitle}>
+              {org?.name} {team?.category ? `• ${team.category}` : ""} {team?.code ? `• ${team.code}` : ""}
+            </div>
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-  <button onClick={() => nav("/teams")} style={styles.ghostBtn}>Retour équipes</button>
-  <button onClick={() => nav(`/teams/${teamId}/matches/new`)} style={styles.primaryBtn}>Préparer un match</button>
-  <button onClick={() => nav("/display-settings")} style={styles.ghostBtn}>Paramètres Display</button>
-</div>
+            <button onClick={() => nav("/teams")} style={styles.ghostBtn}>Retour équipes</button>
+            <button onClick={() => nav(`/teams/${teamId}/matches/new`)} style={styles.primaryBtn}>Préparer un match</button>
+            <button onClick={() => nav("/display-settings")} style={styles.ghostBtn}>Paramètres Display</button>
+          </div>
         </div>
+
+        {info ? <div style={styles.infoBox}>{info}</div> : null}
 
         {selectedQr ? (
           <div style={styles.qrPanel}>
@@ -205,14 +254,15 @@ export default function TeamMatchesPage() {
         ) : null}
 
         <Section title="Matchs à venir / en cours">
-          {upcoming.length === 0 ? (
+          {activeMatches.length === 0 ? (
             <div style={styles.emptyCard}>Aucun match actif ou planifié pour cette équipe.</div>
           ) : (
             <div style={styles.list}>
-              {upcoming.map((m) => {
+              {activeMatches.map((m) => {
                 const badge = statusBadge(m.status);
                 const dLink = displayLink(m);
                 const cLink = controlLink(m);
+                const status = normalizeStatus(m.status);
 
                 return (
                   <div key={m.id} style={styles.card}>
@@ -227,12 +277,15 @@ export default function TeamMatchesPage() {
                     </div>
 
                     <div style={styles.actionRow}>
-                      <button onClick={() => nav(`/matches/${m.id}/control`)} style={styles.primaryBtn}>Ouvrir la régie</button>
+                      <button onClick={() => nav(`/matches/${m.id}/control`)} style={styles.primaryBtn}>Éditer / régie</button>
                       {dLink ? <a href={dLink} target="_blank" rel="noreferrer" style={styles.linkBtn}>Écran public</a> : null}
                       {dLink ? <button onClick={() => copyText(dLink)} style={styles.ghostBtnSmall}>Copier lien écran</button> : null}
                       <button onClick={() => copyText(cLink)} style={styles.ghostBtnSmall}>Copier lien régie</button>
                       {dLink ? <button onClick={() => { setSelectedQr(dLink); setSelectedQrTitle(`QR écran — ${matchTitle(m)}`); }} style={styles.ghostBtnSmall}>QR écran</button> : null}
                       <button onClick={() => { setSelectedQr(cLink); setSelectedQrTitle(`QR régie — ${matchTitle(m)}`); }} style={styles.ghostBtnSmall}>QR régie</button>
+                      {status === "scheduled" ? (
+                        <button onClick={() => deleteMatch(m.id)} style={styles.dangerBtn}>Supprimer</button>
+                      ) : null}
                     </div>
                   </div>
                 );
@@ -241,13 +294,15 @@ export default function TeamMatchesPage() {
           )}
         </Section>
 
-        <Section title="Historique">
-          {archived.length === 0 ? (
-            <div style={styles.emptyCard}>Aucun match terminé.</div>
+        <Section title="Historique / fin de vie">
+          {archivedMatches.length === 0 ? (
+            <div style={styles.emptyCard}>Aucun match terminé ou archivé.</div>
           ) : (
             <div style={styles.list}>
-              {archived.map((m) => {
+              {archivedMatches.map((m) => {
                 const badge = statusBadge(m.status);
+                const status = normalizeStatus(m.status);
+
                 return (
                   <div key={m.id} style={styles.card}>
                     <div style={styles.cardHeader}>
@@ -258,6 +313,13 @@ export default function TeamMatchesPage() {
                       <span style={{ ...styles.badge, color: badge.color, background: badge.bg, borderColor: `${badge.color}33` }}>
                         {badge.label}
                       </span>
+                    </div>
+
+                    <div style={styles.actionRow}>
+                      <button onClick={() => nav(`/matches/${m.id}/control`)} style={styles.ghostBtn}>Ouvrir</button>
+                      {status === "finished" ? (
+                        <button onClick={() => archiveMatch(m.id)} style={styles.ghostBtn}>Archiver</button>
+                      ) : null}
                     </div>
                   </div>
                 );
@@ -304,6 +366,15 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 16,
     background: "rgba(220,38,38,.10)",
     border: "1px solid rgba(220,38,38,.28)",
+  },
+  infoBox: {
+    marginBottom: 14,
+    padding: 14,
+    borderRadius: 14,
+    background: "rgba(37,99,235,.16)",
+    border: "1px solid rgba(37,99,235,.32)",
+    color: "#dbeafe",
+    fontWeight: 800,
   },
   topbar: {
     display: "flex",
@@ -366,6 +437,15 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 12,
     padding: "10px 12px",
     fontWeight: 700,
+    cursor: "pointer",
+  },
+  dangerBtn: {
+    background: "rgba(220,38,38,.16)",
+    color: "#fecaca",
+    border: "1px solid rgba(220,38,38,.35)",
+    borderRadius: 12,
+    padding: "10px 12px",
+    fontWeight: 800,
     cursor: "pointer",
   },
   linkBtn: {
