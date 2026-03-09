@@ -31,6 +31,23 @@ type TeamRow = {
   name: string;
 };
 
+type MatchPlayerRow = {
+  id: string;
+  player_id: string;
+  shirt_number: string | null;
+  fouls: number;
+  points: number;
+  yellow_cards: number;
+  red_cards: number;
+  is_selected: boolean;
+  is_starter: boolean;
+  player: {
+    id: string;
+    name: string;
+    number: string;
+  } | null;
+};
+
 type DisplaySettings = {
   theme: string;
   layout_mode: string;
@@ -142,13 +159,15 @@ function clampMin(n: number, min = 0) {
   return Math.max(min, n);
 }
 
-function toPlayerFoulRows(players: PlayerRow[]) {
-  return players.map((p) => ({
-    id: p.id,
-    name: p.name,
-    number: p.number,
-    fouls: 0,
-  }));
+function toPlayerFoulRows(matchPlayers: MatchPlayerRow[]) {
+  return matchPlayers
+    .filter((p) => p.is_selected)
+    .map((p) => ({
+      id: p.player_id,
+      name: p.player?.name || "Joueur",
+      number: p.shirt_number || p.player?.number || "?",
+      fouls: p.fouls || 0,
+    }));
 }
 
 export default function ControlPage() {
