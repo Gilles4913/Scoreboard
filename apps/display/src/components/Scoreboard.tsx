@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 type ThemeMode = "dark" | "light";
 type SportKey = "football" | "basket" | "handball" | "rugby" | "volleyball" | string;
@@ -13,6 +13,13 @@ type TeamInfo = {
 type SponsorItem = {
   name: string;
   logo_url?: string | null;
+};
+
+type PlayerFoulsRow = {
+  id?: string;
+  name?: string;
+  number?: string;
+  fouls?: number;
 };
 
 export type ScoreboardContext = {
@@ -34,7 +41,6 @@ export type ScoreboardContext = {
 
   clock_ms?: number | null;
   clock_running?: boolean | null;
-
   period_label?: string | null;
 
   theme?: ThemeMode;
@@ -44,11 +50,36 @@ export type ScoreboardContext = {
 
   show_lower_third?: boolean;
   show_logos?: boolean;
+  show_score?: boolean;
+  show_clock?: boolean;
+  show_period?: boolean;
+  show_status?: boolean;
+  show_sponsors?: boolean;
 
   sponsors?: SponsorItem[];
   sponsor_rotate_s?: number;
 
+  layout_mode?: string;
   accent?: string;
+
+  home_team_fouls?: number;
+  away_team_fouls?: number;
+  home_timeouts?: number;
+  away_timeouts?: number;
+  home_bonus?: boolean;
+  away_bonus?: boolean;
+  shot_clock_s?: number;
+
+  home_sets_won?: number;
+  away_sets_won?: number;
+
+  home_yellow_cards?: number;
+  away_yellow_cards?: number;
+  home_red_cards?: number;
+  away_red_cards?: number;
+
+  home_players?: PlayerFoulsRow[];
+  away_players?: PlayerFoulsRow[];
 };
 
 type Props = {
@@ -60,6 +91,11 @@ function clamp(n: number, a: number, b: number) {
 }
 
 function safeScore(v?: number | null) {
+  if (typeof v !== "number" || !isFinite(v)) return 0;
+  return Math.max(0, Math.floor(v));
+}
+
+function safeNum(v?: number | null) {
   if (typeof v !== "number" || !isFinite(v)) return 0;
   return Math.max(0, Math.floor(v));
 }
@@ -230,7 +266,10 @@ function TeamName({
           width: 62,
           height: 62,
           objectFit: "contain",
-          filter: theme === "dark" ? "drop-shadow(0 8px 22px rgba(0,0,0,.55))" : "drop-shadow(0 6px 16px rgba(0,0,0,.18))",
+          filter:
+            theme === "dark"
+              ? "drop-shadow(0 8px 22px rgba(0,0,0,.55))"
+              : "drop-shadow(0 6px 16px rgba(0,0,0,.18))",
         }}
       />
     ) : null;
@@ -247,6 +286,113 @@ function TeamName({
       {align === "right" ? logoEl : null}
       {block}
       {align === "left" ? logoEl : null}
+    </div>
+  );
+}
+
+function StatChip({
+  label,
+  value,
+  theme,
+}: {
+  label: string;
+  value: string | number | boolean;
+  theme: ThemeMode;
+}) {
+  const panel = theme === "dark" ? "rgba(255,255,255,.05)" : "rgba(0,0,0,.05)";
+  const border = theme === "dark" ? "rgba(255,255,255,.12)" : "rgba(0,0,0,.10)";
+  const sub = theme === "dark" ? "rgba(237,242,255,.72)" : "rgba(15,23,42,.68)";
+  const text = theme === "dark" ? "#edf2ff" : "#0f172a";
+
+  return (
+    <div
+      style={{
+        padding: "8px 10px",
+        borderRadius: 12,
+        background: panel,
+        border: `1px solid ${border}`,
+        minWidth: 84,
+      }}
+    >
+      <div style={{ fontSize: 11, fontWeight: 800, color: sub }}>{label}</div>
+      <div style={{ marginTop: 2, fontSize: 16, fontWeight: 900, color: text }}>{String(value)}</div>
+    </div>
+  );
+}
+
+function TeamStatsStrip({
+  side,
+  theme,
+  stats,
+}: {
+  side: "home" | "away";
+  theme: ThemeMode;
+  stats: Array<{ label: string; value: string | number | boolean }>;
+}) {
+  if (!stats.length) return null;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap",
+        justifyContent: side === "home" ? "flex-start" : "flex-end",
+        marginTop: 14,
+      }}
+    >
+      {stats.map((item, idx) => (
+        <StatChip key={`${item.label}-${idx}`} label={item.label} value={item.value} theme={theme} />
+      ))}
+    </div>
+  );
+}
+
+function PlayerFoulsMini({
+  title,
+  players,
+  theme,
+}: {
+  title: string;
+  players: PlayerFoulsRow[];
+  theme: ThemeMode;
+}) {
+  if (!players.length) return null;
+
+  const panel = theme === "dark" ? "rgba(255,255,255,.04)" : "rgba(0,0,0,.04)";
+  const border = theme === "dark" ? "rgba(255,255,255,.10)" : "rgba(0,0,0,.10)";
+  const sub = theme === "dark" ? "rgba(237,242,255,.72)" : "rgba(15,23,42,.68)";
+  const text = theme === "dark" ? "#edf2ff" : "#0f172a";
+
+  return (
+    <div
+      style={{
+        borderRadius: 16,
+        background: panel,
+        border: `1px solid ${border}`,
+        padding: 12,
+      }}
+    >
+      <div style={{ fontSize: 13, fontWeight: 900, color: text, marginBottom: 8 }}>{title}</div>
+      <div style={{ display: "grid", gap: 6 }}>
+        {players.slice(0, 5).map((p, idx) => (
+          <div
+            key={p.id || `${p.number || ""}-${idx}`}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 10,
+              fontSize: 12,
+              color: text,
+            }}
+          >
+            <span style={{ color: sub }}>
+              #{p.number || "?"} {p.name || "Joueur"}
+            </span>
+            <span style={{ fontWeight: 900 }}>{safeNum(p.fouls)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -271,8 +417,13 @@ export default function Scoreboard({ context }: Props) {
   const awayBump = useBumpOnChange(awayScore);
 
   const dual = !!context.dual_language;
-  const showLowerThird = context.show_lower_third !== false;
+  const showBand = context.show_lower_third !== false;
   const showLogos = context.show_logos !== false;
+  const showScore = context.show_score !== false;
+  const showClock = context.show_clock !== false;
+  const showPeriod = context.show_period !== false;
+  const showStatus = context.show_status !== false;
+  const showSponsors = context.show_sponsors !== false;
 
   const sponsor = useRotatingSponsor(context.sponsors || [], context.sponsor_rotate_s || 10);
 
@@ -288,8 +439,45 @@ export default function Scoreboard({ context }: Props) {
   const venue = (context.venue || "").trim();
   const matchName = (context.match_name || `${homeName} vs ${awayName}`).trim();
 
-  const scoreSeparator = context.sport === "rugby" ? "-" : ":";
   const clockText = fmtClock(context.clock_ms);
+  const layout = (context.layout_mode || "stadium").toLowerCase();
+  const isVolley = (context.sport || "").toLowerCase() === "volleyball";
+  const isRugby = (context.sport || "").toLowerCase() === "rugby";
+
+  const homeStats: Array<{ label: string; value: string | number | boolean }> = [];
+  const awayStats: Array<{ label: string; value: string | number | boolean }> = [];
+
+  if (typeof context.home_team_fouls === "number" || typeof context.away_team_fouls === "number") {
+    homeStats.push({ label: "Fautes", value: safeNum(context.home_team_fouls) });
+    awayStats.push({ label: "Fautes", value: safeNum(context.away_team_fouls) });
+  }
+
+  if (typeof context.home_timeouts === "number" || typeof context.away_timeouts === "number") {
+    homeStats.push({ label: "TM", value: safeNum(context.home_timeouts) });
+    awayStats.push({ label: "TM", value: safeNum(context.away_timeouts) });
+  }
+
+  if (typeof context.home_sets_won === "number" || typeof context.away_sets_won === "number") {
+    homeStats.push({ label: "Sets", value: safeNum(context.home_sets_won) });
+    awayStats.push({ label: "Sets", value: safeNum(context.away_sets_won) });
+  }
+
+  if (context.home_bonus !== undefined || context.away_bonus !== undefined) {
+    homeStats.push({ label: "Bonus", value: context.home_bonus ? "ON" : "OFF" });
+    awayStats.push({ label: "Bonus", value: context.away_bonus ? "ON" : "OFF" });
+  }
+
+  if (typeof context.home_yellow_cards === "number" || typeof context.away_yellow_cards === "number") {
+    homeStats.push({ label: "J", value: safeNum(context.home_yellow_cards) });
+    awayStats.push({ label: "J", value: safeNum(context.away_yellow_cards) });
+  }
+
+  if (typeof context.home_red_cards === "number" || typeof context.away_red_cards === "number") {
+    homeStats.push({ label: "R", value: safeNum(context.home_red_cards) });
+    awayStats.push({ label: "R", value: safeNum(context.away_red_cards) });
+  }
+
+  const boardHeight = showBand ? "calc(100vh - 190px)" : "calc(100vh - 110px)";
 
   return (
     <div
@@ -303,7 +491,6 @@ export default function Scoreboard({ context }: Props) {
           'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"',
       }}
     >
-      {/* Top bar */}
       <div
         style={{
           padding: "18px 24px 12px",
@@ -315,7 +502,7 @@ export default function Scoreboard({ context }: Props) {
       >
         <TeamName
           name={homeName}
-          altName={homeAlt}
+          altName={dual ? homeAlt : ""}
           logo={homeLogo}
           align="left"
           theme={theme}
@@ -335,10 +522,12 @@ export default function Scoreboard({ context }: Props) {
               letterSpacing: 1.1,
             }}
           >
-            {sport} • {period || status}
+            {sport}
+            {showPeriod && period ? ` • ${period}` : ""}
+            {!showPeriod && showStatus ? ` • ${status}` : ""}
           </div>
 
-          {sponsor ? (
+          {showSponsors && sponsor ? (
             <div
               style={{
                 display: "flex",
@@ -360,7 +549,7 @@ export default function Scoreboard({ context }: Props) {
 
         <TeamName
           name={awayName}
-          altName={awayAlt}
+          altName={dual ? awayAlt : ""}
           logo={awayLogo}
           align="right"
           theme={theme}
@@ -369,11 +558,10 @@ export default function Scoreboard({ context }: Props) {
         />
       </div>
 
-      {/* Main board */}
       <div
         style={{
           margin: "0 24px",
-          height: "calc(100vh - 190px)",
+          height: boardHeight,
           minHeight: 420,
           borderRadius: 26,
           background: panel,
@@ -383,62 +571,166 @@ export default function Scoreboard({ context }: Props) {
           alignItems: "center",
           gap: 16,
           padding: "22px 26px",
-          boxShadow: theme === "dark" ? "0 30px 80px rgba(0,0,0,.45)" : "0 20px 60px rgba(0,0,0,.08)",
+          boxShadow:
+            theme === "dark" ? "0 30px 80px rgba(0,0,0,.45)" : "0 20px 60px rgba(0,0,0,.08)",
         }}
       >
-        {/* Home */}
-        <div style={{ display: "grid", justifyItems: "center", gap: 12 }}>
+        <div style={{ display: "grid", justifyItems: "center", gap: 12, width: "100%" }}>
           <div style={{ color: sub, fontWeight: 900, letterSpacing: 1.1 }}>DOM</div>
-          <SegmentDigits value={String(homeScore)} theme={theme} accent={accent} size={180} bump={homeBump} />
+
+          {showScore ? (
+            <SegmentDigits
+              value={String(homeScore)}
+              theme={theme}
+              accent={accent}
+              size={layout === "compact" ? 130 : 180}
+              bump={homeBump}
+            />
+          ) : (
+            <div style={{ height: 180 }} />
+          )}
+
+          <TeamStatsStrip side="home" theme={theme} stats={homeStats} />
         </div>
 
-        {/* Center */}
-        <div style={{ display: "grid", justifyItems: "center", gap: 18, minWidth: 260 }}>
-          <div style={{ color: sub, fontWeight: 900, fontSize: 54, lineHeight: 1 }}>
-            {scoreSeparator}
-          </div>
+        <div style={{ display: "grid", justifyItems: "center", gap: 18, minWidth: isVolley ? 320 : 260 }}>
+          {showScore ? (
+            <div style={{ color: sub, fontWeight: 900, fontSize: 54, lineHeight: 1 }}>
+              {isRugby ? "-" : ":"}
+            </div>
+          ) : null}
 
-          <div
-            style={{
-              padding: "14px 20px",
-              borderRadius: 20,
-              border: `1px solid ${border}`,
-              background: theme === "dark" ? "rgba(0,0,0,.22)" : "rgba(255,255,255,.6)",
-              boxShadow: theme === "dark" ? "0 16px 42px rgba(0,0,0,.48)" : "0 12px 32px rgba(0,0,0,.10)",
-              display: "grid",
-              justifyItems: "center",
-              gap: 8,
-            }}
-          >
-            <div style={{ color: sub, fontSize: 12, fontWeight: 900, letterSpacing: 1.6 }}>TEMPS</div>
-            <SegmentDigits value={clockText} theme={theme} accent={accent} size={86} />
-          </div>
+          {(showClock || showPeriod || showStatus || context.shot_clock_s !== undefined) ? (
+            <div
+              style={{
+                padding: "14px 20px",
+                borderRadius: 20,
+                border: `1px solid ${border}`,
+                background: theme === "dark" ? "rgba(0,0,0,.22)" : "rgba(255,255,255,.6)",
+                boxShadow:
+                  theme === "dark"
+                    ? "0 16px 42px rgba(0,0,0,.48)"
+                    : "0 12px 32px rgba(0,0,0,.10)",
+                display: "grid",
+                justifyItems: "center",
+                gap: 8,
+                minWidth: isVolley ? 300 : 220,
+              }}
+            >
+              {showClock ? (
+                <>
+                  <div style={{ color: sub, fontSize: 12, fontWeight: 900, letterSpacing: 1.6 }}>TEMPS</div>
+                  <SegmentDigits value={clockText} theme={theme} accent={accent} size={86} />
+                </>
+              ) : null}
 
-          <div
-            style={{
-              padding: "8px 14px",
-              borderRadius: 999,
-              border: `1px solid ${border}`,
-              background: panel,
-              fontSize: 13,
-              fontWeight: 900,
-              letterSpacing: 1.1,
-            }}
-          >
-            {status}
-            {context.clock_running ? " • RUN" : " • STOP"}
-          </div>
+              {showPeriod && period ? (
+                <div
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: 999,
+                    background: panel,
+                    border: `1px solid ${border}`,
+                    fontSize: 13,
+                    fontWeight: 900,
+                    letterSpacing: 1,
+                  }}
+                >
+                  {period}
+                </div>
+              ) : null}
+
+              {typeof context.shot_clock_s === "number" ? (
+                <div
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: 999,
+                    background: panel,
+                    border: `1px solid ${border}`,
+                    fontSize: 13,
+                    fontWeight: 900,
+                    letterSpacing: 1,
+                  }}
+                >
+                  SHOT CLOCK • {safeNum(context.shot_clock_s)}s
+                </div>
+              ) : null}
+
+              {showStatus ? (
+                <div
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: 999,
+                    border: `1px solid ${border}`,
+                    background: panel,
+                    fontSize: 13,
+                    fontWeight: 900,
+                    letterSpacing: 1.1,
+                  }}
+                >
+                  {status}
+                  {context.clock_running !== undefined ? (context.clock_running ? " • RUN" : " • STOP") : ""}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {isVolley && (typeof context.home_sets_won === "number" || typeof context.away_sets_won === "number") ? (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr auto 1fr",
+                gap: 10,
+                alignItems: "center",
+                color: text,
+                fontWeight: 900,
+                fontSize: 20,
+              }}
+            >
+              <span style={{ textAlign: "right" }}>{safeNum(context.home_sets_won)}</span>
+              <span style={{ color: sub }}>SETS</span>
+              <span>{safeNum(context.away_sets_won)}</span>
+            </div>
+          ) : null}
         </div>
 
-        {/* Away */}
-        <div style={{ display: "grid", justifyItems: "center", gap: 12 }}>
+        <div style={{ display: "grid", justifyItems: "center", gap: 12, width: "100%" }}>
           <div style={{ color: sub, fontWeight: 900, letterSpacing: 1.1 }}>EXT</div>
-          <SegmentDigits value={String(awayScore)} theme={theme} accent={accent} size={180} bump={awayBump} />
+
+          {showScore ? (
+            <SegmentDigits
+              value={String(awayScore)}
+              theme={theme}
+              accent={accent}
+              size={layout === "compact" ? 130 : 180}
+              bump={awayBump}
+            />
+          ) : (
+            <div style={{ height: 180 }} />
+          )}
+
+          <TeamStatsStrip side="away" theme={theme} stats={awayStats} />
         </div>
       </div>
 
-      {/* Lower third */}
-      {showLowerThird ? (
+      {(context.home_players?.length || context.away_players?.length) ? (
+        <div
+          style={{
+            position: "fixed",
+            left: 24,
+            right: 24,
+            bottom: showBand ? 112 : 20,
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 14,
+          }}
+        >
+          <PlayerFoulsMini title={`${homeName} • fautes joueurs`} players={context.home_players || []} theme={theme} />
+          <PlayerFoulsMini title={`${awayName} • fautes joueurs`} players={context.away_players || []} theme={theme} />
+        </div>
+      ) : null}
+
+      {showBand ? (
         <div
           style={{
             position: "fixed",
@@ -471,8 +763,9 @@ export default function Scoreboard({ context }: Props) {
             </div>
             <div style={{ marginTop: 4, color: sub, fontSize: 13 }}>
               {venue ? `📍 ${venue} • ` : ""}
-              {sport} • {status}
-              {period ? ` • ${period}` : ""}
+              {sport}
+              {showStatus ? ` • ${status}` : ""}
+              {showPeriod && period ? ` • ${period}` : ""}
             </div>
           </div>
 
@@ -502,7 +795,7 @@ export default function Scoreboard({ context }: Props) {
                 fontWeight: 900,
               }}
             >
-              LED STADIUM
+              {layout.toUpperCase()}
             </span>
           </div>
         </div>
