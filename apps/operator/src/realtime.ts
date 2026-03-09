@@ -26,6 +26,15 @@ export type TvPatch = {
   period_label?: string | null;
 
   sponsors?: Array<{ name: string; logo_url?: string | null }>;
+
+  show_score?: boolean;
+  show_clock?: boolean;
+  show_period?: boolean;
+  show_status?: boolean;
+  show_lower_third?: boolean;
+  show_logos?: boolean;
+  show_sponsors?: boolean;
+  layout_mode?: string;
 };
 
 export async function sendTvBroadcast(matchId: string, patch: TvPatch) {
@@ -48,8 +57,10 @@ export async function sendTvBroadcast(matchId: string, patch: TvPatch) {
     },
     body: JSON.stringify({
       match_id: matchId,
-      patch,
+      type: "patch",
+      payload: patch,
       ts: Date.now(),
+      seq: Date.now(),
     }),
   });
 
@@ -57,4 +68,6 @@ export async function sendTvBroadcast(matchId: string, patch: TvPatch) {
     const txt = await res.text().catch(() => "");
     throw new Error(`tv-broadcast HTTP ${res.status} ${txt}`);
   }
+
+  return res.json().catch(() => null);
 }
