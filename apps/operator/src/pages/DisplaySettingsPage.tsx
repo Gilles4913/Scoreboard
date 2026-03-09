@@ -12,7 +12,7 @@ type OrgRow = {
   sport: string | null;
 };
 
-type SettingsRow = {
+type DisplaySettingsRow = {
   org_id: string;
   theme: string;
   layout_mode: string;
@@ -29,15 +29,45 @@ type SettingsRow = {
   sponsor_rotate_s: number;
 };
 
+type SportSettingsRow = {
+  org_id: string;
+  sport: string;
+  period_count: number;
+  period_duration_s: number;
+  extra_time_enabled: boolean;
+  penalties_enabled: boolean;
+  show_team_fouls: boolean;
+  show_player_fouls: boolean;
+  show_timeouts: boolean;
+  show_bonus: boolean;
+  show_sets: boolean;
+  show_cards: boolean;
+  show_shot_clock: boolean;
+  max_team_fouls: number | null;
+  max_player_fouls: number | null;
+  max_timeouts: number | null;
+  shot_clock_s: number | null;
+};
+
+type ThemeCardDef = {
+  id: string;
+  title: string;
+  subtitle: string;
+  recommendedFor: string[];
+  theme: string;
+  layout_mode: string;
+};
+
 function normalizeSport(v: string | null | undefined) {
   return ((v || "football") + "").toLowerCase().trim();
 }
 
-function presetForSport(sport: string): Partial<SettingsRow> {
+function presetDisplayForSport(sport: string): Partial<DisplaySettingsRow> {
   const s = normalizeSport(sport);
 
   if (s === "basket") {
     return {
+      theme: "dark",
       layout_mode: "arena",
       show_score: true,
       show_clock: true,
@@ -46,11 +76,16 @@ function presetForSport(sport: string): Partial<SettingsRow> {
       show_lower_third: true,
       show_logos: true,
       show_sponsors: true,
+      dual_language: true,
+      lang_primary: "FR",
+      lang_secondary: "EN",
+      sponsor_rotate_s: 10,
     };
   }
 
   if (s === "volleyball") {
     return {
+      theme: "dark",
       layout_mode: "volley",
       show_score: true,
       show_clock: false,
@@ -59,10 +94,51 @@ function presetForSport(sport: string): Partial<SettingsRow> {
       show_lower_third: true,
       show_logos: true,
       show_sponsors: true,
+      dual_language: true,
+      lang_primary: "FR",
+      lang_secondary: "EN",
+      sponsor_rotate_s: 10,
+    };
+  }
+
+  if (s === "handball") {
+    return {
+      theme: "dark",
+      layout_mode: "arena",
+      show_score: true,
+      show_clock: true,
+      show_period: true,
+      show_status: true,
+      show_lower_third: true,
+      show_logos: true,
+      show_sponsors: true,
+      dual_language: true,
+      lang_primary: "FR",
+      lang_secondary: "EN",
+      sponsor_rotate_s: 10,
+    };
+  }
+
+  if (s === "rugby") {
+    return {
+      theme: "dark",
+      layout_mode: "stadium",
+      show_score: true,
+      show_clock: true,
+      show_period: true,
+      show_status: true,
+      show_lower_third: true,
+      show_logos: true,
+      show_sponsors: true,
+      dual_language: true,
+      lang_primary: "FR",
+      lang_secondary: "EN",
+      sponsor_rotate_s: 10,
     };
   }
 
   return {
+    theme: "dark",
     layout_mode: "stadium",
     show_score: true,
     show_clock: true,
@@ -71,8 +147,162 @@ function presetForSport(sport: string): Partial<SettingsRow> {
     show_lower_third: true,
     show_logos: true,
     show_sponsors: true,
+    dual_language: true,
+    lang_primary: "FR",
+    lang_secondary: "EN",
+    sponsor_rotate_s: 10,
   };
 }
+
+function presetSportSettingsForSport(sport: string): Partial<SportSettingsRow> {
+  const s = normalizeSport(sport);
+
+  if (s === "basket") {
+    return {
+      sport: "basket",
+      period_count: 4,
+      period_duration_s: 600,
+      extra_time_enabled: true,
+      penalties_enabled: false,
+      show_team_fouls: true,
+      show_player_fouls: true,
+      show_timeouts: true,
+      show_bonus: true,
+      show_sets: false,
+      show_cards: false,
+      show_shot_clock: true,
+      max_team_fouls: 5,
+      max_player_fouls: 5,
+      max_timeouts: 5,
+      shot_clock_s: 24,
+    };
+  }
+
+  if (s === "volleyball") {
+    return {
+      sport: "volleyball",
+      period_count: 5,
+      period_duration_s: 0,
+      extra_time_enabled: false,
+      penalties_enabled: false,
+      show_team_fouls: false,
+      show_player_fouls: false,
+      show_timeouts: true,
+      show_bonus: false,
+      show_sets: true,
+      show_cards: false,
+      show_shot_clock: false,
+      max_team_fouls: null,
+      max_player_fouls: null,
+      max_timeouts: 2,
+      shot_clock_s: null,
+    };
+  }
+
+  if (s === "handball") {
+    return {
+      sport: "handball",
+      period_count: 2,
+      period_duration_s: 1800,
+      extra_time_enabled: true,
+      penalties_enabled: false,
+      show_team_fouls: false,
+      show_player_fouls: false,
+      show_timeouts: true,
+      show_bonus: false,
+      show_sets: false,
+      show_cards: false,
+      show_shot_clock: false,
+      max_team_fouls: null,
+      max_player_fouls: null,
+      max_timeouts: 3,
+      shot_clock_s: null,
+    };
+  }
+
+  if (s === "rugby") {
+    return {
+      sport: "rugby",
+      period_count: 2,
+      period_duration_s: 2400,
+      extra_time_enabled: true,
+      penalties_enabled: false,
+      show_team_fouls: false,
+      show_player_fouls: false,
+      show_timeouts: false,
+      show_bonus: false,
+      show_sets: false,
+      show_cards: true,
+      show_shot_clock: false,
+      max_team_fouls: null,
+      max_player_fouls: null,
+      max_timeouts: null,
+      shot_clock_s: null,
+    };
+  }
+
+  return {
+    sport: "football",
+    period_count: 2,
+    period_duration_s: 2700,
+    extra_time_enabled: true,
+    penalties_enabled: true,
+    show_team_fouls: false,
+    show_player_fouls: false,
+    show_timeouts: false,
+    show_bonus: false,
+    show_sets: false,
+    show_cards: true,
+    show_shot_clock: false,
+    max_team_fouls: null,
+    max_player_fouls: null,
+    max_timeouts: null,
+    shot_clock_s: null,
+  };
+}
+
+const THEME_CARDS: ThemeCardDef[] = [
+  {
+    id: "stadium",
+    title: "Stade classique",
+    subtitle: "Très lisible, idéal gymnase / LED / panneau",
+    recommendedFor: ["football", "rugby", "handball"],
+    theme: "dark",
+    layout_mode: "stadium",
+  },
+  {
+    id: "arena",
+    title: "Arena premium",
+    subtitle: "Score et chrono très mis en avant",
+    recommendedFor: ["basket", "handball"],
+    theme: "dark",
+    layout_mode: "arena",
+  },
+  {
+    id: "compact",
+    title: "Compact",
+    subtitle: "Peu d’éléments, efficace sur petits écrans",
+    recommendedFor: ["football", "basket", "rugby", "handball", "volleyball"],
+    theme: "dark",
+    layout_mode: "compact",
+  },
+  {
+    id: "volley",
+    title: "Volley sets",
+    subtitle: "Accent sur les sets et le score",
+    recommendedFor: ["volleyball"],
+    theme: "dark",
+    layout_mode: "volley",
+  },
+  {
+    id: "tv-light",
+    title: "TV clair",
+    subtitle: "Look diffusion TV, plus éditorial",
+    recommendedFor: ["football", "basket", "volleyball"],
+    theme: "light",
+    layout_mode: "arena",
+  },
+];
 
 export default function DisplaySettingsPage() {
   const nav = useNavigate();
@@ -82,7 +312,8 @@ export default function DisplaySettingsPage() {
   const [err, setErr] = useState("");
   const [info, setInfo] = useState("");
   const [org, setOrg] = useState<OrgRow | null>(null);
-  const [form, setForm] = useState<SettingsRow | null>(null);
+  const [displayForm, setDisplayForm] = useState<DisplaySettingsRow | null>(null);
+  const [sportForm, setSportForm] = useState<SportSettingsRow | null>(null);
 
   const activeOrgId = useMemo(() => (localStorage.getItem(LS_ACTIVE_ORG_ID) || "").trim(), []);
   const activeOrgSlug = useMemo(() => (localStorage.getItem(LS_ACTIVE_ORG_SLUG) || "").trim(), []);
@@ -110,24 +341,38 @@ export default function DisplaySettingsPage() {
       const currentOrg = orgRow as OrgRow;
       setOrg(currentOrg);
 
-      const { data: settingsRow, error: settingsErr } = await supabase
-        .from("org_display_settings")
-        .select("org_id, theme, layout_mode, show_score, show_clock, show_period, show_status, show_lower_third, show_logos, show_sponsors, dual_language, lang_primary, lang_secondary, sponsor_rotate_s")
-        .eq("org_id", currentOrg.id)
-        .maybeSingle();
+      const [{ data: displaySettingsRow, error: displayErr }, { data: sportSettingsRow, error: sportErr }] =
+        await Promise.all([
+          supabase
+            .from("org_display_settings")
+            .select("org_id, theme, layout_mode, show_score, show_clock, show_period, show_status, show_lower_third, show_logos, show_sponsors, dual_language, lang_primary, lang_secondary, sponsor_rotate_s")
+            .eq("org_id", currentOrg.id)
+            .maybeSingle(),
+          supabase
+            .from("org_sport_settings")
+            .select("org_id, sport, period_count, period_duration_s, extra_time_enabled, penalties_enabled, show_team_fouls, show_player_fouls, show_timeouts, show_bonus, show_sets, show_cards, show_shot_clock, max_team_fouls, max_player_fouls, max_timeouts, shot_clock_s")
+            .eq("org_id", currentOrg.id)
+            .maybeSingle(),
+        ]);
 
       if (cancelled) return;
 
-      if (settingsErr) {
-        setErr(settingsErr.message);
+      if (displayErr) {
+        setErr(displayErr.message);
         setLoading(false);
         return;
       }
 
-      if (settingsRow) {
-        setForm(settingsRow as SettingsRow);
-      } else {
-        setForm({
+      if (sportErr) {
+        setErr(sportErr.message);
+        setLoading(false);
+        return;
+      }
+
+      const sport = normalizeSport(currentOrg.sport);
+
+      setDisplayForm(
+        (displaySettingsRow as DisplaySettingsRow) || {
           org_id: currentOrg.id,
           theme: "dark",
           layout_mode: "stadium",
@@ -142,8 +387,30 @@ export default function DisplaySettingsPage() {
           lang_primary: "FR",
           lang_secondary: "EN",
           sponsor_rotate_s: 10,
-        });
-      }
+        },
+      );
+
+      setSportForm(
+        (sportSettingsRow as SportSettingsRow) || {
+          org_id: currentOrg.id,
+          sport,
+          period_count: 2,
+          period_duration_s: 2700,
+          extra_time_enabled: true,
+          penalties_enabled: true,
+          show_team_fouls: false,
+          show_player_fouls: false,
+          show_timeouts: false,
+          show_bonus: false,
+          show_sets: false,
+          show_cards: true,
+          show_shot_clock: false,
+          max_team_fouls: null,
+          max_player_fouls: null,
+          max_timeouts: null,
+          shot_clock_s: null,
+        },
+      );
 
       setLoading(false);
     }
@@ -159,38 +426,72 @@ export default function DisplaySettingsPage() {
     window.setTimeout(() => setInfo(""), 2200);
   }
 
-  async function save() {
-    if (!form) return;
-
-    setSaving(true);
-    const { error } = await supabase.from("org_display_settings").upsert(form, { onConflict: "org_id" });
-    setSaving(false);
-
-    if (error) {
-      flash(error.message);
-      return;
-    }
-
-    flash("Paramètres Display sauvegardés.");
+  function patchDisplay(next: Partial<DisplaySettingsRow>) {
+    setDisplayForm((prev) => (prev ? { ...prev, ...next } : prev));
   }
 
-  function patch(next: Partial<SettingsRow>) {
-    setForm((prev) => (prev ? { ...prev, ...next } : prev));
+  function patchSport(next: Partial<SportSettingsRow>) {
+    setSportForm((prev) => (prev ? { ...prev, ...next } : prev));
   }
 
   function applySportPreset() {
-    if (!org || !form) return;
-    patch(presetForSport(org.sport || "football"));
+    if (!org) return;
+    patchDisplay(presetDisplayForSport(org.sport || "football"));
+    patchSport(presetSportSettingsForSport(org.sport || "football"));
     flash(`Preset ${normalizeSport(org.sport)} appliqué.`);
   }
 
-  if (loading || !form) {
-    return <div style={styles.page}><div style={styles.centerBox}>Chargement des paramètres…</div></div>;
+  function selectThemeCard(card: ThemeCardDef) {
+    patchDisplay({
+      theme: card.theme,
+      layout_mode: card.layout_mode,
+    });
+    flash(`Thème "${card.title}" sélectionné.`);
+  }
+
+  async function save() {
+    if (!displayForm || !sportForm) return;
+
+    setSaving(true);
+
+    const [displayRes, sportRes] = await Promise.all([
+      supabase.from("org_display_settings").upsert(displayForm, { onConflict: "org_id" }),
+      supabase.from("org_sport_settings").upsert(sportForm, { onConflict: "org_id" }),
+    ]);
+
+    setSaving(false);
+
+    if (displayRes.error) {
+      flash(displayRes.error.message);
+      return;
+    }
+
+    if (sportRes.error) {
+      flash(sportRes.error.message);
+      return;
+    }
+
+    flash("Paramètres Display et Sport sauvegardés.");
+  }
+
+  if (loading || !displayForm || !sportForm) {
+    return (
+      <div style={styles.page}>
+        <div style={styles.centerBox}>Chargement des paramètres…</div>
+      </div>
+    );
   }
 
   if (err) {
-    return <div style={styles.page}><div style={styles.errorBox}>{err}</div></div>;
+    return (
+      <div style={styles.page}>
+        <div style={styles.errorBox}>{err}</div>
+      </div>
+    );
   }
+
+  const currentSport = normalizeSport(org?.sport);
+  const activeThemeId = `${displayForm.theme}:${displayForm.layout_mode}`;
 
   return (
     <div style={styles.page}>
@@ -198,32 +499,94 @@ export default function DisplaySettingsPage() {
         <div style={styles.topbar}>
           <div>
             <div style={styles.title}>Paramètres Display</div>
-            <div style={styles.subtitle}>{org?.name} • sport : <b>{org?.sport || "football"}</b></div>
+            <div style={styles.subtitle}>
+              {org?.name} • sport : <b>{org?.sport || "football"}</b>
+            </div>
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button onClick={() => nav("/teams")} style={styles.ghostBtn}>Retour équipes</button>
-            <button onClick={applySportPreset} style={styles.ghostBtn}>Appliquer preset sport</button>
-            <button onClick={save} style={styles.primaryBtn}>{saving ? "Sauvegarde..." : "Sauvegarder"}</button>
+            <button onClick={() => nav("/teams")} style={styles.ghostBtn}>
+              Retour équipes
+            </button>
+            <button onClick={applySportPreset} style={styles.ghostBtn}>
+              Appliquer preset sport
+            </button>
+            <button onClick={save} style={styles.primaryBtn}>
+              {saving ? "Sauvegarde..." : "Sauvegarder"}
+            </button>
           </div>
         </div>
 
         {info ? <div style={styles.infoBox}>{info}</div> : null}
 
+        <section style={styles.panel}>
+          <div style={styles.sectionTitle}>Thèmes d’affichage</div>
+          <div style={styles.sectionText}>
+            Choisis un habillage visuel adapté à ton sport et à ton type d’écran. Ensuite, affine les éléments visibles plus bas.
+          </div>
+
+          <div style={styles.themeGrid}>
+            {THEME_CARDS.map((card) => {
+              const isActive = activeThemeId === `${card.theme}:${card.layout_mode}`;
+              const isRecommended = card.recommendedFor.includes(currentSport);
+
+              return (
+                <button
+                  key={card.id}
+                  onClick={() => selectThemeCard(card)}
+                  style={{
+                    ...styles.themeCard,
+                    border: isActive
+                      ? "1px solid rgba(59,130,246,.55)"
+                      : "1px solid rgba(255,255,255,.10)",
+                    boxShadow: isActive ? "0 0 0 1px rgba(59,130,246,.22) inset" : "none",
+                  }}
+                >
+                  <ThemePreview
+                    theme={card.theme}
+                    layout={card.layout_mode}
+                    showClock={displayForm.show_clock}
+                    showPeriod={displayForm.show_period}
+                  />
+
+                  <div style={styles.themeHeader}>
+                    <div>
+                      <div style={styles.themeTitle}>{card.title}</div>
+                      <div style={styles.themeSubtitle}>{card.subtitle}</div>
+                    </div>
+
+                    {isRecommended ? (
+                      <span style={styles.recommendedBadge}>Recommandé</span>
+                    ) : null}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
         <div style={styles.grid}>
           <section style={styles.panel}>
-            <div style={styles.sectionTitle}>Mise en page</div>
+            <div style={styles.sectionTitle}>Réglages d’affichage</div>
 
             <div style={styles.formGrid}>
               <Field label="Thème">
-                <select value={form.theme} onChange={(e) => patch({ theme: e.target.value })} style={styles.input}>
+                <select
+                  value={displayForm.theme}
+                  onChange={(e) => patchDisplay({ theme: e.target.value })}
+                  style={styles.input}
+                >
                   <option value="dark">dark</option>
                   <option value="light">light</option>
                 </select>
               </Field>
 
               <Field label="Mode d’affichage">
-                <select value={form.layout_mode} onChange={(e) => patch({ layout_mode: e.target.value })} style={styles.input}>
+                <select
+                  value={displayForm.layout_mode}
+                  onChange={(e) => patchDisplay({ layout_mode: e.target.value })}
+                  style={styles.input}
+                >
                   <option value="stadium">stadium</option>
                   <option value="arena">arena</option>
                   <option value="compact">compact</option>
@@ -232,37 +595,127 @@ export default function DisplaySettingsPage() {
               </Field>
 
               <Field label="Langue primaire">
-                <input value={form.lang_primary} onChange={(e) => patch({ lang_primary: e.target.value })} style={styles.input} />
+                <input
+                  value={displayForm.lang_primary}
+                  onChange={(e) => patchDisplay({ lang_primary: e.target.value })}
+                  style={styles.input}
+                />
               </Field>
 
               <Field label="Langue secondaire">
-                <input value={form.lang_secondary} onChange={(e) => patch({ lang_secondary: e.target.value })} style={styles.input} />
+                <input
+                  value={displayForm.lang_secondary}
+                  onChange={(e) => patchDisplay({ lang_secondary: e.target.value })}
+                  style={styles.input}
+                />
               </Field>
 
               <Field label="Rotation sponsors (s)">
                 <input
                   type="number"
                   min={1}
-                  value={form.sponsor_rotate_s}
-                  onChange={(e) => patch({ sponsor_rotate_s: Math.max(1, Number(e.target.value || 1)) })}
+                  value={displayForm.sponsor_rotate_s}
+                  onChange={(e) =>
+                    patchDisplay({
+                      sponsor_rotate_s: Math.max(1, Number(e.target.value || 1)),
+                    })
+                  }
                   style={styles.input}
                 />
               </Field>
             </div>
+
+            <div style={styles.flagsGrid}>
+              <Toggle label="Afficher score" value={displayForm.show_score} onChange={(v) => patchDisplay({ show_score: v })} />
+              <Toggle label="Afficher horloge" value={displayForm.show_clock} onChange={(v) => patchDisplay({ show_clock: v })} />
+              <Toggle label="Afficher période" value={displayForm.show_period} onChange={(v) => patchDisplay({ show_period: v })} />
+              <Toggle label="Afficher statut" value={displayForm.show_status} onChange={(v) => patchDisplay({ show_status: v })} />
+              <Toggle label="Afficher lower-third" value={displayForm.show_lower_third} onChange={(v) => patchDisplay({ show_lower_third: v })} />
+              <Toggle label="Afficher logos" value={displayForm.show_logos} onChange={(v) => patchDisplay({ show_logos: v })} />
+              <Toggle label="Afficher sponsors" value={displayForm.show_sponsors} onChange={(v) => patchDisplay({ show_sponsors: v })} />
+              <Toggle label="Mode bilingue" value={displayForm.dual_language} onChange={(v) => patchDisplay({ dual_language: v })} />
+            </div>
           </section>
 
           <section style={styles.panel}>
-            <div style={styles.sectionTitle}>Afficher / masquer</div>
+            <div style={styles.sectionTitle}>Paramètres sport</div>
+
+            <div style={styles.formGrid}>
+              <Field label="Sport">
+                <input readOnly value={sportForm.sport} style={{ ...styles.input, opacity: 0.82 }} />
+              </Field>
+
+              <Field label="Nombre de périodes / sets">
+                <input
+                  type="number"
+                  min={1}
+                  value={sportForm.period_count}
+                  onChange={(e) => patchSport({ period_count: Math.max(1, Number(e.target.value || 1)) })}
+                  style={styles.input}
+                />
+              </Field>
+
+              <Field label="Durée d’une période (secondes)">
+                <input
+                  type="number"
+                  min={0}
+                  value={sportForm.period_duration_s}
+                  onChange={(e) => patchSport({ period_duration_s: Math.max(0, Number(e.target.value || 0)) })}
+                  style={styles.input}
+                />
+              </Field>
+
+              <Field label="Temps morts max">
+                <input
+                  type="number"
+                  min={0}
+                  value={sportForm.max_timeouts ?? 0}
+                  onChange={(e) => patchSport({ max_timeouts: Math.max(0, Number(e.target.value || 0)) })}
+                  style={styles.input}
+                />
+              </Field>
+
+              <Field label="Fautes équipe max">
+                <input
+                  type="number"
+                  min={0}
+                  value={sportForm.max_team_fouls ?? 0}
+                  onChange={(e) => patchSport({ max_team_fouls: Math.max(0, Number(e.target.value || 0)) })}
+                  style={styles.input}
+                />
+              </Field>
+
+              <Field label="Fautes joueur max">
+                <input
+                  type="number"
+                  min={0}
+                  value={sportForm.max_player_fouls ?? 0}
+                  onChange={(e) => patchSport({ max_player_fouls: Math.max(0, Number(e.target.value || 0)) })}
+                  style={styles.input}
+                />
+              </Field>
+
+              <Field label="Shot clock (secondes)">
+                <input
+                  type="number"
+                  min={0}
+                  value={sportForm.shot_clock_s ?? 0}
+                  onChange={(e) => patchSport({ shot_clock_s: Math.max(0, Number(e.target.value || 0)) })}
+                  style={styles.input}
+                />
+              </Field>
+            </div>
 
             <div style={styles.flagsGrid}>
-              <Toggle label="Afficher score" value={form.show_score} onChange={(v) => patch({ show_score: v })} />
-              <Toggle label="Afficher horloge" value={form.show_clock} onChange={(v) => patch({ show_clock: v })} />
-              <Toggle label="Afficher période" value={form.show_period} onChange={(v) => patch({ show_period: v })} />
-              <Toggle label="Afficher statut" value={form.show_status} onChange={(v) => patch({ show_status: v })} />
-              <Toggle label="Afficher lower third" value={form.show_lower_third} onChange={(v) => patch({ show_lower_third: v })} />
-              <Toggle label="Afficher logos" value={form.show_logos} onChange={(v) => patch({ show_logos: v })} />
-              <Toggle label="Afficher sponsors" value={form.show_sponsors} onChange={(v) => patch({ show_sponsors: v })} />
-              <Toggle label="Mode bilingue" value={form.dual_language} onChange={(v) => patch({ dual_language: v })} />
+              <Toggle label="Prolongation" value={sportForm.extra_time_enabled} onChange={(v) => patchSport({ extra_time_enabled: v })} />
+              <Toggle label="Tirs au but / pénalités" value={sportForm.penalties_enabled} onChange={(v) => patchSport({ penalties_enabled: v })} />
+              <Toggle label="Afficher fautes équipe" value={sportForm.show_team_fouls} onChange={(v) => patchSport({ show_team_fouls: v })} />
+              <Toggle label="Afficher fautes joueur" value={sportForm.show_player_fouls} onChange={(v) => patchSport({ show_player_fouls: v })} />
+              <Toggle label="Afficher temps morts" value={sportForm.show_timeouts} onChange={(v) => patchSport({ show_timeouts: v })} />
+              <Toggle label="Afficher bonus" value={sportForm.show_bonus} onChange={(v) => patchSport({ show_bonus: v })} />
+              <Toggle label="Afficher sets" value={sportForm.show_sets} onChange={(v) => patchSport({ show_sets: v })} />
+              <Toggle label="Afficher cartons" value={sportForm.show_cards} onChange={(v) => patchSport({ show_cards: v })} />
+              <Toggle label="Afficher shot clock" value={sportForm.show_shot_clock} onChange={(v) => patchSport({ show_shot_clock: v })} />
             </div>
           </section>
         </div>
@@ -280,12 +733,110 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
+function Toggle({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+}) {
   return (
     <label style={styles.toggleCard}>
       <div style={{ fontWeight: 700 }}>{label}</div>
       <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} />
     </label>
+  );
+}
+
+function ThemePreview({
+  theme,
+  layout,
+  showClock,
+  showPeriod,
+}: {
+  theme: string;
+  layout: string;
+  showClock: boolean;
+  showPeriod: boolean;
+}) {
+  const dark = theme === "dark";
+  const bg = dark ? "#0f172a" : "#e5eefb";
+  const fg = dark ? "#eff6ff" : "#0f172a";
+  const soft = dark ? "rgba(255,255,255,.08)" : "rgba(15,23,42,.10)";
+  const accent = layout === "volley" ? "#7c3aed" : layout === "arena" ? "#2563eb" : "#16a34a";
+
+  return (
+    <div
+      style={{
+        borderRadius: 16,
+        padding: 14,
+        background: bg,
+        color: fg,
+        border: `1px solid ${soft}`,
+        minHeight: 150,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ fontSize: 12, fontWeight: 800, opacity: 0.82 }}>{layout.toUpperCase()}</div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <div style={{ width: 24, height: 8, borderRadius: 999, background: soft }} />
+          <div style={{ width: 24, height: 8, borderRadius: 999, background: soft }} />
+        </div>
+      </div>
+
+      <div
+        style={{
+          marginTop: 14,
+          display: "grid",
+          gridTemplateColumns: "1fr auto 1fr",
+          gap: 10,
+          alignItems: "center",
+        }}
+      >
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 11, opacity: 0.72 }}>HOME</div>
+          <div style={{ fontSize: 28, fontWeight: 900 }}>72</div>
+        </div>
+
+        <div
+          style={{
+            padding: "10px 12px",
+            borderRadius: 12,
+            background: accent,
+            color: "white",
+            minWidth: 70,
+            textAlign: "center",
+          }}
+        >
+          {showClock ? <div style={{ fontSize: 18, fontWeight: 900 }}>08:42</div> : <div style={{ fontSize: 18, fontWeight: 900 }}>VS</div>}
+          {showPeriod ? <div style={{ fontSize: 11, opacity: 0.9 }}>Q3</div> : null}
+        </div>
+
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 11, opacity: 0.72 }}>AWAY</div>
+          <div style={{ fontSize: 28, fontWeight: 900 }}>68</div>
+        </div>
+      </div>
+
+      <div
+        style={{
+          marginTop: 16,
+          height: 24,
+          borderRadius: 10,
+          background: soft,
+          display: "flex",
+          alignItems: "center",
+          padding: "0 10px",
+          fontSize: 11,
+          fontWeight: 700,
+          opacity: 0.82,
+        }}
+      >
+        LOWER-THIRD • SPONSOR • STATUS
+      </div>
+    </div>
   );
 }
 
@@ -297,7 +848,7 @@ const styles: Record<string, any> = {
     padding: 24,
     fontFamily: 'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial',
   },
-  container: { maxWidth: 1180, margin: "0 auto" },
+  container: { maxWidth: 1280, margin: "0 auto" },
   centerBox: {
     maxWidth: 560,
     margin: "60px auto",
@@ -333,15 +884,57 @@ const styles: Record<string, any> = {
   },
   title: { fontSize: 30, fontWeight: 900 },
   subtitle: { marginTop: 4, fontSize: 13, opacity: 0.72 },
-  grid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginTop: 18 },
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 18,
+    marginTop: 18,
+  },
   panel: {
     padding: 16,
     borderRadius: 18,
     background: "rgba(255,255,255,.03)",
     border: "1px solid rgba(255,255,255,.08)",
   },
-  sectionTitle: { fontSize: 18, fontWeight: 900, marginBottom: 14 },
-  formGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 },
+  sectionTitle: { fontSize: 18, fontWeight: 900, marginBottom: 10 },
+  sectionText: { fontSize: 14, lineHeight: 1.65, opacity: 0.86, marginBottom: 14 },
+  themeGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+    gap: 14,
+  },
+  themeCard: {
+    background: "rgba(255,255,255,.03)",
+    borderRadius: 18,
+    padding: 12,
+    cursor: "pointer",
+    textAlign: "left",
+  },
+  themeHeader: {
+    marginTop: 12,
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    alignItems: "flex-start",
+  },
+  themeTitle: { fontSize: 16, fontWeight: 900 },
+  themeSubtitle: { marginTop: 4, fontSize: 12, opacity: 0.72, lineHeight: 1.45 },
+  recommendedBadge: {
+    borderRadius: 999,
+    padding: "6px 10px",
+    fontSize: 11,
+    fontWeight: 800,
+    background: "rgba(37,99,235,.16)",
+    color: "#93c5fd",
+    border: "1px solid rgba(37,99,235,.30)",
+    whiteSpace: "nowrap",
+  },
+  formGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 14,
+    marginBottom: 14,
+  },
   input: {
     width: "100%",
     background: "rgba(255,255,255,.05)",
@@ -352,7 +945,11 @@ const styles: Record<string, any> = {
     outline: "none",
     boxSizing: "border-box",
   },
-  flagsGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 },
+  flagsGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 12,
+  },
   toggleCard: {
     padding: 14,
     borderRadius: 14,
