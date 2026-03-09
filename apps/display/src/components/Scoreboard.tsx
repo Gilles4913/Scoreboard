@@ -88,6 +88,8 @@ export type ScoreboardContext = {
   show_sets?: boolean;
   show_cards?: boolean;
   show_shot_clock?: boolean;
+
+  
 };
 
 type Props = {
@@ -407,7 +409,9 @@ function PlayerFoulsMini({
 
 export default function Scoreboard({ context }: Props) {
   const theme: ThemeMode = context.theme === "light" ? "light" : "dark";
-  const accent = (context.accent || "#00d9ff").trim();
+  const accent =
+    (context.home as any)?.primary_color?.trim?.() ||
+    (context.accent || "#00d9ff").trim();
 
   const homeName = context.home?.name || context.home_name || "DOMICILE";
   const awayName = context.away?.name || context.away_name || "EXTÉRIEUR";
