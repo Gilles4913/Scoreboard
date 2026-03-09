@@ -648,7 +648,7 @@ export default function Scoreboard({ context }: Props) {
                 </div>
               ) : null}
 
-              {typeof context.shot_clock_s === "number" ? (
+              {context.show_shot_clock && typeof context.shot_clock_s === "number" ? (
                 <div
                   style={{
                     padding: "6px 12px",
@@ -721,7 +721,7 @@ export default function Scoreboard({ context }: Props) {
         </div>
       </div>
 
-      {(context.home_players?.length || context.away_players?.length) ? (
+            {context.show_player_fouls && (context.home_players?.length || context.away_players?.length) ? (
         <div
           style={{
             position: "fixed",
