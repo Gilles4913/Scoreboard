@@ -80,6 +80,14 @@ export type ScoreboardContext = {
 
   home_players?: PlayerFoulsRow[];
   away_players?: PlayerFoulsRow[];
+
+  show_team_fouls?: boolean;
+  show_player_fouls?: boolean;
+  show_timeouts?: boolean;
+  show_bonus?: boolean;
+  show_sets?: boolean;
+  show_cards?: boolean;
+  show_shot_clock?: boolean;
 };
 
 type Props = {
