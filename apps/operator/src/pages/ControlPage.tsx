@@ -29,7 +29,6 @@ type OrgRow = {
 type TeamRow = {
   id: string;
   name: string;
-  category: string | null;
 };
 
 type DisplaySettings = {
