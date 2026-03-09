@@ -17,8 +17,6 @@ type TeamRow = {
   id: string;
   org_id: string;
   name: string;
-  category: string | null;
-  code: string | null;
 };
 
 type MatchRow = {
@@ -104,7 +102,7 @@ export default function TeamMatchesPage() {
       setOrg(orgRow as OrgRow);
 
       const [{ data: teamRow, error: teamErr }, { data: matchRows, error: matchErr }] = await Promise.all([
-        supabase.from("teams").select("id, org_id, name, category, code").eq("id", teamId).maybeSingle(),
+        supabase.from("teams").select("id, org_id, name").eq("id", teamId).maybeSingle(),
         supabase
           .from("matches")
           .select("id, team_id, name, status, scheduled_at, public_display, display_token, home_name, away_name")
@@ -178,9 +176,7 @@ export default function TeamMatchesPage() {
         <div style={styles.topbar}>
           <div>
             <div style={styles.title}>{team?.name || "Équipe"}</div>
-            <div style={styles.subtitle}>
-              {org?.name} {team?.category ? `• ${team.category}` : ""} {team?.code ? `• ${team.code}` : ""}
-            </div>
+            <div style={styles.subtitle}>{org?.name}</div>
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
