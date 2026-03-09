@@ -243,6 +243,7 @@ export default function TeamMatchesPage() {
             <button onClick={() => nav("/teams")} style={styles.ghostBtn}>Retour équipes</button>
             <button onClick={() => nav(`/teams/${teamId}/matches/new`)} style={styles.primaryBtn}>Préparer un match</button>
             <button onClick={() => nav(`/teams/${teamId}/players`)} style={styles.ghostBtn}>Joueurs</button>
+            <button onClick={() => nav(`/matches/${m.id}/roster`)} style={styles.ghostBtnSmall}>Feuille de match</button>
             <button onClick={() => nav(`/teams/${teamId}/branding`)} style={styles.ghostBtn}>Branding</button>
             {stableLink ? (
               <a href={stableLink} target="_blank" rel="noreferrer" style={styles.linkBtn}>
