@@ -17,8 +17,6 @@ type TeamRow = {
   id: string;
   org_id: string;
   name: string;
-  category: string | null;
-  code: string | null;
 };
 
 type MatchRow = {
@@ -98,7 +96,7 @@ export default function TeamsPage() {
       setOrg(orgRow as OrgRow);
 
       const [{ data: teamsData, error: teamsErr }, { data: matchesData, error: matchesErr }] = await Promise.all([
-        supabase.from("teams").select("id, org_id, name, category, code").eq("org_id", (orgRow as OrgRow).id).order("name"),
+        supabase.from("teams").select("id, org_id, name").eq("org_id", (orgRow as OrgRow).id).order("name"),
         supabase.from("matches").select("id, team_id, status, scheduled_at").eq("org_id", (orgRow as OrgRow).id).order("scheduled_at", { ascending: true, nullsFirst: true }),
       ]);
 
@@ -232,9 +230,7 @@ export default function TeamsPage() {
                 <div style={styles.cardHeader}>
                   <div>
                     <div style={styles.cardTitle}>{team.name}</div>
-                    <div style={styles.cardMeta}>
-                      {team.category || "Catégorie libre"} {team.code ? `• ${team.code}` : ""}
-                    </div>
+                    <div style={styles.cardMeta}>Équipe</div>
                   </div>
 
                   <span style={{ ...styles.badge, color: badge.color, background: badge.bg, borderColor: `${badge.color}33` }}>
@@ -273,7 +269,7 @@ export default function TeamsPage() {
 
         {teams.length === 0 ? (
           <div style={styles.emptyCard}>
-            Aucune équipe trouvée dans cette organisation. La table <b>teams</b> est prête, mais il faut maintenant y créer tes équipes.
+            Aucune équipe trouvée dans cette organisation.
           </div>
         ) : null}
       </div>
