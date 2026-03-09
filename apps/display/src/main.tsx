@@ -38,6 +38,8 @@ function App() {
   const teamSlug = getSearchParam("teamSlug");
   const teamId = getSearchParam("teamId");
 
+  const isStableTeamMode = !!teamSlug || !!teamId;
+
   const [ctx, setCtx] = useState<ScoreboardContext | null>(null);
   const [resolvedMatchId, setResolvedMatchId] = useState("");
   const [err, setErr] = useState("");
@@ -77,54 +79,55 @@ function App() {
     };
   }, [ctx, localTick]);
 
+  async function fetchContext() {
+    if (!EDGE_CONTEXT_URL) {
+      throw new Error("VITE_EDGE_CONTEXT_URL manquante.");
+    }
+
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      throw new Error("VITE_SUPABASE_URL ou VITE_SUPABASE_ANON_KEY manquante.");
+    }
+
+    const base = EDGE_CONTEXT_URL.replace(/\/$/, "");
+    const url = new URL(base);
+
+    if (token) url.searchParams.set("token", token);
+    if (matchIdFromUrl) url.searchParams.set("matchId", matchIdFromUrl);
+    if (teamSlug) url.searchParams.set("teamSlug", teamSlug);
+    if (teamId) url.searchParams.set("teamId", teamId);
+
+    const headers: Record<string, string> = {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    };
+
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers,
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`HTTP ${res.status} ${text}`.trim());
+    }
+
+    return res.json();
+  }
+
   useEffect(() => {
     let cancelled = false;
 
     async function loadInitialContext() {
       setErr("");
 
-      if (!EDGE_CONTEXT_URL) {
-        setErr("VITE_EDGE_CONTEXT_URL manquante.");
-        return;
-      }
-
-      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-        setErr("VITE_SUPABASE_URL ou VITE_SUPABASE_ANON_KEY manquante.");
-        return;
-      }
-
-      const base = EDGE_CONTEXT_URL.replace(/\/$/, "");
-      const url = new URL(base);
-
-      if (token) url.searchParams.set("token", token);
-      if (matchIdFromUrl) url.searchParams.set("matchId", matchIdFromUrl);
-      if (teamSlug) url.searchParams.set("teamSlug", teamSlug);
-      if (teamId) url.searchParams.set("teamId", teamId);
-
       try {
-        const headers: Record<string, string> = {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        };
-
-        const res = await fetch(url.toString(), {
-          method: "GET",
-          headers,
-        });
-
-        if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          throw new Error(`HTTP ${res.status} ${text}`.trim());
-        }
-
-        const json = await res.json();
+        const json = await fetchContext();
         if (cancelled) return;
 
         const match = json?.match || {};
         const org = json?.org || {};
         const displaySettings = json?.display_settings || {};
         const sportSettings = json?.sport_settings || {};
-        const team = json?.team || null;
 
         setResolvedMatchId(match?.id || matchIdFromUrl || "");
 
@@ -156,15 +159,15 @@ function App() {
           status: match.status ?? "scheduled",
           sport: org.sport ?? sportSettings.sport ?? "football",
           venue: org.name ?? "",
-          home_name: match.home_name ?? "Domicile",
-          away_name: match.away_name ?? "Extérieur",
+          home_name: match.home_name ?? match.home?.name ?? "Domicile",
+          away_name: match.away_name ?? match.away?.name ?? "Extérieur",
           home_score: match.home_score ?? 0,
           away_score: match.away_score ?? 0,
           clock_ms: 0,
           clock_running: false,
           period_label: "",
-          team_mode: json?.mode === "team",
-          resolved_team: team,
+          home: match.home || {},
+          away: match.away || {},
         } as any);
       } catch (e: any) {
         if (!cancelled) {
@@ -179,6 +182,71 @@ function App() {
       cancelled = true;
     };
   }, [token, matchIdFromUrl, teamSlug, teamId]);
+
+  useEffect(() => {
+    if (!isStableTeamMode) return;
+
+    const interval = window.setInterval(async () => {
+      try {
+        const json = await fetchContext();
+        const nextMatchId = json?.match?.id || "";
+
+        if (!nextMatchId) return;
+
+        if (nextMatchId !== resolvedMatchId) {
+          const match = json?.match || {};
+          const org = json?.org || {};
+          const displaySettings = json?.display_settings || {};
+          const sportSettings = json?.sport_settings || {};
+
+          setResolvedMatchId(nextMatchId);
+
+          setCtx({
+            theme: displaySettings.theme ?? "dark",
+            dual_language: displaySettings.dual_language ?? false,
+            lang_primary: displaySettings.lang_primary ?? "FR",
+            lang_secondary: displaySettings.lang_secondary ?? "EN",
+            show_lower_third: displaySettings.show_lower_third ?? true,
+            show_logos: displaySettings.show_logos ?? true,
+            sponsor_rotate_s: displaySettings.sponsor_rotate_s ?? 10,
+            show_score: displaySettings.show_score ?? true,
+            show_clock: displaySettings.show_clock ?? true,
+            show_period: displaySettings.show_period ?? true,
+            show_status: displaySettings.show_status ?? true,
+            show_sponsors: displaySettings.show_sponsors ?? true,
+            layout_mode: displaySettings.layout_mode ?? "stadium",
+
+            show_team_fouls: sportSettings.show_team_fouls ?? false,
+            show_player_fouls: sportSettings.show_player_fouls ?? false,
+            show_timeouts: sportSettings.show_timeouts ?? false,
+            show_bonus: sportSettings.show_bonus ?? false,
+            show_sets: sportSettings.show_sets ?? false,
+            show_cards: sportSettings.show_cards ?? false,
+            show_shot_clock: sportSettings.show_shot_clock ?? false,
+
+            match_id: match.id,
+            match_name: match.name ?? "",
+            status: match.status ?? "scheduled",
+            sport: org.sport ?? sportSettings.sport ?? "football",
+            venue: org.name ?? "",
+            home_name: match.home_name ?? match.home?.name ?? "Domicile",
+            away_name: match.away_name ?? match.away?.name ?? "Extérieur",
+            home_score: match.home_score ?? 0,
+            away_score: match.away_score ?? 0,
+            clock_ms: 0,
+            clock_running: false,
+            period_label: "",
+            home: match.home || {},
+            away: match.away || {},
+          } as any);
+        }
+      } catch (e) {
+        console.error("[display] stable team refresh failed", e);
+      }
+    }, 15000);
+
+    return () => window.clearInterval(interval);
+  }, [isStableTeamMode, resolvedMatchId]);
 
   useEffect(() => {
     if (!resolvedMatchId) return;
