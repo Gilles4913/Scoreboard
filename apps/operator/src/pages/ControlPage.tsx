@@ -423,6 +423,8 @@ export default function ControlPage() {
       show_cards: sportSettings?.show_cards ?? false,
       show_shot_clock: sportSettings?.show_shot_clock ?? false,
       layout_mode: displaySettings?.layout_mode ?? "stadium",
+      home: {name: homeName,},
+      away: {name: awayName,},
       home_team_fouls: homeTeamFouls,
       away_team_fouls: awayTeamFouls,
       home_timeouts: homeTimeouts,
