@@ -180,9 +180,10 @@ export default function TeamMatchesPage() {
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button onClick={() => nav("/teams")} style={styles.ghostBtn}>Retour équipes</button>
-            <button onClick={() => nav("/display-settings")} style={styles.ghostBtn}>Paramètres Display</button>
-          </div>
+  <button onClick={() => nav("/teams")} style={styles.ghostBtn}>Retour équipes</button>
+  <button onClick={() => nav(`/teams/${teamId}/matches/new`)} style={styles.primaryBtn}>Préparer un match</button>
+  <button onClick={() => nav("/display-settings")} style={styles.ghostBtn}>Paramètres Display</button>
+</div>
         </div>
 
         {selectedQr ? (
