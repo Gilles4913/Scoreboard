@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "./supabase";
-import MatchPage from "./pages/MatchPage";
+import TeamsPage from "./pages/TeamsPage";
+import TeamMatchesPage from "./pages/TeamMatchesPage";
+import ControlPage from "./pages/ControlPage";
+import DisplaySettingsPage from "./pages/DisplaySettingsPage";
 
 const LS_ACTIVE_ORG_KEY = "scoreDisplay.activeOrgSlug";
 
@@ -29,7 +32,6 @@ function Landing() {
     let alive = true;
 
     async function run() {
-      // si ?org= présent, on le persiste
       if (orgParam) {
         localStorage.setItem(LS_ACTIVE_ORG_KEY, orgParam);
       }
@@ -54,7 +56,7 @@ function Landing() {
         return;
       }
 
-      nav("/matches", { replace: true });
+      nav("/teams", { replace: true });
     }
 
     run();
@@ -73,7 +75,11 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
-      <Route path="/matches" element={<MatchPage />} />
+      <Route path="/teams" element={<TeamsPage />} />
+      <Route path="/teams/:teamId/matches" element={<TeamMatchesPage />} />
+      <Route path="/matches/:matchId/control" element={<ControlPage />} />
+      <Route path="/display-settings" element={<DisplaySettingsPage />} />
+      <Route path="/matches" element={<Navigate to="/teams" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
