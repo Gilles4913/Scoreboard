@@ -122,31 +122,39 @@ function App() {
 
         const match = json?.match || {};
         const org = json?.org || {};
-        const settings = json?.display_settings || {};
+        const displaySettings = json?.display_settings || {};
+        const sportSettings = json?.sport_settings || {};
+        const team = json?.team || null;
 
         setResolvedMatchId(match?.id || matchIdFromUrl || "");
 
         setCtx({
-          theme: settings.theme ?? "dark",
-          dual_language: settings.dual_language ?? false,
-          lang_primary: settings.lang_primary ?? "FR",
-          lang_secondary: settings.lang_secondary ?? "EN",
-          show_lower_third: settings.show_lower_third ?? true,
-          show_logos: settings.show_logos ?? true,
-          sponsor_rotate_s: settings.sponsor_rotate_s ?? 10,
+          theme: displaySettings.theme ?? "dark",
+          dual_language: displaySettings.dual_language ?? false,
+          lang_primary: displaySettings.lang_primary ?? "FR",
+          lang_secondary: displaySettings.lang_secondary ?? "EN",
+          show_lower_third: displaySettings.show_lower_third ?? true,
+          show_logos: displaySettings.show_logos ?? true,
+          sponsor_rotate_s: displaySettings.sponsor_rotate_s ?? 10,
+          show_score: displaySettings.show_score ?? true,
+          show_clock: displaySettings.show_clock ?? true,
+          show_period: displaySettings.show_period ?? true,
+          show_status: displaySettings.show_status ?? true,
+          show_sponsors: displaySettings.show_sponsors ?? true,
+          layout_mode: displaySettings.layout_mode ?? "stadium",
 
-          show_score: settings.show_score ?? true,
-          show_clock: settings.show_clock ?? true,
-          show_period: settings.show_period ?? true,
-          show_status: settings.show_status ?? true,
-          show_sponsors: settings.show_sponsors ?? true,
-          layout_mode: settings.layout_mode ?? "stadium",
+          show_team_fouls: sportSettings.show_team_fouls ?? false,
+          show_player_fouls: sportSettings.show_player_fouls ?? false,
+          show_timeouts: sportSettings.show_timeouts ?? false,
+          show_bonus: sportSettings.show_bonus ?? false,
+          show_sets: sportSettings.show_sets ?? false,
+          show_cards: sportSettings.show_cards ?? false,
+          show_shot_clock: sportSettings.show_shot_clock ?? false,
 
           match_id: match.id,
           match_name: match.name ?? "",
           status: match.status ?? "scheduled",
-          scheduled_at: match.scheduled_at ?? null,
-          sport: org.sport ?? "football",
+          sport: org.sport ?? sportSettings.sport ?? "football",
           venue: org.name ?? "",
           home_name: match.home_name ?? "Domicile",
           away_name: match.away_name ?? "Extérieur",
@@ -155,8 +163,9 @@ function App() {
           clock_ms: 0,
           clock_running: false,
           period_label: "",
-          ...json,
-        });
+          team_mode: json?.mode === "team",
+          resolved_team: team,
+        } as any);
       } catch (e: any) {
         if (!cancelled) {
           setErr(e?.message || "Impossible de charger le contexte display.");
@@ -177,7 +186,6 @@ function App() {
 
     const topic = `match:${resolvedMatchId}`;
     const channel = supabase.channel(topic);
-
     channelRef.current = channel;
 
     channel
@@ -239,5 +247,5 @@ function App() {
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />
-  </React.StrictMode>
+  </React.StrictMode>,
 );
