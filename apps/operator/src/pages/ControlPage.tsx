@@ -8,6 +8,8 @@ type MatchRow = {
   id: string;
   org_id: string;
   team_id: string | null;
+  home_team_id: string | null;
+  away_team_id: string | null;
   name: string | null;
   status: string | null;
   scheduled_at: string | null;
@@ -17,8 +19,6 @@ type MatchRow = {
   away_name: string | null;
   home_score: number | null;
   away_score: number | null;
-  home_team_id: string | null;
-  away_team_id: string | null;
 };
 
 type OrgRow = {
@@ -85,13 +85,6 @@ type SportSettings = {
   max_player_fouls: number | null;
   max_timeouts: number | null;
   shot_clock_s: number | null;
-};
-
-type PlayerRow = {
-  id: string;
-  name: string;
-  number: string;
-  team_id: string;
 };
 
 type PlayerFoulsRow = {
@@ -237,7 +230,9 @@ export default function ControlPage() {
 
       const { data: matchRow, error: matchErr } = await supabase
         .from("matches")
-        .select("id, org_id, team_id, home_team_id, away_team_id, name, status, scheduled_at, public_display, display_token, home_name, away_name, home_score, away_score")
+        .select(
+          "id, org_id, team_id, home_team_id, away_team_id, name, status, scheduled_at, public_display, display_token, home_name, away_name, home_score, away_score",
+        )
         .eq("id", matchId)
         .maybeSingle();
 
@@ -260,12 +255,16 @@ export default function ControlPage() {
             : Promise.resolve({ data: null }),
           supabase
             .from("org_display_settings")
-            .select("theme, layout_mode, show_score, show_clock, show_period, show_status, show_lower_third, show_logos, show_sponsors, dual_language, lang_primary, lang_secondary, sponsor_rotate_s")
+            .select(
+              "theme, layout_mode, show_score, show_clock, show_period, show_status, show_lower_third, show_logos, show_sponsors, dual_language, lang_primary, lang_secondary, sponsor_rotate_s",
+            )
             .eq("org_id", currentMatch.org_id)
             .maybeSingle(),
           supabase
             .from("org_sport_settings")
-            .select("org_id, sport, period_count, period_duration_s, extra_time_enabled, penalties_enabled, show_team_fouls, show_player_fouls, show_timeouts, show_bonus, show_sets, show_cards, show_shot_clock, max_team_fouls, max_player_fouls, max_timeouts, shot_clock_s")
+            .select(
+              "org_id, sport, period_count, period_duration_s, extra_time_enabled, penalties_enabled, show_team_fouls, show_player_fouls, show_timeouts, show_bonus, show_sets, show_cards, show_shot_clock, max_team_fouls, max_player_fouls, max_timeouts, shot_clock_s",
+            )
             .eq("org_id", currentMatch.org_id)
             .maybeSingle(),
         ]);
@@ -307,48 +306,45 @@ export default function ControlPage() {
       setHomeRedCards(0);
       setAwayRedCards(0);
 
-      {
-  {
-  const { data: matchPlayersData, error: matchPlayersErr } = await supabase
-    .from("match_players")
-    .select(`
-      id,
-      player_id,
-      team_id,
-      shirt_number,
-      fouls,
-      points,
-      yellow_cards,
-      red_cards,
-      is_selected,
-      is_starter,
-      player:players (
-        id,
-        name,
-        number
-      )
-    `)
-    .eq("match_id", currentMatch.id)
-    .order("shirt_number", { ascending: true });
+      const { data: matchPlayersData, error: matchPlayersErr } = await supabase
+        .from("match_players")
+        .select(`
+          id,
+          player_id,
+          team_id,
+          shirt_number,
+          fouls,
+          points,
+          yellow_cards,
+          red_cards,
+          is_selected,
+          is_starter,
+          player:players (
+            id,
+            name,
+            number
+          )
+        `)
+        .eq("match_id", currentMatch.id)
+        .order("shirt_number", { ascending: true });
 
-  if (!cancelled && !matchPlayersErr) {
-    const mp = (matchPlayersData as unknown as MatchPlayerRow[]) || [];
+      if (!cancelled && !matchPlayersErr) {
+        const mp = (matchPlayersData as unknown as MatchPlayerRow[]) || [];
 
-    const homeTeamId = (currentMatch as any).home_team_id || currentMatch.team_id || null;
-    const awayTeamId = (currentMatch as any).away_team_id || null;
+        const homeTeamId = currentMatch.home_team_id || currentMatch.team_id || null;
+        const awayTeamId = currentMatch.away_team_id || null;
 
-    const homeRows = toPlayerFoulRows(
-      mp.filter((p) => !homeTeamId || p.team_id === homeTeamId),
-    );
+        const homeRows = toPlayerFoulRows(
+          mp.filter((p) => !homeTeamId || p.team_id === homeTeamId),
+        );
 
-    const awayRows = awayTeamId
-      ? toPlayerFoulRows(mp.filter((p) => p.team_id === awayTeamId))
-      : [];
+        const awayRows = awayTeamId
+          ? toPlayerFoulRows(mp.filter((p) => p.team_id === awayTeamId))
+          : [];
 
-    setHomePlayers(homeRows);
-    setAwayPlayers(awayRows);
-  }
-}
+        setHomePlayers(homeRows);
+        setAwayPlayers(awayRows);
+      }
 
       setLoading(false);
     }
@@ -453,8 +449,6 @@ export default function ControlPage() {
       away_score: awayScore,
     };
 
-    console.log("[control] saveMatch payload:", payload);
-
     const { data, error } = await supabase
       .from("matches")
       .update(payload)
@@ -463,14 +457,12 @@ export default function ControlPage() {
       .maybeSingle();
 
     if (error) {
-      console.error("[control] saveMatch error:", error);
       flash(`Erreur sauvegarde : ${error.message}`);
       return;
     }
 
-    console.log("[control] saveMatch success:", data);
-
     setMatch((prev) => (prev ? { ...prev, ...payload } : prev));
+    console.log("[control] saveMatch success:", data);
     flash("Match sauvegardé avec succès.");
   }
 
@@ -581,41 +573,43 @@ export default function ControlPage() {
     }
   }
 
- async function changePlayerFoul(side: "home" | "away", playerId: string, delta: number) {
-  const source = side === "home" ? homePlayers : awayPlayers;
-  const player = source.find((p) => p.id === playerId);
-  if (!player) return;
+  async function changePlayerFoul(side: "home" | "away", playerId: string, delta: number) {
+    if (!match) return;
 
-  const nextFouls = clampMin(player.fouls + delta);
+    const source = side === "home" ? homePlayers : awayPlayers;
+    const player = source.find((p) => p.id === playerId);
+    if (!player) return;
 
-  const next = source.map((p) =>
-    p.id === playerId ? { ...p, fouls: nextFouls } : p,
-  );
+    const nextFouls = clampMin(player.fouls + delta);
 
-  if (side === "home") setHomePlayers(next);
-  else setAwayPlayers(next);
+    const next = source.map((p) =>
+      p.id === playerId ? { ...p, fouls: nextFouls } : p,
+    );
 
-  const { error } = await supabase
-    .from("match_players")
-    .update({ fouls: nextFouls })
-    .eq("match_id", match!.id)
-    .eq("player_id", playerId);
+    if (side === "home") setHomePlayers(next);
+    else setAwayPlayers(next);
 
-  if (error) {
-    flash(`Erreur mise à jour faute joueur : ${error.message}`);
-    return;
-  }
+    const { error } = await supabase
+      .from("match_players")
+      .update({ fouls: nextFouls })
+      .eq("match_id", match.id)
+      .eq("player_id", playerId);
 
-  if (autoLive) {
-    try {
-      await pushPatch({
-        [side === "home" ? "home_players" : "away_players"]: next,
-      });
-    } catch (e: any) {
-      flash(e?.message || "Erreur broadcast.");
+    if (error) {
+      flash(`Erreur mise à jour faute joueur : ${error.message}`);
+      return;
+    }
+
+    if (autoLive) {
+      try {
+        await pushPatch({
+          [side === "home" ? "home_players" : "away_players"]: next,
+        });
+      } catch (e: any) {
+        flash(e?.message || "Erreur broadcast.");
+      }
     }
   }
-}
 
   async function openFullscreen() {
     const el = document.documentElement as any;
