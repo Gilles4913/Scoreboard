@@ -146,7 +146,7 @@ export default function ControlPage() {
       const [{ data: orgRow }, { data: teamRow }, { data: dsRow }] = await Promise.all([
         supabase.from("orgs").select("id, slug, name, sport").eq("id", currentMatch.org_id).maybeSingle(),
         currentMatch.team_id
-          ? supabase.from("teams").select("id, name, category").eq("id", currentMatch.team_id).maybeSingle()
+          ? supabase.from("teams").select("id, name").eq("id", currentMatch.team_id).maybeSingle()
           : Promise.resolve({ data: null }),
         supabase
           .from("org_display_settings")
