@@ -65,6 +65,19 @@ type MatchRow = {
   rugby_away_sin_bin_active: number | null;
   rugby_extra_time: boolean | null;
   rugby_tiebreak_mode: string | null;
+
+  handball_home_2min: number | null;
+  handball_away_2min: number | null;
+  handball_home_2min_active: number | null;
+  handball_away_2min_active: number | null;
+  handball_home_team_timeouts: number | null;
+  handball_away_team_timeouts: number | null;
+  handball_home_warnings: number | null;
+  handball_away_warnings: number | null;
+  handball_home_disqualifications: number | null;
+  handball_away_disqualifications: number | null;
+  handball_extra_time: boolean | null;
+  handball_shootout_mode: string | null;
 };
 
 type OrgRow = {
@@ -169,6 +182,19 @@ type SinBinRow = {
   created_at: string;
 };
 
+type TwoMinRow = {
+  id: string;
+  team_side: "home" | "away";
+  player_id: string | null;
+  player_name_snapshot: string | null;
+  shirt_number_snapshot: string | null;
+  started_game_clock_ms: number;
+  duration_s: number;
+  ended_game_clock_ms: number | null;
+  is_active: boolean;
+  created_at: string;
+};
+
 function getEnv(name: string): string {
   const v = (import.meta as any).env?.[name];
   return typeof v === "string" ? v : "";
@@ -186,6 +212,10 @@ function isBasketSport(sport: string) {
 
 function isRugbySport(sport: string) {
   return normalizeSport(sport) === "rugby";
+}
+
+function isHandballSport(sport: string) {
+  return normalizeSport(sport) === "handball";
 }
 
 function defaultClockMsBySport(sport: string, periodDurationS?: number | null) {
@@ -215,7 +245,7 @@ function periodOptionsBySport(sport: string, periodCount?: number) {
     return Array.from({ length: Math.max(3, count) }, (_, i) => `Set ${i + 1}`);
   }
 
-  if (s === "rugby") {
+  if (s === "rugby" || s === "handball") {
     return ["1MT", "2MT", "Prolongation"];
   }
 
@@ -281,6 +311,7 @@ export default function ControlPage() {
   const [sportSettings, setSportSettings] = useState<SportSettings | null>(null);
   const [events, setEvents] = useState<MatchEventRow[]>([]);
   const [sinBins, setSinBins] = useState<SinBinRow[]>([]);
+  const [twoMinRows, setTwoMinRows] = useState<TwoMinRow[]>([]);
 
   const [matchName, setMatchName] = useState("");
   const [homeName, setHomeName] = useState("");
@@ -331,11 +362,25 @@ export default function ControlPage() {
   const [rugbyExtraTime, setRugbyExtraTime] = useState(false);
   const [rugbyTiebreakMode, setRugbyTiebreakMode] = useState("");
 
+  const [handballHome2Min, setHandballHome2Min] = useState(0);
+  const [handballAway2Min, setHandballAway2Min] = useState(0);
+  const [handballHome2MinActive, setHandballHome2MinActive] = useState(0);
+  const [handballAway2MinActive, setHandballAway2MinActive] = useState(0);
+  const [handballHomeTimeouts, setHandballHomeTimeouts] = useState(0);
+  const [handballAwayTimeouts, setHandballAwayTimeouts] = useState(0);
+  const [handballHomeWarnings, setHandballHomeWarnings] = useState(0);
+  const [handballAwayWarnings, setHandballAwayWarnings] = useState(0);
+  const [handballHomeDisq, setHandballHomeDisq] = useState(0);
+  const [handballAwayDisq, setHandballAwayDisq] = useState(0);
+  const [handballExtraTime, setHandballExtraTime] = useState(false);
+  const [handballShootoutMode, setHandballShootoutMode] = useState("");
+
   const timerRef = useRef<number | null>(null);
 
   const sport = normalizeSport(org?.sport);
   const isBasket = isBasketSport(sport);
   const isRugby = isRugbySport(sport);
+  const isHandball = isHandballSport(sport);
 
   const periodOptions = useMemo(
     () => periodOptionsBySport(sport, sportSettings?.period_count),
@@ -354,7 +399,7 @@ export default function ControlPage() {
       const { data: matchRow, error: matchErr } = await supabase
         .from("matches")
         .select(
-          "id, org_id, team_id, home_team_id, away_team_id, name, status, scheduled_at, public_display, display_token, home_name, away_name, home_score, away_score, period_label, clock_ms, clock_running, home_team_fouls, away_team_fouls, home_timeouts, away_timeouts, home_bonus, away_bonus, shot_clock_s, home_sets_won, away_sets_won, home_yellow_cards, away_yellow_cards, home_red_cards, away_red_cards, current_period_index, is_overtime, possession_arrow, team_fouls_period_home, team_fouls_period_away, timeouts_first_half_home, timeouts_first_half_away, timeouts_second_half_home, timeouts_second_half_away, timeouts_overtime_home, timeouts_overtime_away, last_event_seq, rugby_home_tries, rugby_away_tries, rugby_home_conversions, rugby_away_conversions, rugby_home_penalties, rugby_away_penalties, rugby_home_drop_goals, rugby_away_drop_goals, rugby_home_yellow_sin_bin, rugby_away_yellow_sin_bin, rugby_home_sin_bin_active, rugby_away_sin_bin_active, rugby_extra_time, rugby_tiebreak_mode",
+          "id, org_id, team_id, home_team_id, away_team_id, name, status, scheduled_at, public_display, display_token, home_name, away_name, home_score, away_score, period_label, clock_ms, clock_running, home_team_fouls, away_team_fouls, home_timeouts, away_timeouts, home_bonus, away_bonus, shot_clock_s, home_sets_won, away_sets_won, home_yellow_cards, away_yellow_cards, home_red_cards, away_red_cards, current_period_index, is_overtime, possession_arrow, team_fouls_period_home, team_fouls_period_away, timeouts_first_half_home, timeouts_first_half_away, timeouts_second_half_home, timeouts_second_half_away, timeouts_overtime_home, timeouts_overtime_away, last_event_seq, rugby_home_tries, rugby_away_tries, rugby_home_conversions, rugby_away_conversions, rugby_home_penalties, rugby_away_penalties, rugby_home_drop_goals, rugby_away_drop_goals, rugby_home_yellow_sin_bin, rugby_away_yellow_sin_bin, rugby_home_sin_bin_active, rugby_away_sin_bin_active, rugby_extra_time, rugby_tiebreak_mode, handball_home_2min, handball_away_2min, handball_home_2min_active, handball_away_2min_active, handball_home_team_timeouts, handball_away_team_timeouts, handball_home_warnings, handball_away_warnings, handball_home_disqualifications, handball_away_disqualifications, handball_extra_time, handball_shootout_mode",
         )
         .eq("id", matchId)
         .maybeSingle();
@@ -377,6 +422,7 @@ export default function ControlPage() {
         { data: ssRow },
         { data: eventsRows, error: eventsErr },
         { data: sinBinRows, error: sinErr },
+        { data: twoMinData, error: twoMinErr },
       ] = await Promise.all([
         supabase.from("orgs").select("id, slug, name, sport").eq("id", currentMatch.org_id).maybeSingle(),
         currentMatch.team_id
@@ -401,9 +447,14 @@ export default function ControlPage() {
           .select("id, seq, event_type, team_side, period_index, game_clock_ms, shot_clock_s, payload, created_at")
           .eq("match_id", currentMatch.id)
           .order("seq", { ascending: false })
-          .limit(30),
+          .limit(40),
         supabase
           .from("match_sin_bins")
+          .select("id, team_side, player_id, player_name_snapshot, shirt_number_snapshot, started_game_clock_ms, duration_s, ended_game_clock_ms, is_active, created_at")
+          .eq("match_id", currentMatch.id)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("match_two_min_suspensions")
           .select("id, team_side, player_id, player_name_snapshot, shirt_number_snapshot, started_game_clock_ms, duration_s, ended_game_clock_ms, is_active, created_at")
           .eq("match_id", currentMatch.id)
           .order("created_at", { ascending: false }),
@@ -411,8 +462,8 @@ export default function ControlPage() {
 
       if (cancelled) return;
 
-      if (eventsErr || sinErr) {
-        setErr(eventsErr?.message || sinErr?.message || "Erreur chargement événements.");
+      if (eventsErr || sinErr || twoMinErr) {
+        setErr(eventsErr?.message || sinErr?.message || twoMinErr?.message || "Erreur chargement événements.");
         setLoading(false);
         return;
       }
@@ -423,6 +474,7 @@ export default function ControlPage() {
       setSportSettings((ssRow as SportSettings) || null);
       setEvents((eventsRows as MatchEventRow[]) || []);
       setSinBins((sinBinRows as SinBinRow[]) || []);
+      setTwoMinRows((twoMinData as TwoMinRow[]) || []);
 
       const sportValue = normalizeSport((orgRow as OrgRow | null)?.sport);
       const ss = (ssRow as SportSettings | null) || null;
@@ -514,6 +566,19 @@ export default function ControlPage() {
       setRugbyExtraTime(!!currentMatch.rugby_extra_time);
       setRugbyTiebreakMode(currentMatch.rugby_tiebreak_mode || "");
 
+      setHandballHome2Min(Number(currentMatch.handball_home_2min || 0));
+      setHandballAway2Min(Number(currentMatch.handball_away_2min || 0));
+      setHandballHome2MinActive(Number(currentMatch.handball_home_2min_active || 0));
+      setHandballAway2MinActive(Number(currentMatch.handball_away_2min_active || 0));
+      setHandballHomeTimeouts(Number(currentMatch.handball_home_team_timeouts || 0));
+      setHandballAwayTimeouts(Number(currentMatch.handball_away_team_timeouts || 0));
+      setHandballHomeWarnings(Number(currentMatch.handball_home_warnings || 0));
+      setHandballAwayWarnings(Number(currentMatch.handball_away_warnings || 0));
+      setHandballHomeDisq(Number(currentMatch.handball_home_disqualifications || 0));
+      setHandballAwayDisq(Number(currentMatch.handball_away_disqualifications || 0));
+      setHandballExtraTime(!!currentMatch.handball_extra_time);
+      setHandballShootoutMode(currentMatch.handball_shootout_mode || "");
+
       const { data: matchPlayersData, error: matchPlayersErr } = await supabase
         .from("match_players")
         .select(`
@@ -578,15 +643,20 @@ export default function ControlPage() {
   }, [clockRunning]);
 
   useEffect(() => {
-    if (!isRugby) return;
-
-    const active = sinBins.filter((s) => s.is_active);
-    const homeActive = active.filter((s) => s.team_side === "home").length;
-    const awayActive = active.filter((s) => s.team_side === "away").length;
-
-    setRugbyHomeSinBinActive(homeActive);
-    setRugbyAwaySinBinActive(awayActive);
+    if (isRugby) {
+      const active = sinBins.filter((s) => s.is_active);
+      setRugbyHomeSinBinActive(active.filter((s) => s.team_side === "home").length);
+      setRugbyAwaySinBinActive(active.filter((s) => s.team_side === "away").length);
+    }
   }, [sinBins, isRugby]);
+
+  useEffect(() => {
+    if (isHandball) {
+      const active = twoMinRows.filter((s) => s.is_active);
+      setHandballHome2MinActive(active.filter((s) => s.team_side === "home").length);
+      setHandballAway2MinActive(active.filter((s) => s.team_side === "away").length);
+    }
+  }, [twoMinRows, isHandball]);
 
   function displayLink() {
     if (!match || !DISPLAY_URL) return "";
@@ -655,7 +725,7 @@ export default function ControlPage() {
     }
 
     if (data) {
-      setEvents((prev) => [data as MatchEventRow, ...prev].slice(0, 30));
+      setEvents((prev) => [data as MatchEventRow, ...prev].slice(0, 40));
       setMatch((prev) =>
         prev
           ? {
@@ -740,6 +810,19 @@ export default function ControlPage() {
       rugby_extra_time: rugbyExtraTime,
       rugby_tiebreak_mode: rugbyTiebreakMode,
 
+      handball_home_2min: handballHome2Min,
+      handball_away_2min: handballAway2Min,
+      handball_home_2min_active: handballHome2MinActive,
+      handball_away_2min_active: handballAway2MinActive,
+      handball_home_team_timeouts: handballHomeTimeouts,
+      handball_away_team_timeouts: handballAwayTimeouts,
+      handball_home_warnings: handballHomeWarnings,
+      handball_away_warnings: handballAwayWarnings,
+      handball_home_disqualifications: handballHomeDisq,
+      handball_away_disqualifications: handballAwayDisq,
+      handball_extra_time: handballExtraTime,
+      handball_shootout_mode: handballShootoutMode,
+
       ...patch,
     };
 
@@ -792,6 +875,19 @@ export default function ControlPage() {
       rugby_away_sin_bin_active: rugbyAwaySinBinActive,
       rugby_extra_time: rugbyExtraTime,
       rugby_tiebreak_mode: rugbyTiebreakMode || null,
+
+      handball_home_2min: handballHome2Min,
+      handball_away_2min: handballAway2Min,
+      handball_home_2min_active: handballHome2MinActive,
+      handball_away_2min_active: handballAway2MinActive,
+      handball_home_team_timeouts: handballHomeTimeouts,
+      handball_away_team_timeouts: handballAwayTimeouts,
+      handball_home_warnings: handballHomeWarnings,
+      handball_away_warnings: handballAwayWarnings,
+      handball_home_disqualifications: handballHomeDisq,
+      handball_away_disqualifications: handballAwayDisq,
+      handball_extra_time: handballExtraTime,
+      handball_shootout_mode: handballShootoutMode || null,
     };
 
     try {
@@ -831,6 +927,14 @@ export default function ControlPage() {
       if (isBasket) {
         await appendEvent({
           event_type: delta > 0 ? `basket_score_${delta}` : "basket_score_correction",
+          team_side: side,
+          payload: { delta, home_score: nextHome, away_score: nextAway },
+        });
+      }
+
+      if (isHandball) {
+        await appendEvent({
+          event_type: delta > 0 ? "handball_goal" : "handball_goal_correction",
           team_side: side,
           payload: { delta, home_score: nextHome, away_score: nextAway },
         });
@@ -1089,6 +1193,39 @@ export default function ControlPage() {
   }
 
   async function useTimeout(side: "home" | "away") {
+    if (isHandball) {
+      const nextHome = side === "home" ? handballHomeTimeouts + 1 : handballHomeTimeouts;
+      const nextAway = side === "away" ? handballAwayTimeouts + 1 : handballAwayTimeouts;
+
+      setHandballHomeTimeouts(nextHome);
+      setHandballAwayTimeouts(nextAway);
+
+      try {
+        await persistLiveState({
+          handball_home_team_timeouts: nextHome,
+          handball_away_team_timeouts: nextAway,
+        });
+
+        if (autoLive) {
+          await pushPatch({
+            handball_home_team_timeouts: nextHome,
+            handball_away_team_timeouts: nextAway,
+            home_timeouts: nextHome,
+            away_timeouts: nextAway,
+          });
+        }
+
+        await appendEvent({
+          event_type: "handball_timeout",
+          team_side: side,
+          payload: { home: nextHome, away: nextAway },
+        });
+      } catch {
+        // handled
+      }
+      return;
+    }
+
     if (!isBasket) {
       const setter = side === "home" ? setHomeTimeouts : setAwayTimeouts;
       const value = side === "home" ? homeTimeouts : awayTimeouts;
@@ -1223,6 +1360,15 @@ export default function ControlPage() {
         payload: { field, delta, value: nextValue },
       });
     }
+
+    if (isHandball && (field === "yellow_cards" || field === "red_cards")) {
+      await appendEvent({
+        event_type: field === "yellow_cards" ? "handball_player_warning" : "handball_player_disqualification",
+        team_side: side,
+        player_id: playerId,
+        payload: { field, delta, value: nextValue },
+      });
+    }
   }
 
   async function applyRugbyScoring(
@@ -1243,18 +1389,6 @@ export default function ControlPage() {
       drops: rugbyAwayDrops,
     };
 
-    if (side === "home") {
-      if (field === "tries") setRugbyHomeTries((v) => clampMin(v + delta));
-      if (field === "conversions") setRugbyHomeConversions((v) => clampMin(v + delta));
-      if (field === "penalties") setRugbyHomePenalties((v) => clampMin(v + delta));
-      if (field === "drops") setRugbyHomeDrops((v) => clampMin(v + delta));
-    } else {
-      if (field === "tries") setRugbyAwayTries((v) => clampMin(v + delta));
-      if (field === "conversions") setRugbyAwayConversions((v) => clampMin(v + delta));
-      if (field === "penalties") setRugbyAwayPenalties((v) => clampMin(v + delta));
-      if (field === "drops") setRugbyAwayDrops((v) => clampMin(v + delta));
-    }
-
     const nextHomeParts = {
       tries: side === "home" && field === "tries" ? clampMin(currentHome.tries + delta) : currentHome.tries,
       conversions:
@@ -1272,6 +1406,15 @@ export default function ControlPage() {
         side === "away" && field === "penalties" ? clampMin(currentAway.penalties + delta) : currentAway.penalties,
       drops: side === "away" && field === "drops" ? clampMin(currentAway.drops + delta) : currentAway.drops,
     };
+
+    setRugbyHomeTries(nextHomeParts.tries);
+    setRugbyHomeConversions(nextHomeParts.conversions);
+    setRugbyHomePenalties(nextHomeParts.penalties);
+    setRugbyHomeDrops(nextHomeParts.drops);
+    setRugbyAwayTries(nextAwayParts.tries);
+    setRugbyAwayConversions(nextAwayParts.conversions);
+    setRugbyAwayPenalties(nextAwayParts.penalties);
+    setRugbyAwayDrops(nextAwayParts.drops);
 
     const nextHomeScore = recomputeRugbyScore(nextHomeParts);
     const nextAwayScore = recomputeRugbyScore(nextAwayParts);
@@ -1465,6 +1608,189 @@ export default function ControlPage() {
     }
   }
 
+  async function issueHandball2Min(side: "home" | "away", player?: PlayerStatRow | null) {
+    const nextHome = side === "home" ? handballHome2Min + 1 : handballHome2Min;
+    const nextAway = side === "away" ? handballAway2Min + 1 : handballAway2Min;
+    const nextHomeActive = side === "home" ? handballHome2MinActive + 1 : handballHome2MinActive;
+    const nextAwayActive = side === "away" ? handballAway2MinActive + 1 : handballAway2MinActive;
+
+    setHandballHome2Min(nextHome);
+    setHandballAway2Min(nextAway);
+    setHandballHome2MinActive(nextHomeActive);
+    setHandballAway2MinActive(nextAwayActive);
+
+    const patch: Partial<MatchRow> = {
+      handball_home_2min: nextHome,
+      handball_away_2min: nextAway,
+      handball_home_2min_active: nextHomeActive,
+      handball_away_2min_active: nextAwayActive,
+    };
+
+    try {
+      await persistLiveState(patch);
+
+      const { data, error } = await supabase
+        .from("match_two_min_suspensions")
+        .insert({
+          org_id: match!.org_id,
+          match_id: match!.id,
+          team_side: side,
+          team_id: side === "home" ? match!.home_team_id || match!.team_id : match!.away_team_id,
+          player_id: player?.id || null,
+          player_name_snapshot: player?.name || null,
+          shirt_number_snapshot: player?.number || null,
+          started_game_clock_ms: clockMs,
+          duration_s: 120,
+          is_active: true,
+        })
+        .select("id, team_side, player_id, player_name_snapshot, shirt_number_snapshot, started_game_clock_ms, duration_s, ended_game_clock_ms, is_active, created_at")
+        .maybeSingle();
+
+      if (!error && data) {
+        setTwoMinRows((prev) => [data as TwoMinRow, ...prev]);
+      }
+
+      if (autoLive) {
+        await pushPatch(patch);
+      }
+
+      await appendEvent({
+        event_type: "handball_2min",
+        team_side: side,
+        player_id: player?.id || null,
+        payload: {
+          player_name: player?.name || null,
+          shirt_number: player?.number || null,
+          duration_s: 120,
+        },
+      });
+    } catch {
+      // handled
+    }
+  }
+
+  async function endTwoMin(row: TwoMinRow) {
+    if (!match) return;
+
+    const { error } = await supabase
+      .from("match_two_min_suspensions")
+      .update({
+        is_active: false,
+        ended_game_clock_ms: clockMs,
+      })
+      .eq("id", row.id);
+
+    if (error) {
+      flash(`Erreur clôture 2 min : ${error.message}`);
+      return;
+    }
+
+    const nextRows = twoMinRows.map((r) =>
+      r.id === row.id ? { ...r, is_active: false, ended_game_clock_ms: clockMs } : r,
+    );
+    setTwoMinRows(nextRows);
+
+    const nextHomeActive = nextRows.filter((r) => r.is_active && r.team_side === "home").length;
+    const nextAwayActive = nextRows.filter((r) => r.is_active && r.team_side === "away").length;
+
+    setHandballHome2MinActive(nextHomeActive);
+    setHandballAway2MinActive(nextAwayActive);
+
+    try {
+      await persistLiveState({
+        handball_home_2min_active: nextHomeActive,
+        handball_away_2min_active: nextAwayActive,
+      });
+
+      if (autoLive) {
+        await pushPatch({
+          handball_home_2min_active: nextHomeActive,
+          handball_away_2min_active: nextAwayActive,
+        });
+      }
+
+      await appendEvent({
+        event_type: "handball_2min_end",
+        team_side: row.team_side,
+        player_id: row.player_id,
+        payload: {
+          player_name: row.player_name_snapshot,
+          shirt_number: row.shirt_number_snapshot,
+        },
+      });
+    } catch {
+      // handled
+    }
+  }
+
+  async function issueHandballWarning(side: "home" | "away", player?: PlayerStatRow | null) {
+    const nextHome = side === "home" ? handballHomeWarnings + 1 : handballHomeWarnings;
+    const nextAway = side === "away" ? handballAwayWarnings + 1 : handballAwayWarnings;
+
+    setHandballHomeWarnings(nextHome);
+    setHandballAwayWarnings(nextAway);
+
+    try {
+      await persistLiveState({
+        handball_home_warnings: nextHome,
+        handball_away_warnings: nextAway,
+      });
+
+      if (autoLive) {
+        await pushPatch({
+          handball_home_warnings: nextHome,
+          handball_away_warnings: nextAway,
+        });
+      }
+
+      await appendEvent({
+        event_type: "handball_warning",
+        team_side: side,
+        player_id: player?.id || null,
+        payload: {
+          player_name: player?.name || null,
+          shirt_number: player?.number || null,
+        },
+      });
+    } catch {
+      // handled
+    }
+  }
+
+  async function issueHandballDisq(side: "home" | "away", player?: PlayerStatRow | null) {
+    const nextHome = side === "home" ? handballHomeDisq + 1 : handballHomeDisq;
+    const nextAway = side === "away" ? handballAwayDisq + 1 : handballAwayDisq;
+
+    setHandballHomeDisq(nextHome);
+    setHandballAwayDisq(nextAway);
+
+    try {
+      await persistLiveState({
+        handball_home_disqualifications: nextHome,
+        handball_away_disqualifications: nextAway,
+      });
+
+      if (autoLive) {
+        await pushPatch({
+          handball_home_disqualifications: nextHome,
+          handball_away_disqualifications: nextAway,
+        });
+      }
+
+      await appendEvent({
+        event_type: "handball_disqualification",
+        team_side: side,
+        player_id: player?.id || null,
+        payload: {
+          player_name: player?.name || null,
+          shirt_number: player?.number || null,
+        },
+      });
+    } catch {
+      // handled
+    }
+  }
+
   async function openFullscreen() {
     const el = document.documentElement as any;
     if (document.fullscreenElement) {
@@ -1498,11 +1824,13 @@ export default function ControlPage() {
   const showTimeouts = !!sportSettings?.show_timeouts;
   const showBonus = !!sportSettings?.show_bonus;
   const showSets = !!sportSettings?.show_sets;
-  const showCards = !!sportSettings?.show_cards || isRugby;
+  const showCards = !!sportSettings?.show_cards || isRugby || isHandball;
   const showShotClock = !!sportSettings?.show_shot_clock;
 
   const activeHomeBins = sinBins.filter((s) => s.is_active && s.team_side === "home");
   const activeAwayBins = sinBins.filter((s) => s.is_active && s.team_side === "away");
+  const activeHome2Min = twoMinRows.filter((s) => s.is_active && s.team_side === "home");
+  const activeAway2Min = twoMinRows.filter((s) => s.is_active && s.team_side === "away");
 
   return (
     <div style={styles.page}>
@@ -1706,7 +2034,6 @@ export default function ControlPage() {
           {isBasket ? (
             <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
               <div style={styles.sectionTitle}>Mode basket</div>
-
               <div style={styles.modeGrid}>
                 <div style={styles.statCard}>
                   <div style={styles.statCardTitle}>Périodes</div>
@@ -1756,7 +2083,6 @@ export default function ControlPage() {
           {isRugby ? (
             <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
               <div style={styles.sectionTitle}>Mode rugby</div>
-
               <div style={styles.modeGrid}>
                 <div style={styles.statCard}>
                   <div style={styles.statCardTitle}>Marque domicile</div>
@@ -1803,9 +2129,7 @@ export default function ControlPage() {
                           try {
                             await persistLiveState({ rugby_extra_time: next });
                             if (autoLive) await pushPatch({ rugby_extra_time: next });
-                          } catch {
-                            // handled
-                          }
+                          } catch {}
                         }}
                       />
                       <span>Prolongation rugby</span>
@@ -1819,9 +2143,7 @@ export default function ControlPage() {
                           try {
                             await persistLiveState({ rugby_tiebreak_mode: rugbyTiebreakMode || null });
                             if (autoLive) await pushPatch({ rugby_tiebreak_mode: rugbyTiebreakMode || null });
-                          } catch {
-                            // handled
-                          }
+                          } catch {}
                         }}
                         style={styles.input}
                         placeholder="Ex: prolongation, TAB..."
@@ -1833,7 +2155,74 @@ export default function ControlPage() {
             </section>
           ) : null}
 
-          {(showTeamFouls || showTimeouts || showBonus || showSets || showCards || isRugby) ? (
+          {isHandball ? (
+            <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
+              <div style={styles.sectionTitle}>Mode handball</div>
+              <div style={styles.modeGrid}>
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>Temps morts d’équipe</div>
+                  <div style={styles.scoreActions}>
+                    <button onClick={() => useTimeout("home")} style={styles.ghostBtnSmall}>TM {homeName}</button>
+                    <button onClick={() => useTimeout("away")} style={styles.ghostBtnSmall}>TM {awayName}</button>
+                  </div>
+                  <div style={{ marginTop: 12, display: "grid", gap: 6 }}>
+                    <div>{homeName} : {handballHomeTimeouts}</div>
+                    <div>{awayName} : {handballAwayTimeouts}</div>
+                  </div>
+                </div>
+
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>Paramètres handball</div>
+                  <div style={{ display: "grid", gap: 10 }}>
+                    <label style={styles.switchRow}>
+                      <input
+                        type="checkbox"
+                        checked={handballExtraTime}
+                        onChange={async (e) => {
+                          const next = e.target.checked;
+                          setHandballExtraTime(next);
+                          try {
+                            await persistLiveState({ handball_extra_time: next });
+                            if (autoLive) await pushPatch({ handball_extra_time: next });
+                          } catch {}
+                        }}
+                      />
+                      <span>Prolongation handball</span>
+                    </label>
+
+                    <Field label="Mode départage">
+                      <input
+                        value={handballShootoutMode}
+                        onChange={(e) => setHandballShootoutMode(e.target.value)}
+                        onBlur={async () => {
+                          try {
+                            await persistLiveState({ handball_shootout_mode: handballShootoutMode || null });
+                            if (autoLive) await pushPatch({ handball_shootout_mode: handballShootoutMode || null });
+                          } catch {}
+                        }}
+                        style={styles.input}
+                        placeholder="Ex: jets de 7m"
+                      />
+                    </Field>
+                  </div>
+                </div>
+
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>Sanctions handball</div>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <div>{homeName} • Avertissements : {handballHomeWarnings}</div>
+                    <div>{awayName} • Avertissements : {handballAwayWarnings}</div>
+                    <div>{homeName} • 2 min : {handballHome2Min}</div>
+                    <div>{awayName} • 2 min : {handballAway2Min}</div>
+                    <div>{homeName} • Disq. : {handballHomeDisq}</div>
+                    <div>{awayName} • Disq. : {handballAwayDisq}</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          {(showTeamFouls || showTimeouts || showBonus || showSets || showCards || isRugby || isHandball) ? (
             <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
               <div style={styles.sectionTitle}>Statistiques de match</div>
 
@@ -1855,14 +2244,36 @@ export default function ControlPage() {
                 {showTimeouts ? (
                   <StatPairCard
                     title="Temps morts"
-                    leftValue={homeTimeouts}
-                    rightValue={awayTimeouts}
+                    leftValue={isHandball ? handballHomeTimeouts : homeTimeouts}
+                    rightValue={isHandball ? handballAwayTimeouts : awayTimeouts}
                     leftLabel={homeName}
                     rightLabel={awayName}
-                    onLeftMinus={() => changeTeamStat(setHomeTimeouts, homeTimeouts, -1, "home_timeouts", "home", "timeout")}
-                    onLeftPlus={() => (isBasket ? useTimeout("home") : changeTeamStat(setHomeTimeouts, homeTimeouts, 1, "home_timeouts", "home", "timeout"))}
-                    onRightMinus={() => changeTeamStat(setAwayTimeouts, awayTimeouts, -1, "away_timeouts", "away", "timeout")}
-                    onRightPlus={() => (isBasket ? useTimeout("away") : changeTeamStat(setAwayTimeouts, awayTimeouts, 1, "away_timeouts", "away", "timeout"))}
+                    onLeftMinus={() =>
+                      isHandball
+                        ? (async () => {
+                            const next = clampMin(handballHomeTimeouts - 1);
+                            setHandballHomeTimeouts(next);
+                            try {
+                              await persistLiveState({ handball_home_team_timeouts: next });
+                              if (autoLive) await pushPatch({ handball_home_team_timeouts: next, home_timeouts: next });
+                            } catch {}
+                          })()
+                        : changeTeamStat(setHomeTimeouts, homeTimeouts, -1, "home_timeouts", "home", "timeout")
+                    }
+                    onLeftPlus={() => useTimeout("home")}
+                    onRightMinus={() =>
+                      isHandball
+                        ? (async () => {
+                            const next = clampMin(handballAwayTimeouts - 1);
+                            setHandballAwayTimeouts(next);
+                            try {
+                              await persistLiveState({ handball_away_team_timeouts: next });
+                              if (autoLive) await pushPatch({ handball_away_team_timeouts: next, away_timeouts: next });
+                            } catch {}
+                          })()
+                        : changeTeamStat(setAwayTimeouts, awayTimeouts, -1, "away_timeouts", "away", "timeout")
+                    }
+                    onRightPlus={() => useTimeout("away")}
                   />
                 ) : null}
 
@@ -1939,15 +2350,11 @@ export default function ControlPage() {
                     <div style={{ display: "grid", gap: 10 }}>
                       <div style={styles.rugbyScoreLine}>
                         <span>{homeName}</span>
-                        <span>
-                          E {rugbyHomeTries} • T {rugbyHomeConversions} • P {rugbyHomePenalties} • D {rugbyHomeDrops}
-                        </span>
+                        <span>E {rugbyHomeTries} • T {rugbyHomeConversions} • P {rugbyHomePenalties} • D {rugbyHomeDrops}</span>
                       </div>
                       <div style={styles.rugbyScoreLine}>
                         <span>{awayName}</span>
-                        <span>
-                          E {rugbyAwayTries} • T {rugbyAwayConversions} • P {rugbyAwayPenalties} • D {rugbyAwayDrops}
-                        </span>
+                        <span>E {rugbyAwayTries} • T {rugbyAwayConversions} • P {rugbyAwayPenalties} • D {rugbyAwayDrops}</span>
                       </div>
                     </div>
                   </div>
@@ -1959,6 +2366,20 @@ export default function ControlPage() {
                     <div style={{ display: "grid", gap: 8 }}>
                       <div>{homeName} : {rugbyHomeSinBinActive}</div>
                       <div>{awayName} : {rugbyAwaySinBinActive}</div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {isHandball ? (
+                  <div style={styles.statCard}>
+                    <div style={styles.statCardTitle}>Sanctions handball</div>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      <div>{homeName} • Avertissements : {handballHomeWarnings}</div>
+                      <div>{awayName} • Avertissements : {handballAwayWarnings}</div>
+                      <div>{homeName} • 2 min actives : {handballHome2MinActive}</div>
+                      <div>{awayName} • 2 min actives : {handballAway2MinActive}</div>
+                      <div>{homeName} • Disq. : {handballHomeDisq}</div>
+                      <div>{awayName} • Disq. : {handballAwayDisq}</div>
                     </div>
                   </div>
                 ) : null}
@@ -2024,6 +2445,68 @@ export default function ControlPage() {
             </section>
           ) : null}
 
+          {isHandball ? (
+            <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
+              <div style={styles.sectionTitle}>Sanctions handball</div>
+
+              <div style={styles.modeGrid}>
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>{homeName}</div>
+                  <div style={styles.scoreActions}>
+                    <button onClick={() => issueHandballWarning("home")} style={styles.ghostBtnSmall}>Avert. équipe</button>
+                    <button onClick={() => issueHandball2Min("home")} style={styles.ghostBtnSmall}>2 min équipe</button>
+                    <button onClick={() => issueHandballDisq("home")} style={styles.ghostBtnSmall}>Disq. équipe</button>
+                  </div>
+                  <div style={{ ...styles.scoreActions, marginTop: 8 }}>
+                    {homePlayers.slice(0, 8).map((p) => (
+                      <React.Fragment key={p.id}>
+                        <button onClick={() => issueHandballWarning("home", p)} style={styles.ghostBtnSmall}>A #{p.number}</button>
+                        <button onClick={() => issueHandball2Min("home", p)} style={styles.ghostBtnSmall}>2' #{p.number}</button>
+                      </React.Fragment>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>{awayName}</div>
+                  <div style={styles.scoreActions}>
+                    <button onClick={() => issueHandballWarning("away")} style={styles.ghostBtnSmall}>Avert. équipe</button>
+                    <button onClick={() => issueHandball2Min("away")} style={styles.ghostBtnSmall}>2 min équipe</button>
+                    <button onClick={() => issueHandballDisq("away")} style={styles.ghostBtnSmall}>Disq. équipe</button>
+                  </div>
+                  <div style={{ ...styles.scoreActions, marginTop: 8 }}>
+                    {awayPlayers.slice(0, 8).map((p) => (
+                      <React.Fragment key={p.id}>
+                        <button onClick={() => issueHandballWarning("away", p)} style={styles.ghostBtnSmall}>A #{p.number}</button>
+                        <button onClick={() => issueHandball2Min("away", p)} style={styles.ghostBtnSmall}>2' #{p.number}</button>
+                      </React.Fragment>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {(activeHome2Min.length > 0 || activeAway2Min.length > 0) ? (
+                <div style={{ marginTop: 16, display: "grid", gap: 8 }}>
+                  {[...activeHome2Min, ...activeAway2Min].map((row) => (
+                    <div key={row.id} style={styles.eventRow}>
+                      <div style={styles.eventMain}>
+                        <div style={styles.eventType}>
+                          {row.team_side === "home" ? homeName : awayName} • Exclusion 2 min active
+                        </div>
+                        <div style={styles.eventMeta}>
+                          {row.player_name_snapshot || "Joueur non renseigné"} {row.shirt_number_snapshot ? `• #${row.shirt_number_snapshot}` : ""}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                        <button onClick={() => endTwoMin(row)} style={styles.primaryBtnSmall}>Clôturer</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
           {showPlayerFouls ? (
             <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
               <div style={styles.sectionTitle}>Statistiques joueurs</div>
@@ -2048,7 +2531,7 @@ export default function ControlPage() {
             </section>
           ) : null}
 
-          {(isBasket || isRugby) ? (
+          {(isBasket || isRugby || isHandball) ? (
             <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
               <div style={styles.sectionTitle}>Journal des événements</div>
               {events.length === 0 ? (
@@ -2166,7 +2649,8 @@ function PlayerStatsTable({
     normalizedSport === "handball";
   const showCards =
     normalizedSport === "football" ||
-    normalizedSport === "rugby";
+    normalizedSport === "rugby" ||
+    normalizedSport === "handball";
 
   return (
     <div style={styles.playerTableCard}>
