@@ -8,6 +8,8 @@ type TeamInfo = {
   name?: string | null;
   short_name?: string | null;
   logo_url?: string | null;
+  primary_color?: string | null;
+  secondary_color?: string | null;
 };
 
 type SponsorItem = {
@@ -15,11 +17,14 @@ type SponsorItem = {
   logo_url?: string | null;
 };
 
-type PlayerFoulsRow = {
+type PlayerStatRow = {
   id?: string;
   name?: string;
   number?: string;
   fouls?: number;
+  points?: number;
+  yellow_cards?: number;
+  red_cards?: number;
 };
 
 export type ScoreboardContext = {
@@ -56,6 +61,14 @@ export type ScoreboardContext = {
   show_status?: boolean;
   show_sponsors?: boolean;
 
+  show_team_fouls?: boolean;
+  show_player_fouls?: boolean;
+  show_timeouts?: boolean;
+  show_bonus?: boolean;
+  show_sets?: boolean;
+  show_cards?: boolean;
+  show_shot_clock?: boolean;
+
   sponsors?: SponsorItem[];
   sponsor_rotate_s?: number;
 
@@ -69,6 +82,7 @@ export type ScoreboardContext = {
   home_bonus?: boolean;
   away_bonus?: boolean;
   shot_clock_s?: number;
+  possession_arrow?: "home" | "away" | string;
 
   home_sets_won?: number;
   away_sets_won?: number;
@@ -78,18 +92,8 @@ export type ScoreboardContext = {
   home_red_cards?: number;
   away_red_cards?: number;
 
-  home_players?: PlayerFoulsRow[];
-  away_players?: PlayerFoulsRow[];
-
-  show_team_fouls?: boolean;
-  show_player_fouls?: boolean;
-  show_timeouts?: boolean;
-  show_bonus?: boolean;
-  show_sets?: boolean;
-  show_cards?: boolean;
-  show_shot_clock?: boolean;
-
-  
+  home_players?: PlayerStatRow[];
+  away_players?: PlayerStatRow[];
 };
 
 type Props = {
@@ -304,10 +308,12 @@ function StatChip({
   label,
   value,
   theme,
+  compact = false,
 }: {
   label: string;
   value: string | number | boolean;
   theme: ThemeMode;
+  compact?: boolean;
 }) {
   const panel = theme === "dark" ? "rgba(255,255,255,.05)" : "rgba(0,0,0,.05)";
   const border = theme === "dark" ? "rgba(255,255,255,.12)" : "rgba(0,0,0,.10)";
@@ -317,15 +323,15 @@ function StatChip({
   return (
     <div
       style={{
-        padding: "8px 10px",
+        padding: compact ? "6px 8px" : "8px 10px",
         borderRadius: 12,
         background: panel,
         border: `1px solid ${border}`,
-        minWidth: 84,
+        minWidth: compact ? 68 : 84,
       }}
     >
-      <div style={{ fontSize: 11, fontWeight: 800, color: sub }}>{label}</div>
-      <div style={{ marginTop: 2, fontSize: 16, fontWeight: 900, color: text }}>{String(value)}</div>
+      <div style={{ fontSize: compact ? 10 : 11, fontWeight: 800, color: sub }}>{label}</div>
+      <div style={{ marginTop: 2, fontSize: compact ? 14 : 16, fontWeight: 900, color: text }}>{String(value)}</div>
     </div>
   );
 }
@@ -358,14 +364,84 @@ function TeamStatsStrip({
   );
 }
 
-function PlayerFoulsMini({
+function BasketCenterStats({
+  theme,
+  possessionArrow,
+  shotClockS,
+  showShotClock,
+  showPossession,
+}: {
+  theme: ThemeMode;
+  possessionArrow?: string;
+  shotClockS?: number | null;
+  showShotClock: boolean;
+  showPossession: boolean;
+}) {
+  const panel = theme === "dark" ? "rgba(255,255,255,.05)" : "rgba(0,0,0,.05)";
+  const border = theme === "dark" ? "rgba(255,255,255,.12)" : "rgba(0,0,0,.10)";
+  const text = theme === "dark" ? "#edf2ff" : "#0f172a";
+  const sub = theme === "dark" ? "rgba(237,242,255,.72)" : "rgba(15,23,42,.68)";
+
+  if (!showShotClock && !showPossession) return null;
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gap: 10,
+        justifyItems: "center",
+        marginTop: 6,
+      }}
+    >
+      {showShotClock ? (
+        <div
+          style={{
+            padding: "8px 14px",
+            borderRadius: 14,
+            background: panel,
+            border: `1px solid ${border}`,
+            minWidth: 120,
+            textAlign: "center",
+          }}
+        >
+          <div style={{ color: sub, fontSize: 11, fontWeight: 900 }}>SHOT CLOCK</div>
+          <div style={{ color: text, fontSize: 28, fontWeight: 900, marginTop: 2 }}>
+            {safeNum(shotClockS)}s
+          </div>
+        </div>
+      ) : null}
+
+      {showPossession ? (
+        <div
+          style={{
+            padding: "8px 14px",
+            borderRadius: 14,
+            background: panel,
+            border: `1px solid ${border}`,
+            minWidth: 120,
+            textAlign: "center",
+          }}
+        >
+          <div style={{ color: sub, fontSize: 11, fontWeight: 900 }}>POSSESSION</div>
+          <div style={{ color: text, fontSize: 18, fontWeight: 900, marginTop: 2 }}>
+            {possessionArrow === "away" ? "→ EXT" : "← DOM"}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function PlayerStatsMini({
   title,
   players,
   theme,
+  sport,
 }: {
   title: string;
-  players: PlayerFoulsRow[];
+  players: PlayerStatRow[];
   theme: ThemeMode;
+  sport: string;
 }) {
   if (!players.length) return null;
 
@@ -373,6 +449,17 @@ function PlayerFoulsMini({
   const border = theme === "dark" ? "rgba(255,255,255,.10)" : "rgba(0,0,0,.10)";
   const sub = theme === "dark" ? "rgba(237,242,255,.72)" : "rgba(15,23,42,.68)";
   const text = theme === "dark" ? "#edf2ff" : "#0f172a";
+
+  const normalizedSport = (sport || "").toLowerCase();
+  const showPoints = normalizedSport === "basket" || normalizedSport === "rugby" || normalizedSport === "handball";
+  const showCards = normalizedSport === "football" || normalizedSport === "rugby";
+
+  const sorted = [...players].sort((a, b) => {
+    const pa = safeNum(a.points);
+    const pb = safeNum(b.points);
+    if (pb !== pa) return pb - pa;
+    return safeNum(b.fouls) - safeNum(a.fouls);
+  });
 
   return (
     <div
@@ -385,22 +472,94 @@ function PlayerFoulsMini({
     >
       <div style={{ fontSize: 13, fontWeight: 900, color: text, marginBottom: 8 }}>{title}</div>
       <div style={{ display: "grid", gap: 6 }}>
-        {players.slice(0, 5).map((p, idx) => (
+        {sorted.slice(0, 5).map((p, idx) => (
           <div
             key={p.id || `${p.number || ""}-${idx}`}
             style={{
-              display: "flex",
-              justifyContent: "space-between",
+              display: "grid",
+              gridTemplateColumns: "1fr auto auto auto",
               gap: 10,
+              alignItems: "center",
               fontSize: 12,
               color: text,
             }}
           >
-            <span style={{ color: sub }}>
+            <span style={{ color: sub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               #{p.number || "?"} {p.name || "Joueur"}
             </span>
-            <span style={{ fontWeight: 900 }}>{safeNum(p.fouls)}</span>
+            <span style={{ fontWeight: 900 }}>F {safeNum(p.fouls)}</span>
+            {showPoints ? <span style={{ fontWeight: 900 }}>P {safeNum(p.points)}</span> : <span />}
+            {showCards ? (
+              <span style={{ fontWeight: 900 }}>
+                J {safeNum(p.yellow_cards)} / R {safeNum(p.red_cards)}
+              </span>
+            ) : (
+              <span />
+            )}
           </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BasketGymStrip({
+  theme,
+  homeStats,
+  awayStats,
+}: {
+  theme: ThemeMode;
+  homeStats: Array<{ label: string; value: string | number | boolean }>;
+  awayStats: Array<{ label: string; value: string | number | boolean }>;
+}) {
+  if (!homeStats.length && !awayStats.length) return null;
+
+  const panel = theme === "dark" ? "rgba(255,255,255,.04)" : "rgba(0,0,0,.04)";
+  const border = theme === "dark" ? "rgba(255,255,255,.10)" : "rgba(0,0,0,.10)";
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        left: 24,
+        right: 24,
+        bottom: 120,
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 14,
+      }}
+    >
+      <div
+        style={{
+          borderRadius: 16,
+          background: panel,
+          border: `1px solid ${border}`,
+          padding: 10,
+          display: "flex",
+          gap: 8,
+          flexWrap: "wrap",
+          justifyContent: "flex-start",
+        }}
+      >
+        {homeStats.map((item, idx) => (
+          <StatChip key={`h-${item.label}-${idx}`} label={item.label} value={item.value} theme={theme} compact />
+        ))}
+      </div>
+
+      <div
+        style={{
+          borderRadius: 16,
+          background: panel,
+          border: `1px solid ${border}`,
+          padding: 10,
+          display: "flex",
+          gap: 8,
+          flexWrap: "wrap",
+          justifyContent: "flex-end",
+        }}
+      >
+        {awayStats.map((item, idx) => (
+          <StatChip key={`a-${item.label}-${idx}`} label={item.label} value={item.value} theme={theme} compact />
         ))}
       </div>
     </div>
@@ -410,7 +569,7 @@ function PlayerFoulsMini({
 export default function Scoreboard({ context }: Props) {
   const theme: ThemeMode = context.theme === "light" ? "light" : "dark";
   const accent =
-    (context.home as any)?.primary_color?.trim?.() ||
+    context.home?.primary_color?.trim?.() ||
     (context.accent || "#00d9ff").trim();
 
   const homeName = context.home?.name || context.home_name || "DOMICILE";
@@ -446,6 +605,9 @@ export default function Scoreboard({ context }: Props) {
   const sub = theme === "dark" ? "rgba(237,242,255,.72)" : "rgba(15,23,42,.68)";
 
   const sport = sportLabel(context.sport);
+  const rawSport = (context.sport || "").toLowerCase();
+  const isBasket = rawSport === "basket";
+
   const status = statusLabel(context.status);
   const period = (context.period_label || "").trim();
   const venue = (context.venue || "").trim();
@@ -453,43 +615,55 @@ export default function Scoreboard({ context }: Props) {
 
   const clockText = fmtClock(context.clock_ms);
   const layout = (context.layout_mode || "stadium").toLowerCase();
-  const isVolley = (context.sport || "").toLowerCase() === "volleyball";
-  const isRugby = (context.sport || "").toLowerCase() === "rugby";
+
+  const showTeamFouls = !!context.show_team_fouls;
+  const showPlayerFouls = !!context.show_player_fouls;
+  const showTimeouts = !!context.show_timeouts;
+  const showBonus = !!context.show_bonus;
+  const showSets = !!context.show_sets;
+  const showCards = !!context.show_cards;
+  const showShotClock = !!context.show_shot_clock;
+
+  const isDetailedMode = showPlayerFouls;
+  const isGymMode =
+    !isDetailedMode &&
+    (showTeamFouls || showTimeouts || showBonus || showShotClock || !!context.possession_arrow);
 
   const homeStats: Array<{ label: string; value: string | number | boolean }> = [];
   const awayStats: Array<{ label: string; value: string | number | boolean }> = [];
 
-  if (typeof context.home_team_fouls === "number" || typeof context.away_team_fouls === "number") {
+  if (showTeamFouls && (typeof context.home_team_fouls === "number" || typeof context.away_team_fouls === "number")) {
     homeStats.push({ label: "Fautes", value: safeNum(context.home_team_fouls) });
     awayStats.push({ label: "Fautes", value: safeNum(context.away_team_fouls) });
   }
 
-  if (typeof context.home_timeouts === "number" || typeof context.away_timeouts === "number") {
+  if (showTimeouts && (typeof context.home_timeouts === "number" || typeof context.away_timeouts === "number")) {
     homeStats.push({ label: "TM", value: safeNum(context.home_timeouts) });
     awayStats.push({ label: "TM", value: safeNum(context.away_timeouts) });
   }
 
-  if (typeof context.home_sets_won === "number" || typeof context.away_sets_won === "number") {
+  if (showSets && (typeof context.home_sets_won === "number" || typeof context.away_sets_won === "number")) {
     homeStats.push({ label: "Sets", value: safeNum(context.home_sets_won) });
     awayStats.push({ label: "Sets", value: safeNum(context.away_sets_won) });
   }
 
-  if (context.home_bonus !== undefined || context.away_bonus !== undefined) {
+  if (showBonus && (context.home_bonus !== undefined || context.away_bonus !== undefined)) {
     homeStats.push({ label: "Bonus", value: context.home_bonus ? "ON" : "OFF" });
     awayStats.push({ label: "Bonus", value: context.away_bonus ? "ON" : "OFF" });
   }
 
-  if (typeof context.home_yellow_cards === "number" || typeof context.away_yellow_cards === "number") {
+  if (showCards && (typeof context.home_yellow_cards === "number" || typeof context.away_yellow_cards === "number")) {
     homeStats.push({ label: "J", value: safeNum(context.home_yellow_cards) });
     awayStats.push({ label: "J", value: safeNum(context.away_yellow_cards) });
   }
 
-  if (typeof context.home_red_cards === "number" || typeof context.away_red_cards === "number") {
+  if (showCards && (typeof context.home_red_cards === "number" || typeof context.away_red_cards === "number")) {
     homeStats.push({ label: "R", value: safeNum(context.home_red_cards) });
     awayStats.push({ label: "R", value: safeNum(context.away_red_cards) });
   }
 
-  const boardHeight = showBand ? "calc(100vh - 190px)" : "calc(100vh - 110px)";
+  const extraBottomSpace = isDetailedMode ? 250 : isGymMode ? 170 : showBand ? 110 : 20;
+  const boardHeight = `calc(100vh - ${extraBottomSpace + 70}px)`;
 
   return (
     <div
@@ -574,7 +748,7 @@ export default function Scoreboard({ context }: Props) {
         style={{
           margin: "0 24px",
           height: boardHeight,
-          minHeight: 420,
+          minHeight: 380,
           borderRadius: 26,
           background: panel,
           border: `1px solid ${border}`,
@@ -595,24 +769,24 @@ export default function Scoreboard({ context }: Props) {
               value={String(homeScore)}
               theme={theme}
               accent={accent}
-              size={layout === "compact" ? 130 : 180}
+              size={layout === "compact" ? 130 : isBasket ? 170 : 180}
               bump={homeBump}
             />
           ) : (
             <div style={{ height: 180 }} />
           )}
 
-          <TeamStatsStrip side="home" theme={theme} stats={homeStats} />
+          {!isBasket ? <TeamStatsStrip side="home" theme={theme} stats={homeStats} /> : null}
         </div>
 
-        <div style={{ display: "grid", justifyItems: "center", gap: 18, minWidth: isVolley ? 320 : 260 }}>
+        <div style={{ display: "grid", justifyItems: "center", gap: 18, minWidth: isBasket ? 320 : 260 }}>
           {showScore ? (
             <div style={{ color: sub, fontWeight: 900, fontSize: 54, lineHeight: 1 }}>
-              {isRugby ? "-" : ":"}
+              :
             </div>
           ) : null}
 
-          {(showClock || showPeriod || showStatus || context.shot_clock_s !== undefined) ? (
+          {(showClock || showPeriod || showStatus || (showShotClock && typeof context.shot_clock_s === "number")) ? (
             <div
               style={{
                 padding: "14px 20px",
@@ -626,7 +800,7 @@ export default function Scoreboard({ context }: Props) {
                 display: "grid",
                 justifyItems: "center",
                 gap: 8,
-                minWidth: isVolley ? 300 : 220,
+                minWidth: isBasket ? 300 : 220,
               }}
             >
               {showClock ? (
@@ -652,22 +826,6 @@ export default function Scoreboard({ context }: Props) {
                 </div>
               ) : null}
 
-              {context.show_shot_clock && typeof context.shot_clock_s === "number" ? (
-                <div
-                  style={{
-                    padding: "6px 12px",
-                    borderRadius: 999,
-                    background: panel,
-                    border: `1px solid ${border}`,
-                    fontSize: 13,
-                    fontWeight: 900,
-                    letterSpacing: 1,
-                  }}
-                >
-                  SHOT CLOCK • {safeNum(context.shot_clock_s)}s
-                </div>
-              ) : null}
-
               {showStatus ? (
                 <div
                   style={{
@@ -687,22 +845,14 @@ export default function Scoreboard({ context }: Props) {
             </div>
           ) : null}
 
-          {isVolley && (typeof context.home_sets_won === "number" || typeof context.away_sets_won === "number") ? (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr auto 1fr",
-                gap: 10,
-                alignItems: "center",
-                color: text,
-                fontWeight: 900,
-                fontSize: 20,
-              }}
-            >
-              <span style={{ textAlign: "right" }}>{safeNum(context.home_sets_won)}</span>
-              <span style={{ color: sub }}>SETS</span>
-              <span>{safeNum(context.away_sets_won)}</span>
-            </div>
+          {isBasket ? (
+            <BasketCenterStats
+              theme={theme}
+              possessionArrow={context.possession_arrow}
+              shotClockS={context.shot_clock_s}
+              showShotClock={showShotClock}
+              showPossession={isGymMode || isDetailedMode}
+            />
           ) : null}
         </div>
 
@@ -714,18 +864,22 @@ export default function Scoreboard({ context }: Props) {
               value={String(awayScore)}
               theme={theme}
               accent={accent}
-              size={layout === "compact" ? 130 : 180}
+              size={layout === "compact" ? 130 : isBasket ? 170 : 180}
               bump={awayBump}
             />
           ) : (
             <div style={{ height: 180 }} />
           )}
 
-          <TeamStatsStrip side="away" theme={theme} stats={awayStats} />
+          {!isBasket ? <TeamStatsStrip side="away" theme={theme} stats={awayStats} /> : null}
         </div>
       </div>
 
-            {context.show_player_fouls && (context.home_players?.length || context.away_players?.length) ? (
+      {isBasket && isGymMode ? (
+        <BasketGymStrip theme={theme} homeStats={homeStats} awayStats={awayStats} />
+      ) : null}
+
+      {showPlayerFouls && (context.home_players?.length || context.away_players?.length) ? (
         <div
           style={{
             position: "fixed",
@@ -737,8 +891,8 @@ export default function Scoreboard({ context }: Props) {
             gap: 14,
           }}
         >
-          <PlayerFoulsMini title={`${homeName} • fautes joueurs`} players={context.home_players || []} theme={theme} />
-          <PlayerFoulsMini title={`${awayName} • fautes joueurs`} players={context.away_players || []} theme={theme} />
+          <PlayerStatsMini title={`${homeName} • joueurs`} players={context.home_players || []} theme={theme} sport={rawSport} />
+          <PlayerStatsMini title={`${awayName} • joueurs`} players={context.away_players || []} theme={theme} sport={rawSport} />
         </div>
       ) : null}
 
@@ -809,6 +963,21 @@ export default function Scoreboard({ context }: Props) {
             >
               {layout.toUpperCase()}
             </span>
+
+            {isBasket ? (
+              <span
+                style={{
+                  padding: "7px 10px",
+                  borderRadius: 999,
+                  background: panel,
+                  border: `1px solid ${border}`,
+                  fontSize: 12,
+                  fontWeight: 900,
+                }}
+              >
+                {isDetailedMode ? "DÉTAILLÉ" : isGymMode ? "GYMNASE" : "SIMPLE"}
+              </span>
+            ) : null}
           </div>
         </div>
       ) : null}
