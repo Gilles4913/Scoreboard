@@ -50,6 +50,21 @@ type MatchRow = {
   timeouts_overtime_home: number | null;
   timeouts_overtime_away: number | null;
   last_event_seq: number | null;
+
+  rugby_home_tries: number | null;
+  rugby_away_tries: number | null;
+  rugby_home_conversions: number | null;
+  rugby_away_conversions: number | null;
+  rugby_home_penalties: number | null;
+  rugby_away_penalties: number | null;
+  rugby_home_drop_goals: number | null;
+  rugby_away_drop_goals: number | null;
+  rugby_home_yellow_sin_bin: number | null;
+  rugby_away_yellow_sin_bin: number | null;
+  rugby_home_sin_bin_active: number | null;
+  rugby_away_sin_bin_active: number | null;
+  rugby_extra_time: boolean | null;
+  rugby_tiebreak_mode: string | null;
 };
 
 type OrgRow = {
@@ -141,6 +156,19 @@ type MatchEventRow = {
   created_at: string;
 };
 
+type SinBinRow = {
+  id: string;
+  team_side: "home" | "away";
+  player_id: string | null;
+  player_name_snapshot: string | null;
+  shirt_number_snapshot: string | null;
+  started_game_clock_ms: number;
+  duration_s: number;
+  ended_game_clock_ms: number | null;
+  is_active: boolean;
+  created_at: string;
+};
+
 function getEnv(name: string): string {
   const v = (import.meta as any).env?.[name];
   return typeof v === "string" ? v : "";
@@ -154,6 +182,10 @@ function normalizeSport(v: string | null | undefined) {
 
 function isBasketSport(sport: string) {
   return normalizeSport(sport) === "basket";
+}
+
+function isRugbySport(sport: string) {
+  return normalizeSport(sport) === "rugby";
 }
 
 function defaultClockMsBySport(sport: string, periodDurationS?: number | null) {
@@ -181,6 +213,10 @@ function periodOptionsBySport(sport: string, periodCount?: number) {
 
   if (s === "volleyball") {
     return Array.from({ length: Math.max(3, count) }, (_, i) => `Set ${i + 1}`);
+  }
+
+  if (s === "rugby") {
+    return ["1MT", "2MT", "Prolongation"];
   }
 
   if (count === 2) return ["1MT", "2MT", "Prolongation"];
@@ -221,6 +257,15 @@ function toPlayerStatRows(matchPlayers: MatchPlayerRow[]) {
     }));
 }
 
+function recomputeRugbyScore(parts: {
+  tries: number;
+  conversions: number;
+  penalties: number;
+  drops: number;
+}) {
+  return parts.tries * 5 + parts.conversions * 2 + parts.penalties * 3 + parts.drops * 3;
+}
+
 export default function ControlPage() {
   const nav = useNavigate();
   const { matchId = "" } = useParams();
@@ -235,6 +280,7 @@ export default function ControlPage() {
   const [displaySettings, setDisplaySettings] = useState<DisplaySettings | null>(null);
   const [sportSettings, setSportSettings] = useState<SportSettings | null>(null);
   const [events, setEvents] = useState<MatchEventRow[]>([]);
+  const [sinBins, setSinBins] = useState<SinBinRow[]>([]);
 
   const [matchName, setMatchName] = useState("");
   const [homeName, setHomeName] = useState("");
@@ -270,14 +316,32 @@ export default function ControlPage() {
   const [homePlayers, setHomePlayers] = useState<PlayerStatRow[]>([]);
   const [awayPlayers, setAwayPlayers] = useState<PlayerStatRow[]>([]);
 
+  const [rugbyHomeTries, setRugbyHomeTries] = useState(0);
+  const [rugbyAwayTries, setRugbyAwayTries] = useState(0);
+  const [rugbyHomeConversions, setRugbyHomeConversions] = useState(0);
+  const [rugbyAwayConversions, setRugbyAwayConversions] = useState(0);
+  const [rugbyHomePenalties, setRugbyHomePenalties] = useState(0);
+  const [rugbyAwayPenalties, setRugbyAwayPenalties] = useState(0);
+  const [rugbyHomeDrops, setRugbyHomeDrops] = useState(0);
+  const [rugbyAwayDrops, setRugbyAwayDrops] = useState(0);
+  const [rugbyHomeYellowSinBin, setRugbyHomeYellowSinBin] = useState(0);
+  const [rugbyAwayYellowSinBin, setRugbyAwayYellowSinBin] = useState(0);
+  const [rugbyHomeSinBinActive, setRugbyHomeSinBinActive] = useState(0);
+  const [rugbyAwaySinBinActive, setRugbyAwaySinBinActive] = useState(0);
+  const [rugbyExtraTime, setRugbyExtraTime] = useState(false);
+  const [rugbyTiebreakMode, setRugbyTiebreakMode] = useState("");
+
   const timerRef = useRef<number | null>(null);
 
   const sport = normalizeSport(org?.sport);
   const isBasket = isBasketSport(sport);
+  const isRugby = isRugbySport(sport);
+
   const periodOptions = useMemo(
     () => periodOptionsBySport(sport, sportSettings?.period_count),
     [sport, sportSettings?.period_count],
   );
+
   const scoreSteps = useMemo(() => scoreStepOptionsBySport(sport), [sport]);
 
   useEffect(() => {
@@ -290,7 +354,7 @@ export default function ControlPage() {
       const { data: matchRow, error: matchErr } = await supabase
         .from("matches")
         .select(
-          "id, org_id, team_id, home_team_id, away_team_id, name, status, scheduled_at, public_display, display_token, home_name, away_name, home_score, away_score, period_label, clock_ms, clock_running, home_team_fouls, away_team_fouls, home_timeouts, away_timeouts, home_bonus, away_bonus, shot_clock_s, home_sets_won, away_sets_won, home_yellow_cards, away_yellow_cards, home_red_cards, away_red_cards, current_period_index, is_overtime, possession_arrow, team_fouls_period_home, team_fouls_period_away, timeouts_first_half_home, timeouts_first_half_away, timeouts_second_half_home, timeouts_second_half_away, timeouts_overtime_home, timeouts_overtime_away, last_event_seq",
+          "id, org_id, team_id, home_team_id, away_team_id, name, status, scheduled_at, public_display, display_token, home_name, away_name, home_score, away_score, period_label, clock_ms, clock_running, home_team_fouls, away_team_fouls, home_timeouts, away_timeouts, home_bonus, away_bonus, shot_clock_s, home_sets_won, away_sets_won, home_yellow_cards, away_yellow_cards, home_red_cards, away_red_cards, current_period_index, is_overtime, possession_arrow, team_fouls_period_home, team_fouls_period_away, timeouts_first_half_home, timeouts_first_half_away, timeouts_second_half_home, timeouts_second_half_away, timeouts_overtime_home, timeouts_overtime_away, last_event_seq, rugby_home_tries, rugby_away_tries, rugby_home_conversions, rugby_away_conversions, rugby_home_penalties, rugby_away_penalties, rugby_home_drop_goals, rugby_away_drop_goals, rugby_home_yellow_sin_bin, rugby_away_yellow_sin_bin, rugby_home_sin_bin_active, rugby_away_sin_bin_active, rugby_extra_time, rugby_tiebreak_mode",
         )
         .eq("id", matchId)
         .maybeSingle();
@@ -312,6 +376,7 @@ export default function ControlPage() {
         { data: dsRow },
         { data: ssRow },
         { data: eventsRows, error: eventsErr },
+        { data: sinBinRows, error: sinErr },
       ] = await Promise.all([
         supabase.from("orgs").select("id, slug, name, sport").eq("id", currentMatch.org_id).maybeSingle(),
         currentMatch.team_id
@@ -336,13 +401,18 @@ export default function ControlPage() {
           .select("id, seq, event_type, team_side, period_index, game_clock_ms, shot_clock_s, payload, created_at")
           .eq("match_id", currentMatch.id)
           .order("seq", { ascending: false })
-          .limit(20),
+          .limit(30),
+        supabase
+          .from("match_sin_bins")
+          .select("id, team_side, player_id, player_name_snapshot, shirt_number_snapshot, started_game_clock_ms, duration_s, ended_game_clock_ms, is_active, created_at")
+          .eq("match_id", currentMatch.id)
+          .order("created_at", { ascending: false }),
       ]);
 
       if (cancelled) return;
 
-      if (eventsErr) {
-        setErr(eventsErr.message);
+      if (eventsErr || sinErr) {
+        setErr(eventsErr?.message || sinErr?.message || "Erreur chargement événements.");
         setLoading(false);
         return;
       }
@@ -352,6 +422,7 @@ export default function ControlPage() {
       setDisplaySettings((dsRow as DisplaySettings) || null);
       setSportSettings((ssRow as SportSettings) || null);
       setEvents((eventsRows as MatchEventRow[]) || []);
+      setSinBins((sinBinRows as SinBinRow[]) || []);
 
       const sportValue = normalizeSport((orgRow as OrgRow | null)?.sport);
       const ss = (ssRow as SportSettings | null) || null;
@@ -428,6 +499,21 @@ export default function ControlPage() {
       setHomeRedCards(Number(currentMatch.home_red_cards || 0));
       setAwayRedCards(Number(currentMatch.away_red_cards || 0));
 
+      setRugbyHomeTries(Number(currentMatch.rugby_home_tries || 0));
+      setRugbyAwayTries(Number(currentMatch.rugby_away_tries || 0));
+      setRugbyHomeConversions(Number(currentMatch.rugby_home_conversions || 0));
+      setRugbyAwayConversions(Number(currentMatch.rugby_away_conversions || 0));
+      setRugbyHomePenalties(Number(currentMatch.rugby_home_penalties || 0));
+      setRugbyAwayPenalties(Number(currentMatch.rugby_away_penalties || 0));
+      setRugbyHomeDrops(Number(currentMatch.rugby_home_drop_goals || 0));
+      setRugbyAwayDrops(Number(currentMatch.rugby_away_drop_goals || 0));
+      setRugbyHomeYellowSinBin(Number(currentMatch.rugby_home_yellow_sin_bin || 0));
+      setRugbyAwayYellowSinBin(Number(currentMatch.rugby_away_yellow_sin_bin || 0));
+      setRugbyHomeSinBinActive(Number(currentMatch.rugby_home_sin_bin_active || 0));
+      setRugbyAwaySinBinActive(Number(currentMatch.rugby_away_sin_bin_active || 0));
+      setRugbyExtraTime(!!currentMatch.rugby_extra_time);
+      setRugbyTiebreakMode(currentMatch.rugby_tiebreak_mode || "");
+
       const { data: matchPlayersData, error: matchPlayersErr } = await supabase
         .from("match_players")
         .select(`
@@ -468,7 +554,7 @@ export default function ControlPage() {
     return () => {
       cancelled = true;
     };
-  }, [matchId]);
+  }, [matchId, isBasket]);
 
   useEffect(() => {
     if (!clockRunning) return;
@@ -490,6 +576,17 @@ export default function ControlPage() {
       }
     };
   }, [clockRunning]);
+
+  useEffect(() => {
+    if (!isRugby) return;
+
+    const active = sinBins.filter((s) => s.is_active);
+    const homeActive = active.filter((s) => s.team_side === "home").length;
+    const awayActive = active.filter((s) => s.team_side === "away").length;
+
+    setRugbyHomeSinBinActive(homeActive);
+    setRugbyAwaySinBinActive(awayActive);
+  }, [sinBins, isRugby]);
 
   function displayLink() {
     if (!match || !DISPLAY_URL) return "";
@@ -558,7 +655,7 @@ export default function ControlPage() {
     }
 
     if (data) {
-      setEvents((prev) => [data as MatchEventRow, ...prev].slice(0, 20));
+      setEvents((prev) => [data as MatchEventRow, ...prev].slice(0, 30));
       setMatch((prev) =>
         prev
           ? {
@@ -605,12 +702,8 @@ export default function ControlPage() {
 
       layout_mode: displaySettings?.layout_mode ?? "stadium",
 
-      home: {
-        name: homeName,
-      },
-      away: {
-        name: awayName,
-      },
+      home: { name: homeName },
+      away: { name: awayName },
 
       home_team_fouls: homeTeamFouls,
       away_team_fouls: awayTeamFouls,
@@ -631,6 +724,21 @@ export default function ControlPage() {
       possession_arrow: possessionArrow,
       current_period_index: currentPeriodIndex,
       is_overtime: isOvertime,
+
+      rugby_home_tries: rugbyHomeTries,
+      rugby_away_tries: rugbyAwayTries,
+      rugby_home_conversions: rugbyHomeConversions,
+      rugby_away_conversions: rugbyAwayConversions,
+      rugby_home_penalties: rugbyHomePenalties,
+      rugby_away_penalties: rugbyAwayPenalties,
+      rugby_home_drop_goals: rugbyHomeDrops,
+      rugby_away_drop_goals: rugbyAwayDrops,
+      rugby_home_yellow_sin_bin: rugbyHomeYellowSinBin,
+      rugby_away_yellow_sin_bin: rugbyAwayYellowSinBin,
+      rugby_home_sin_bin_active: rugbyHomeSinBinActive,
+      rugby_away_sin_bin_active: rugbyAwaySinBinActive,
+      rugby_extra_time: rugbyExtraTime,
+      rugby_tiebreak_mode: rugbyTiebreakMode,
 
       ...patch,
     };
@@ -669,6 +777,21 @@ export default function ControlPage() {
       possession_arrow: possessionArrow,
       team_fouls_period_home: homeTeamFouls,
       team_fouls_period_away: awayTeamFouls,
+
+      rugby_home_tries: rugbyHomeTries,
+      rugby_away_tries: rugbyAwayTries,
+      rugby_home_conversions: rugbyHomeConversions,
+      rugby_away_conversions: rugbyAwayConversions,
+      rugby_home_penalties: rugbyHomePenalties,
+      rugby_away_penalties: rugbyAwayPenalties,
+      rugby_home_drop_goals: rugbyHomeDrops,
+      rugby_away_drop_goals: rugbyAwayDrops,
+      rugby_home_yellow_sin_bin: rugbyHomeYellowSinBin,
+      rugby_away_yellow_sin_bin: rugbyAwayYellowSinBin,
+      rugby_home_sin_bin_active: rugbyHomeSinBinActive,
+      rugby_away_sin_bin_active: rugbyAwaySinBinActive,
+      rugby_extra_time: rugbyExtraTime,
+      rugby_tiebreak_mode: rugbyTiebreakMode || null,
     };
 
     try {
@@ -709,11 +832,7 @@ export default function ControlPage() {
         await appendEvent({
           event_type: delta > 0 ? `basket_score_${delta}` : "basket_score_correction",
           team_side: side,
-          payload: {
-            delta,
-            home_score: nextHome,
-            away_score: nextAway,
-          },
+          payload: { delta, home_score: nextHome, away_score: nextAway },
         });
       }
     } catch {
@@ -1095,6 +1214,255 @@ export default function ControlPage() {
         payload: { field, delta, value: nextValue },
       });
     }
+
+    if (isRugby && (field === "yellow_cards" || field === "red_cards")) {
+      await appendEvent({
+        event_type: field === "yellow_cards" ? "rugby_player_yellow" : "rugby_player_red",
+        team_side: side,
+        player_id: playerId,
+        payload: { field, delta, value: nextValue },
+      });
+    }
+  }
+
+  async function applyRugbyScoring(
+    side: "home" | "away",
+    field: "tries" | "conversions" | "penalties" | "drops",
+    delta: number,
+  ) {
+    const currentHome = {
+      tries: rugbyHomeTries,
+      conversions: rugbyHomeConversions,
+      penalties: rugbyHomePenalties,
+      drops: rugbyHomeDrops,
+    };
+    const currentAway = {
+      tries: rugbyAwayTries,
+      conversions: rugbyAwayConversions,
+      penalties: rugbyAwayPenalties,
+      drops: rugbyAwayDrops,
+    };
+
+    if (side === "home") {
+      if (field === "tries") setRugbyHomeTries((v) => clampMin(v + delta));
+      if (field === "conversions") setRugbyHomeConversions((v) => clampMin(v + delta));
+      if (field === "penalties") setRugbyHomePenalties((v) => clampMin(v + delta));
+      if (field === "drops") setRugbyHomeDrops((v) => clampMin(v + delta));
+    } else {
+      if (field === "tries") setRugbyAwayTries((v) => clampMin(v + delta));
+      if (field === "conversions") setRugbyAwayConversions((v) => clampMin(v + delta));
+      if (field === "penalties") setRugbyAwayPenalties((v) => clampMin(v + delta));
+      if (field === "drops") setRugbyAwayDrops((v) => clampMin(v + delta));
+    }
+
+    const nextHomeParts = {
+      tries: side === "home" && field === "tries" ? clampMin(currentHome.tries + delta) : currentHome.tries,
+      conversions:
+        side === "home" && field === "conversions" ? clampMin(currentHome.conversions + delta) : currentHome.conversions,
+      penalties:
+        side === "home" && field === "penalties" ? clampMin(currentHome.penalties + delta) : currentHome.penalties,
+      drops: side === "home" && field === "drops" ? clampMin(currentHome.drops + delta) : currentHome.drops,
+    };
+
+    const nextAwayParts = {
+      tries: side === "away" && field === "tries" ? clampMin(currentAway.tries + delta) : currentAway.tries,
+      conversions:
+        side === "away" && field === "conversions" ? clampMin(currentAway.conversions + delta) : currentAway.conversions,
+      penalties:
+        side === "away" && field === "penalties" ? clampMin(currentAway.penalties + delta) : currentAway.penalties,
+      drops: side === "away" && field === "drops" ? clampMin(currentAway.drops + delta) : currentAway.drops,
+    };
+
+    const nextHomeScore = recomputeRugbyScore(nextHomeParts);
+    const nextAwayScore = recomputeRugbyScore(nextAwayParts);
+
+    setHomeScore(nextHomeScore);
+    setAwayScore(nextAwayScore);
+
+    const patch: Partial<MatchRow> = {
+      home_score: nextHomeScore,
+      away_score: nextAwayScore,
+      rugby_home_tries: nextHomeParts.tries,
+      rugby_home_conversions: nextHomeParts.conversions,
+      rugby_home_penalties: nextHomeParts.penalties,
+      rugby_home_drop_goals: nextHomeParts.drops,
+      rugby_away_tries: nextAwayParts.tries,
+      rugby_away_conversions: nextAwayParts.conversions,
+      rugby_away_penalties: nextAwayParts.penalties,
+      rugby_away_drop_goals: nextAwayParts.drops,
+    };
+
+    try {
+      await persistLiveState(patch);
+
+      if (autoLive) {
+        await pushPatch(patch);
+      }
+
+      await appendEvent({
+        event_type: `rugby_${field}`,
+        team_side: side,
+        payload: {
+          delta,
+          home_score: nextHomeScore,
+          away_score: nextAwayScore,
+          home: nextHomeParts,
+          away: nextAwayParts,
+        },
+      });
+    } catch {
+      // handled
+    }
+  }
+
+  async function issueRugbyYellow(side: "home" | "away", player?: PlayerStatRow | null) {
+    const nextHomeYellow = side === "home" ? rugbyHomeYellowSinBin + 1 : rugbyHomeYellowSinBin;
+    const nextAwayYellow = side === "away" ? rugbyAwayYellowSinBin + 1 : rugbyAwayYellowSinBin;
+    const nextHomeActive = side === "home" ? rugbyHomeSinBinActive + 1 : rugbyHomeSinBinActive;
+    const nextAwayActive = side === "away" ? rugbyAwaySinBinActive + 1 : rugbyAwaySinBinActive;
+
+    setRugbyHomeYellowSinBin(nextHomeYellow);
+    setRugbyAwayYellowSinBin(nextAwayYellow);
+    setRugbyHomeSinBinActive(nextHomeActive);
+    setRugbyAwaySinBinActive(nextAwayActive);
+
+    const patch: Partial<MatchRow> = {
+      rugby_home_yellow_sin_bin: nextHomeYellow,
+      rugby_away_yellow_sin_bin: nextAwayYellow,
+      rugby_home_sin_bin_active: nextHomeActive,
+      rugby_away_sin_bin_active: nextAwayActive,
+      home_yellow_cards: side === "home" ? homeYellowCards + 1 : homeYellowCards,
+      away_yellow_cards: side === "away" ? awayYellowCards + 1 : awayYellowCards,
+    };
+
+    if (side === "home") setHomeYellowCards((v) => v + 1);
+    else setAwayYellowCards((v) => v + 1);
+
+    try {
+      await persistLiveState(patch);
+
+      const { data, error } = await supabase
+        .from("match_sin_bins")
+        .insert({
+          org_id: match!.org_id,
+          match_id: match!.id,
+          team_side: side,
+          team_id: side === "home" ? match!.home_team_id || match!.team_id : match!.away_team_id,
+          player_id: player?.id || null,
+          player_name_snapshot: player?.name || null,
+          shirt_number_snapshot: player?.number || null,
+          started_game_clock_ms: clockMs,
+          duration_s: 600,
+          is_active: true,
+        })
+        .select("id, team_side, player_id, player_name_snapshot, shirt_number_snapshot, started_game_clock_ms, duration_s, ended_game_clock_ms, is_active, created_at")
+        .maybeSingle();
+
+      if (!error && data) {
+        setSinBins((prev) => [data as SinBinRow, ...prev]);
+      }
+
+      if (autoLive) {
+        await pushPatch(patch);
+      }
+
+      await appendEvent({
+        event_type: "rugby_yellow_card",
+        team_side: side,
+        player_id: player?.id || null,
+        payload: {
+          player_name: player?.name || null,
+          shirt_number: player?.number || null,
+          sin_bin_s: 600,
+        },
+      });
+    } catch {
+      // handled
+    }
+  }
+
+  async function endSinBin(bin: SinBinRow) {
+    if (!match) return;
+
+    const { error } = await supabase
+      .from("match_sin_bins")
+      .update({
+        is_active: false,
+        ended_game_clock_ms: clockMs,
+      })
+      .eq("id", bin.id);
+
+    if (error) {
+      flash(`Erreur clôture sin bin : ${error.message}`);
+      return;
+    }
+
+    const nextRows = sinBins.map((r) =>
+      r.id === bin.id ? { ...r, is_active: false, ended_game_clock_ms: clockMs } : r,
+    );
+    setSinBins(nextRows);
+
+    const nextHomeActive = nextRows.filter((r) => r.is_active && r.team_side === "home").length;
+    const nextAwayActive = nextRows.filter((r) => r.is_active && r.team_side === "away").length;
+
+    setRugbyHomeSinBinActive(nextHomeActive);
+    setRugbyAwaySinBinActive(nextAwayActive);
+
+    try {
+      await persistLiveState({
+        rugby_home_sin_bin_active: nextHomeActive,
+        rugby_away_sin_bin_active: nextAwayActive,
+      });
+
+      if (autoLive) {
+        await pushPatch({
+          rugby_home_sin_bin_active: nextHomeActive,
+          rugby_away_sin_bin_active: nextAwayActive,
+        });
+      }
+
+      await appendEvent({
+        event_type: "rugby_sin_bin_end",
+        team_side: bin.team_side,
+        player_id: bin.player_id,
+        payload: {
+          player_name: bin.player_name_snapshot,
+          shirt_number: bin.shirt_number_snapshot,
+        },
+      });
+    } catch {
+      // handled
+    }
+  }
+
+  async function issueRugbyRed(side: "home" | "away", player?: PlayerStatRow | null) {
+    const patch: Partial<MatchRow> = {
+      home_red_cards: side === "home" ? homeRedCards + 1 : homeRedCards,
+      away_red_cards: side === "away" ? awayRedCards + 1 : awayRedCards,
+    };
+
+    if (side === "home") setHomeRedCards((v) => v + 1);
+    else setAwayRedCards((v) => v + 1);
+
+    try {
+      await persistLiveState(patch);
+
+      if (autoLive) {
+        await pushPatch(patch);
+      }
+
+      await appendEvent({
+        event_type: "rugby_red_card",
+        team_side: side,
+        player_id: player?.id || null,
+        payload: {
+          player_name: player?.name || null,
+          shirt_number: player?.number || null,
+        },
+      });
+    } catch {
+      // handled
+    }
   }
 
   async function openFullscreen() {
@@ -1130,8 +1498,11 @@ export default function ControlPage() {
   const showTimeouts = !!sportSettings?.show_timeouts;
   const showBonus = !!sportSettings?.show_bonus;
   const showSets = !!sportSettings?.show_sets;
-  const showCards = !!sportSettings?.show_cards;
+  const showCards = !!sportSettings?.show_cards || isRugby;
   const showShotClock = !!sportSettings?.show_shot_clock;
+
+  const activeHomeBins = sinBins.filter((s) => s.is_active && s.team_side === "home");
+  const activeAwayBins = sinBins.filter((s) => s.is_active && s.team_side === "away");
 
   return (
     <div style={styles.page}>
@@ -1336,7 +1707,7 @@ export default function ControlPage() {
             <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
               <div style={styles.sectionTitle}>Mode basket</div>
 
-              <div style={styles.basketGrid}>
+              <div style={styles.modeGrid}>
                 <div style={styles.statCard}>
                   <div style={styles.statCardTitle}>Périodes</div>
                   <div style={styles.scoreActions}>
@@ -1382,7 +1753,87 @@ export default function ControlPage() {
             </section>
           ) : null}
 
-          {(showTeamFouls || showTimeouts || showBonus || showSets || showCards) ? (
+          {isRugby ? (
+            <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
+              <div style={styles.sectionTitle}>Mode rugby</div>
+
+              <div style={styles.modeGrid}>
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>Marque domicile</div>
+                  <div style={styles.scoreActions}>
+                    <button onClick={() => applyRugbyScoring("home", "tries", 1)} style={styles.primaryBtnSmall}>Essai +5</button>
+                    <button onClick={() => applyRugbyScoring("home", "conversions", 1)} style={styles.ghostBtnSmall}>Transfo +2</button>
+                    <button onClick={() => applyRugbyScoring("home", "penalties", 1)} style={styles.ghostBtnSmall}>Pénalité +3</button>
+                    <button onClick={() => applyRugbyScoring("home", "drops", 1)} style={styles.ghostBtnSmall}>Drop +3</button>
+                  </div>
+                  <div style={{ ...styles.scoreActions, marginTop: 8 }}>
+                    <button onClick={() => applyRugbyScoring("home", "tries", -1)} style={styles.ghostBtnSmall}>Essai -1</button>
+                    <button onClick={() => applyRugbyScoring("home", "conversions", -1)} style={styles.ghostBtnSmall}>Transfo -1</button>
+                    <button onClick={() => applyRugbyScoring("home", "penalties", -1)} style={styles.ghostBtnSmall}>Pénalité -1</button>
+                    <button onClick={() => applyRugbyScoring("home", "drops", -1)} style={styles.ghostBtnSmall}>Drop -1</button>
+                  </div>
+                </div>
+
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>Marque extérieure</div>
+                  <div style={styles.scoreActions}>
+                    <button onClick={() => applyRugbyScoring("away", "tries", 1)} style={styles.primaryBtnSmall}>Essai +5</button>
+                    <button onClick={() => applyRugbyScoring("away", "conversions", 1)} style={styles.ghostBtnSmall}>Transfo +2</button>
+                    <button onClick={() => applyRugbyScoring("away", "penalties", 1)} style={styles.ghostBtnSmall}>Pénalité +3</button>
+                    <button onClick={() => applyRugbyScoring("away", "drops", 1)} style={styles.ghostBtnSmall}>Drop +3</button>
+                  </div>
+                  <div style={{ ...styles.scoreActions, marginTop: 8 }}>
+                    <button onClick={() => applyRugbyScoring("away", "tries", -1)} style={styles.ghostBtnSmall}>Essai -1</button>
+                    <button onClick={() => applyRugbyScoring("away", "conversions", -1)} style={styles.ghostBtnSmall}>Transfo -1</button>
+                    <button onClick={() => applyRugbyScoring("away", "penalties", -1)} style={styles.ghostBtnSmall}>Pénalité -1</button>
+                    <button onClick={() => applyRugbyScoring("away", "drops", -1)} style={styles.ghostBtnSmall}>Drop -1</button>
+                  </div>
+                </div>
+
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>Paramètres rugby</div>
+                  <div style={{ display: "grid", gap: 10 }}>
+                    <label style={styles.switchRow}>
+                      <input
+                        type="checkbox"
+                        checked={rugbyExtraTime}
+                        onChange={async (e) => {
+                          const next = e.target.checked;
+                          setRugbyExtraTime(next);
+                          try {
+                            await persistLiveState({ rugby_extra_time: next });
+                            if (autoLive) await pushPatch({ rugby_extra_time: next });
+                          } catch {
+                            // handled
+                          }
+                        }}
+                      />
+                      <span>Prolongation rugby</span>
+                    </label>
+
+                    <Field label="Mode départage">
+                      <input
+                        value={rugbyTiebreakMode}
+                        onChange={(e) => setRugbyTiebreakMode(e.target.value)}
+                        onBlur={async () => {
+                          try {
+                            await persistLiveState({ rugby_tiebreak_mode: rugbyTiebreakMode || null });
+                            if (autoLive) await pushPatch({ rugby_tiebreak_mode: rugbyTiebreakMode || null });
+                          } catch {
+                            // handled
+                          }
+                        }}
+                        style={styles.input}
+                        placeholder="Ex: prolongation, TAB..."
+                      />
+                    </Field>
+                  </div>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          {(showTeamFouls || showTimeouts || showBonus || showSets || showCards || isRugby) ? (
             <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
               <div style={styles.sectionTitle}>Statistiques de match</div>
 
@@ -1481,7 +1932,95 @@ export default function ControlPage() {
                     </div>
                   </div>
                 ) : null}
+
+                {isRugby ? (
+                  <div style={styles.statCard}>
+                    <div style={styles.statCardTitle}>Détail score rugby</div>
+                    <div style={{ display: "grid", gap: 10 }}>
+                      <div style={styles.rugbyScoreLine}>
+                        <span>{homeName}</span>
+                        <span>
+                          E {rugbyHomeTries} • T {rugbyHomeConversions} • P {rugbyHomePenalties} • D {rugbyHomeDrops}
+                        </span>
+                      </div>
+                      <div style={styles.rugbyScoreLine}>
+                        <span>{awayName}</span>
+                        <span>
+                          E {rugbyAwayTries} • T {rugbyAwayConversions} • P {rugbyAwayPenalties} • D {rugbyAwayDrops}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {isRugby ? (
+                  <div style={styles.statCard}>
+                    <div style={styles.statCardTitle}>Sin bin actifs</div>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      <div>{homeName} : {rugbyHomeSinBinActive}</div>
+                      <div>{awayName} : {rugbyAwaySinBinActive}</div>
+                    </div>
+                  </div>
+                ) : null}
               </div>
+            </section>
+          ) : null}
+
+          {isRugby ? (
+            <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
+              <div style={styles.sectionTitle}>Cartons rugby & sin bin</div>
+
+              <div style={styles.modeGrid}>
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>{homeName}</div>
+                  <div style={styles.scoreActions}>
+                    <button onClick={() => issueRugbyYellow("home")} style={styles.ghostBtnSmall}>Jaune équipe</button>
+                    <button onClick={() => issueRugbyRed("home")} style={styles.ghostBtnSmall}>Rouge équipe</button>
+                  </div>
+                  <div style={{ ...styles.scoreActions, marginTop: 8 }}>
+                    {homePlayers.slice(0, 8).map((p) => (
+                      <button key={p.id} onClick={() => issueRugbyYellow("home", p)} style={styles.ghostBtnSmall}>
+                        J #{p.number}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>{awayName}</div>
+                  <div style={styles.scoreActions}>
+                    <button onClick={() => issueRugbyYellow("away")} style={styles.ghostBtnSmall}>Jaune équipe</button>
+                    <button onClick={() => issueRugbyRed("away")} style={styles.ghostBtnSmall}>Rouge équipe</button>
+                  </div>
+                  <div style={{ ...styles.scoreActions, marginTop: 8 }}>
+                    {awayPlayers.slice(0, 8).map((p) => (
+                      <button key={p.id} onClick={() => issueRugbyYellow("away", p)} style={styles.ghostBtnSmall}>
+                        J #{p.number}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {(activeHomeBins.length > 0 || activeAwayBins.length > 0) ? (
+                <div style={{ marginTop: 16, display: "grid", gap: 8 }}>
+                  {[...activeHomeBins, ...activeAwayBins].map((bin) => (
+                    <div key={bin.id} style={styles.eventRow}>
+                      <div style={styles.eventMain}>
+                        <div style={styles.eventType}>
+                          {bin.team_side === "home" ? homeName : awayName} • Sin bin actif
+                        </div>
+                        <div style={styles.eventMeta}>
+                          {bin.player_name_snapshot || "Joueur non renseigné"} {bin.shirt_number_snapshot ? `• #${bin.shirt_number_snapshot}` : ""}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                        <button onClick={() => endSinBin(bin)} style={styles.primaryBtnSmall}>Clôturer</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </section>
           ) : null}
 
@@ -1509,7 +2048,7 @@ export default function ControlPage() {
             </section>
           ) : null}
 
-          {isBasket ? (
+          {(isBasket || isRugby) ? (
             <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
               <div style={styles.sectionTitle}>Journal des événements</div>
               {events.length === 0 ? (
@@ -1843,9 +2382,9 @@ const styles: Record<string, any> = {
     gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
     gap: 14,
   },
-  basketGrid: {
+  modeGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
     gap: 14,
   },
   statCard: {
@@ -1916,6 +2455,12 @@ const styles: Record<string, any> = {
     fontSize: 12,
     opacity: 0.86,
     wordBreak: "break-word",
+  },
+  rugbyScoreLine: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    fontSize: 14,
   },
   primaryBtn: {
     background: "#2563eb",
