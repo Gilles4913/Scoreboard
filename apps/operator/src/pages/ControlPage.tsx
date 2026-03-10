@@ -78,6 +78,27 @@ type MatchRow = {
   handball_away_disqualifications: number | null;
   handball_extra_time: boolean | null;
   handball_shootout_mode: string | null;
+
+  volleyball_home_timeouts: number | null;
+  volleyball_away_timeouts: number | null;
+  volleyball_home_set_points: number | null;
+  volleyball_away_set_points: number | null;
+  volleyball_home_serving: boolean | null;
+  volleyball_away_serving: boolean | null;
+  volleyball_current_set: number | null;
+  volleyball_is_tiebreak: boolean | null;
+
+  football_home_yellow_cards: number | null;
+  football_away_yellow_cards: number | null;
+  football_home_red_cards: number | null;
+  football_away_red_cards: number | null;
+  football_home_penalty_shootout: number | null;
+  football_away_penalty_shootout: number | null;
+  football_extra_time: boolean | null;
+  football_added_time_first_half: number | null;
+  football_added_time_second_half: number | null;
+  football_added_time_extra_1: number | null;
+  football_added_time_extra_2: number | null;
 };
 
 type OrgRow = {
@@ -169,20 +190,7 @@ type MatchEventRow = {
   created_at: string;
 };
 
-type SinBinRow = {
-  id: string;
-  team_side: "home" | "away";
-  player_id: string | null;
-  player_name_snapshot: string | null;
-  shirt_number_snapshot: string | null;
-  started_game_clock_ms: number;
-  duration_s: number;
-  ended_game_clock_ms: number | null;
-  is_active: boolean;
-  created_at: string;
-};
-
-type TwoMinRow = {
+type SuspensionRow = {
   id: string;
   team_side: "home" | "away";
   player_id: string | null;
@@ -206,23 +214,10 @@ function normalizeSport(v: string | null | undefined) {
   return ((v || "football") + "").toLowerCase().trim();
 }
 
-function isBasketSport(sport: string) {
-  return normalizeSport(sport) === "basket";
-}
-
-function isRugbySport(sport: string) {
-  return normalizeSport(sport) === "rugby";
-}
-
-function isHandballSport(sport: string) {
-  return normalizeSport(sport) === "handball";
-}
-
 function defaultClockMsBySport(sport: string, periodDurationS?: number | null) {
   if (typeof periodDurationS === "number" && periodDurationS >= 0) {
     return periodDurationS * 1000;
   }
-
   const s = normalizeSport(sport);
   if (s === "basket") return 10 * 60 * 1000;
   if (s === "handball") return 30 * 60 * 1000;
@@ -240,17 +235,13 @@ function periodOptionsBySport(sport: string, periodCount?: number) {
     base.push("OT");
     return base;
   }
-
   if (s === "volleyball") {
     return Array.from({ length: Math.max(3, count) }, (_, i) => `Set ${i + 1}`);
   }
-
-  if (s === "rugby" || s === "handball") {
+  if (s === "rugby" || s === "handball" || s === "football") {
     return ["1MT", "2MT", "Prolongation"];
   }
-
   if (count === 2) return ["1MT", "2MT", "Prolongation"];
-
   return Array.from({ length: count }, (_, i) => `P${i + 1}`);
 }
 
@@ -310,8 +301,8 @@ export default function ControlPage() {
   const [displaySettings, setDisplaySettings] = useState<DisplaySettings | null>(null);
   const [sportSettings, setSportSettings] = useState<SportSettings | null>(null);
   const [events, setEvents] = useState<MatchEventRow[]>([]);
-  const [sinBins, setSinBins] = useState<SinBinRow[]>([]);
-  const [twoMinRows, setTwoMinRows] = useState<TwoMinRow[]>([]);
+  const [rugbySuspensions, setRugbySuspensions] = useState<SuspensionRow[]>([]);
+  const [handballSuspensions, setHandballSuspensions] = useState<SuspensionRow[]>([]);
 
   const [matchName, setMatchName] = useState("");
   const [homeName, setHomeName] = useState("");
@@ -375,18 +366,40 @@ export default function ControlPage() {
   const [handballExtraTime, setHandballExtraTime] = useState(false);
   const [handballShootoutMode, setHandballShootoutMode] = useState("");
 
+  const [volleyHomeTimeouts, setVolleyHomeTimeouts] = useState(0);
+  const [volleyAwayTimeouts, setVolleyAwayTimeouts] = useState(0);
+  const [volleyHomeSetPoints, setVolleyHomeSetPoints] = useState(0);
+  const [volleyAwaySetPoints, setVolleyAwaySetPoints] = useState(0);
+  const [volleyHomeServing, setVolleyHomeServing] = useState(false);
+  const [volleyAwayServing, setVolleyAwayServing] = useState(false);
+  const [volleyCurrentSet, setVolleyCurrentSet] = useState(1);
+  const [volleyIsTiebreak, setVolleyIsTiebreak] = useState(false);
+
+  const [footballHomeYellows, setFootballHomeYellows] = useState(0);
+  const [footballAwayYellows, setFootballAwayYellows] = useState(0);
+  const [footballHomeReds, setFootballHomeReds] = useState(0);
+  const [footballAwayReds, setFootballAwayReds] = useState(0);
+  const [footballHomePens, setFootballHomePens] = useState(0);
+  const [footballAwayPens, setFootballAwayPens] = useState(0);
+  const [footballExtraTime, setFootballExtraTime] = useState(false);
+  const [footballAdded1, setFootballAdded1] = useState(0);
+  const [footballAdded2, setFootballAdded2] = useState(0);
+  const [footballAddedEx1, setFootballAddedEx1] = useState(0);
+  const [footballAddedEx2, setFootballAddedEx2] = useState(0);
+
   const timerRef = useRef<number | null>(null);
 
   const sport = normalizeSport(org?.sport);
-  const isBasket = isBasketSport(sport);
-  const isRugby = isRugbySport(sport);
-  const isHandball = isHandballSport(sport);
+  const isBasket = sport === "basket";
+  const isRugby = sport === "rugby";
+  const isHandball = sport === "handball";
+  const isVolleyball = sport === "volleyball";
+  const isFootball = sport === "football";
 
   const periodOptions = useMemo(
     () => periodOptionsBySport(sport, sportSettings?.period_count),
     [sport, sportSettings?.period_count],
   );
-
   const scoreSteps = useMemo(() => scoreStepOptionsBySport(sport), [sport]);
 
   useEffect(() => {
@@ -398,9 +411,7 @@ export default function ControlPage() {
 
       const { data: matchRow, error: matchErr } = await supabase
         .from("matches")
-        .select(
-          "id, org_id, team_id, home_team_id, away_team_id, name, status, scheduled_at, public_display, display_token, home_name, away_name, home_score, away_score, period_label, clock_ms, clock_running, home_team_fouls, away_team_fouls, home_timeouts, away_timeouts, home_bonus, away_bonus, shot_clock_s, home_sets_won, away_sets_won, home_yellow_cards, away_yellow_cards, home_red_cards, away_red_cards, current_period_index, is_overtime, possession_arrow, team_fouls_period_home, team_fouls_period_away, timeouts_first_half_home, timeouts_first_half_away, timeouts_second_half_home, timeouts_second_half_away, timeouts_overtime_home, timeouts_overtime_away, last_event_seq, rugby_home_tries, rugby_away_tries, rugby_home_conversions, rugby_away_conversions, rugby_home_penalties, rugby_away_penalties, rugby_home_drop_goals, rugby_away_drop_goals, rugby_home_yellow_sin_bin, rugby_away_yellow_sin_bin, rugby_home_sin_bin_active, rugby_away_sin_bin_active, rugby_extra_time, rugby_tiebreak_mode, handball_home_2min, handball_away_2min, handball_home_2min_active, handball_away_2min_active, handball_home_team_timeouts, handball_away_team_timeouts, handball_home_warnings, handball_away_warnings, handball_home_disqualifications, handball_away_disqualifications, handball_extra_time, handball_shootout_mode",
-        )
+        .select("*")
         .eq("id", matchId)
         .maybeSingle();
 
@@ -421,8 +432,8 @@ export default function ControlPage() {
         { data: dsRow },
         { data: ssRow },
         { data: eventsRows, error: eventsErr },
-        { data: sinBinRows, error: sinErr },
-        { data: twoMinData, error: twoMinErr },
+        { data: rugbyRows },
+        { data: handballRows },
       ] = await Promise.all([
         supabase.from("orgs").select("id, slug, name, sport").eq("id", currentMatch.org_id).maybeSingle(),
         currentMatch.team_id
@@ -430,16 +441,12 @@ export default function ControlPage() {
           : Promise.resolve({ data: null }),
         supabase
           .from("org_display_settings")
-          .select(
-            "theme, layout_mode, show_score, show_clock, show_period, show_status, show_lower_third, show_logos, show_sponsors, dual_language, lang_primary, lang_secondary, sponsor_rotate_s",
-          )
+          .select("theme, layout_mode, show_score, show_clock, show_period, show_status, show_lower_third, show_logos, show_sponsors, dual_language, lang_primary, lang_secondary, sponsor_rotate_s")
           .eq("org_id", currentMatch.org_id)
           .maybeSingle(),
         supabase
           .from("org_sport_settings")
-          .select(
-            "org_id, sport, period_count, period_duration_s, extra_time_enabled, penalties_enabled, show_team_fouls, show_player_fouls, show_timeouts, show_bonus, show_sets, show_cards, show_shot_clock, max_team_fouls, max_player_fouls, max_timeouts, shot_clock_s",
-          )
+          .select("org_id, sport, period_count, period_duration_s, extra_time_enabled, penalties_enabled, show_team_fouls, show_player_fouls, show_timeouts, show_bonus, show_sets, show_cards, show_shot_clock, max_team_fouls, max_player_fouls, max_timeouts, shot_clock_s")
           .eq("org_id", currentMatch.org_id)
           .maybeSingle(),
         supabase
@@ -447,7 +454,7 @@ export default function ControlPage() {
           .select("id, seq, event_type, team_side, period_index, game_clock_ms, shot_clock_s, payload, created_at")
           .eq("match_id", currentMatch.id)
           .order("seq", { ascending: false })
-          .limit(40),
+          .limit(50),
         supabase
           .from("match_sin_bins")
           .select("id, team_side, player_id, player_name_snapshot, shirt_number_snapshot, started_game_clock_ms, duration_s, ended_game_clock_ms, is_active, created_at")
@@ -462,8 +469,8 @@ export default function ControlPage() {
 
       if (cancelled) return;
 
-      if (eventsErr || sinErr || twoMinErr) {
-        setErr(eventsErr?.message || sinErr?.message || twoMinErr?.message || "Erreur chargement événements.");
+      if (eventsErr) {
+        setErr(eventsErr.message);
         setLoading(false);
         return;
       }
@@ -473,24 +480,17 @@ export default function ControlPage() {
       setDisplaySettings((dsRow as DisplaySettings) || null);
       setSportSettings((ssRow as SportSettings) || null);
       setEvents((eventsRows as MatchEventRow[]) || []);
-      setSinBins((sinBinRows as SinBinRow[]) || []);
-      setTwoMinRows((twoMinData as TwoMinRow[]) || []);
+      setRugbySuspensions((rugbyRows as SuspensionRow[]) || []);
+      setHandballSuspensions((handballRows as SuspensionRow[]) || []);
 
       const sportValue = normalizeSport((orgRow as OrgRow | null)?.sport);
       const ss = (ssRow as SportSettings | null) || null;
 
-      setMatchName(
-        currentMatch.name ||
-          `${currentMatch.home_name || "Domicile"} vs ${currentMatch.away_name || "Extérieur"}`,
-      );
+      setMatchName(currentMatch.name || `${currentMatch.home_name || "Domicile"} vs ${currentMatch.away_name || "Extérieur"}`);
       setHomeName(currentMatch.home_name || "Domicile");
       setAwayName(currentMatch.away_name || "Extérieur");
       setStatus((currentMatch.status || "scheduled").toLowerCase());
-      setPeriodLabel(
-        currentMatch.period_label ||
-          periodOptionsBySport(sportValue, ss?.period_count)[0] ||
-          "1MT",
-      );
+      setPeriodLabel(currentMatch.period_label || periodOptionsBySport(sportValue, ss?.period_count)[0] || "1MT");
       setCurrentPeriodIndex(Number(currentMatch.current_period_index || 1));
       setIsOvertime(!!currentMatch.is_overtime);
       setPossessionArrow((currentMatch.possession_arrow || "home") as "home" | "away");
@@ -504,46 +504,13 @@ export default function ControlPage() {
       );
       setClockRunning(!!currentMatch.clock_running);
 
-      setHomeTeamFouls(
-        Number(
-          isBasket
-            ? currentMatch.team_fouls_period_home || 0
-            : currentMatch.home_team_fouls || 0,
-        ),
-      );
-      setAwayTeamFouls(
-        Number(
-          isBasket
-            ? currentMatch.team_fouls_period_away || 0
-            : currentMatch.away_team_fouls || 0,
-        ),
-      );
-
-      if (isBasket) {
-        const p = Number(currentMatch.current_period_index || 1);
-        const isOt = !!currentMatch.is_overtime;
-        if (isOt || p >= 5) {
-          setHomeTimeouts(Number(currentMatch.timeouts_overtime_home || 0));
-          setAwayTimeouts(Number(currentMatch.timeouts_overtime_away || 0));
-        } else if (p <= 2) {
-          setHomeTimeouts(Number(currentMatch.timeouts_first_half_home || 0));
-          setAwayTimeouts(Number(currentMatch.timeouts_first_half_away || 0));
-        } else {
-          setHomeTimeouts(Number(currentMatch.timeouts_second_half_home || 0));
-          setAwayTimeouts(Number(currentMatch.timeouts_second_half_away || 0));
-        }
-      } else {
-        setHomeTimeouts(Number(currentMatch.home_timeouts || 0));
-        setAwayTimeouts(Number(currentMatch.away_timeouts || 0));
-      }
-
+      setHomeTeamFouls(Number(currentMatch.home_team_fouls || 0));
+      setAwayTeamFouls(Number(currentMatch.away_team_fouls || 0));
+      setHomeTimeouts(Number(currentMatch.home_timeouts || 0));
+      setAwayTimeouts(Number(currentMatch.away_timeouts || 0));
       setHomeBonus(!!currentMatch.home_bonus);
       setAwayBonus(!!currentMatch.away_bonus);
-      setShotClockS(
-        typeof currentMatch.shot_clock_s === "number"
-          ? currentMatch.shot_clock_s
-          : Number(ss?.shot_clock_s || 24),
-      );
+      setShotClockS(typeof currentMatch.shot_clock_s === "number" ? currentMatch.shot_clock_s : Number(ss?.shot_clock_s || 24));
       setHomeSetsWon(Number(currentMatch.home_sets_won || 0));
       setAwaySetsWon(Number(currentMatch.away_sets_won || 0));
       setHomeYellowCards(Number(currentMatch.home_yellow_cards || 0));
@@ -579,6 +546,27 @@ export default function ControlPage() {
       setHandballExtraTime(!!currentMatch.handball_extra_time);
       setHandballShootoutMode(currentMatch.handball_shootout_mode || "");
 
+      setVolleyHomeTimeouts(Number(currentMatch.volleyball_home_timeouts || 0));
+      setVolleyAwayTimeouts(Number(currentMatch.volleyball_away_timeouts || 0));
+      setVolleyHomeSetPoints(Number(currentMatch.volleyball_home_set_points || 0));
+      setVolleyAwaySetPoints(Number(currentMatch.volleyball_away_set_points || 0));
+      setVolleyHomeServing(!!currentMatch.volleyball_home_serving);
+      setVolleyAwayServing(!!currentMatch.volleyball_away_serving);
+      setVolleyCurrentSet(Number(currentMatch.volleyball_current_set || 1));
+      setVolleyIsTiebreak(!!currentMatch.volleyball_is_tiebreak);
+
+      setFootballHomeYellows(Number(currentMatch.football_home_yellow_cards || 0));
+      setFootballAwayYellows(Number(currentMatch.football_away_yellow_cards || 0));
+      setFootballHomeReds(Number(currentMatch.football_home_red_cards || 0));
+      setFootballAwayReds(Number(currentMatch.football_away_red_cards || 0));
+      setFootballHomePens(Number(currentMatch.football_home_penalty_shootout || 0));
+      setFootballAwayPens(Number(currentMatch.football_away_penalty_shootout || 0));
+      setFootballExtraTime(!!currentMatch.football_extra_time);
+      setFootballAdded1(Number(currentMatch.football_added_time_first_half || 0));
+      setFootballAdded2(Number(currentMatch.football_added_time_second_half || 0));
+      setFootballAddedEx1(Number(currentMatch.football_added_time_extra_1 || 0));
+      setFootballAddedEx2(Number(currentMatch.football_added_time_extra_2 || 0));
+
       const { data: matchPlayersData, error: matchPlayersErr } = await supabase
         .from("match_players")
         .select(`
@@ -607,9 +595,7 @@ export default function ControlPage() {
         const awayTeamId = currentMatch.away_team_id || null;
 
         setHomePlayers(toPlayerStatRows(mp.filter((p) => !homeTeamId || p.team_id === homeTeamId)));
-        setAwayPlayers(
-          awayTeamId ? toPlayerStatRows(mp.filter((p) => p.team_id === awayTeamId)) : [],
-        );
+        setAwayPlayers(awayTeamId ? toPlayerStatRows(mp.filter((p) => p.team_id === awayTeamId)) : []);
       }
 
       setLoading(false);
@@ -619,7 +605,7 @@ export default function ControlPage() {
     return () => {
       cancelled = true;
     };
-  }, [matchId, isBasket]);
+  }, [matchId]);
 
   useEffect(() => {
     if (!clockRunning) return;
@@ -644,19 +630,19 @@ export default function ControlPage() {
 
   useEffect(() => {
     if (isRugby) {
-      const active = sinBins.filter((s) => s.is_active);
+      const active = rugbySuspensions.filter((s) => s.is_active);
       setRugbyHomeSinBinActive(active.filter((s) => s.team_side === "home").length);
       setRugbyAwaySinBinActive(active.filter((s) => s.team_side === "away").length);
     }
-  }, [sinBins, isRugby]);
+  }, [rugbySuspensions, isRugby]);
 
   useEffect(() => {
     if (isHandball) {
-      const active = twoMinRows.filter((s) => s.is_active);
+      const active = handballSuspensions.filter((s) => s.is_active);
       setHandballHome2MinActive(active.filter((s) => s.team_side === "home").length);
       setHandballAway2MinActive(active.filter((s) => s.team_side === "away").length);
     }
-  }, [twoMinRows, isHandball]);
+  }, [handballSuspensions, isHandball]);
 
   function displayLink() {
     if (!match || !DISPLAY_URL) return "";
@@ -671,7 +657,7 @@ export default function ControlPage() {
 
   function flash(message: string) {
     setInfo(message);
-    window.setTimeout(() => setInfo(""), 2600);
+    window.setTimeout(() => setInfo(""), 2400);
   }
 
   async function persistLiveState(patch: Partial<MatchRow>) {
@@ -694,7 +680,6 @@ export default function ControlPage() {
     event_type: string;
     team_side?: "home" | "away" | null;
     player_id?: string | null;
-    team_id?: string | null;
     payload?: Record<string, any>;
   }) {
     if (!match) return;
@@ -709,7 +694,6 @@ export default function ControlPage() {
         seq: nextSeq,
         event_type: params.event_type,
         team_side: params.team_side || null,
-        team_id: params.team_id || null,
         player_id: params.player_id || null,
         period_index: currentPeriodIndex,
         game_clock_ms: clockMs,
@@ -725,22 +709,15 @@ export default function ControlPage() {
     }
 
     if (data) {
-      setEvents((prev) => [data as MatchEventRow, ...prev].slice(0, 40));
-      setMatch((prev) =>
-        prev
-          ? {
-              ...prev,
-              last_event_seq: nextSeq,
-            }
-          : prev,
-      );
+      setEvents((prev) => [data as MatchEventRow, ...prev].slice(0, 50));
+      setMatch((prev) => (prev ? { ...prev, last_event_seq: nextSeq } : prev));
     }
   }
 
-  async function pushPatch(patch: Record<string, any>) {
+  async function pushPatch(extra: Record<string, any>) {
     if (!match) return;
 
-    const payload = {
+    await sendTvBroadcast(match.id, {
       match_id: match.id,
       match_name: matchName,
       venue: org?.name || "",
@@ -777,17 +754,17 @@ export default function ControlPage() {
 
       home_team_fouls: homeTeamFouls,
       away_team_fouls: awayTeamFouls,
-      home_timeouts: homeTimeouts,
-      away_timeouts: awayTimeouts,
+      home_timeouts: isHandball ? handballHomeTimeouts : isVolleyball ? volleyHomeTimeouts : homeTimeouts,
+      away_timeouts: isHandball ? handballAwayTimeouts : isVolleyball ? volleyAwayTimeouts : awayTimeouts,
       home_bonus: homeBonus,
       away_bonus: awayBonus,
       shot_clock_s: shotClockS,
       home_sets_won: homeSetsWon,
       away_sets_won: awaySetsWon,
-      home_yellow_cards: homeYellowCards,
-      away_yellow_cards: awayYellowCards,
-      home_red_cards: homeRedCards,
-      away_red_cards: awayRedCards,
+      home_yellow_cards: isFootball ? footballHomeYellows : homeYellowCards,
+      away_yellow_cards: isFootball ? footballAwayYellows : awayYellowCards,
+      home_red_cards: isFootball ? footballHomeReds : homeRedCards,
+      away_red_cards: isFootball ? footballAwayReds : awayRedCards,
       home_players: homePlayers,
       away_players: awayPlayers,
 
@@ -823,19 +800,36 @@ export default function ControlPage() {
       handball_extra_time: handballExtraTime,
       handball_shootout_mode: handballShootoutMode,
 
-      ...patch,
-    };
+      volleyball_home_timeouts: volleyHomeTimeouts,
+      volleyball_away_timeouts: volleyAwayTimeouts,
+      volleyball_home_set_points: volleyHomeSetPoints,
+      volleyball_away_set_points: volleyAwaySetPoints,
+      volleyball_home_serving: volleyHomeServing,
+      volleyball_away_serving: volleyAwayServing,
+      volleyball_current_set: volleyCurrentSet,
+      volleyball_is_tiebreak: volleyIsTiebreak,
 
-    await sendTvBroadcast(match.id, payload);
+      football_home_yellow_cards: footballHomeYellows,
+      football_away_yellow_cards: footballAwayYellows,
+      football_home_red_cards: footballHomeReds,
+      football_away_red_cards: footballAwayReds,
+      football_home_penalty_shootout: footballHomePens,
+      football_away_penalty_shootout: footballAwayPens,
+      football_extra_time: footballExtraTime,
+      football_added_time_first_half: footballAdded1,
+      football_added_time_second_half: footballAdded2,
+      football_added_time_extra_1: footballAddedEx1,
+      football_added_time_extra_2: footballAddedEx2,
+
+      ...extra,
+    });
   }
 
   async function saveMatch() {
-    if (!match) return;
-
     const payload: Partial<MatchRow> = {
-      name: matchName.trim() || `${homeName.trim() || "Domicile"} vs ${awayName.trim() || "Extérieur"}`,
-      home_name: homeName.trim() || "Domicile",
-      away_name: awayName.trim() || "Extérieur",
+      name: matchName.trim() || `${homeName} vs ${awayName}`,
+      home_name: homeName,
+      away_name: awayName,
       status,
       home_score: homeScore,
       away_score: awayScore,
@@ -858,8 +852,6 @@ export default function ControlPage() {
       current_period_index: currentPeriodIndex,
       is_overtime: isOvertime,
       possession_arrow: possessionArrow,
-      team_fouls_period_home: homeTeamFouls,
-      team_fouls_period_away: awayTeamFouls,
 
       rugby_home_tries: rugbyHomeTries,
       rugby_away_tries: rugbyAwayTries,
@@ -888,14 +880,33 @@ export default function ControlPage() {
       handball_away_disqualifications: handballAwayDisq,
       handball_extra_time: handballExtraTime,
       handball_shootout_mode: handballShootoutMode || null,
+
+      volleyball_home_timeouts: volleyHomeTimeouts,
+      volleyball_away_timeouts: volleyAwayTimeouts,
+      volleyball_home_set_points: volleyHomeSetPoints,
+      volleyball_away_set_points: volleyAwaySetPoints,
+      volleyball_home_serving: volleyHomeServing,
+      volleyball_away_serving: volleyAwayServing,
+      volleyball_current_set: volleyCurrentSet,
+      volleyball_is_tiebreak: volleyIsTiebreak,
+
+      football_home_yellow_cards: footballHomeYellows,
+      football_away_yellow_cards: footballAwayYellows,
+      football_home_red_cards: footballHomeReds,
+      football_away_red_cards: footballAwayReds,
+      football_home_penalty_shootout: footballHomePens,
+      football_away_penalty_shootout: footballAwayPens,
+      football_extra_time: footballExtraTime,
+      football_added_time_first_half: footballAdded1,
+      football_added_time_second_half: footballAdded2,
+      football_added_time_extra_1: footballAddedEx1,
+      football_added_time_extra_2: footballAddedEx2,
     };
 
     try {
       await persistLiveState(payload);
-      flash("Match sauvegardé avec succès.");
-    } catch {
-      // handled
-    }
+      flash("Match sauvegardé.");
+    } catch {}
   }
 
   async function syncNow() {
@@ -907,6 +918,43 @@ export default function ControlPage() {
     }
   }
 
+  async function startClock() {
+    setClockRunning(true);
+    setStatus("live");
+    try {
+      await persistLiveState({ clock_running: true, status: "live" });
+      if (autoLive) await pushPatch({ clock_running: true, status: "live" });
+    } catch {}
+  }
+
+  async function pauseClock() {
+    setClockRunning(false);
+    setStatus("paused");
+    try {
+      await persistLiveState({ clock_running: false, status: "paused" });
+      if (autoLive) await pushPatch({ clock_running: false, status: "paused" });
+    } catch {}
+  }
+
+  async function resetClock() {
+    const next = defaultClockMsBySport(sport, sportSettings?.period_duration_s);
+    setClockMs(next);
+    setClockRunning(false);
+    try {
+      await persistLiveState({ clock_ms: next, clock_running: false });
+      if (autoLive) await pushPatch({ clock_ms: next, clock_running: false });
+    } catch {}
+  }
+
+  async function adjustClock(deltaMs: number) {
+    const next = Math.max(0, clockMs + deltaMs);
+    setClockMs(next);
+    try {
+      await persistLiveState({ clock_ms: next });
+      if (autoLive) await pushPatch({ clock_ms: next });
+    } catch {}
+  }
+
   async function changeScore(side: "home" | "away", delta: number) {
     const nextHome = side === "home" ? Math.max(0, homeScore + delta) : homeScore;
     const nextAway = side === "away" ? Math.max(0, awayScore + delta) : awayScore;
@@ -915,369 +963,14 @@ export default function ControlPage() {
     setAwayScore(nextAway);
 
     try {
-      await persistLiveState({
-        home_score: nextHome,
-        away_score: nextAway,
-      });
-
-      if (autoLive) {
-        await pushPatch({ home_score: nextHome, away_score: nextAway });
-      }
-
-      if (isBasket) {
-        await appendEvent({
-          event_type: delta > 0 ? `basket_score_${delta}` : "basket_score_correction",
-          team_side: side,
-          payload: { delta, home_score: nextHome, away_score: nextAway },
-        });
-      }
-
-      if (isHandball) {
-        await appendEvent({
-          event_type: delta > 0 ? "handball_goal" : "handball_goal_correction",
-          team_side: side,
-          payload: { delta, home_score: nextHome, away_score: nextAway },
-        });
-      }
-    } catch {
-      // handled
-    }
-  }
-
-  async function changePeriod(next: string) {
-    setPeriodLabel(next);
-
-    try {
-      await persistLiveState({ period_label: next });
-
-      if (autoLive) {
-        await pushPatch({ period_label: next });
-      }
-
+      await persistLiveState({ home_score: nextHome, away_score: nextAway });
+      if (autoLive) await pushPatch({ home_score: nextHome, away_score: nextAway });
       await appendEvent({
-        event_type: "period_change",
-        payload: { period_label: next },
-      });
-    } catch {
-      // handled
-    }
-  }
-
-  async function setBasketPeriod(nextIndex: number) {
-    const label = nextIndex <= 4 ? `Q${nextIndex}` : "OT";
-    const ot = nextIndex > 4;
-
-    setCurrentPeriodIndex(nextIndex);
-    setIsOvertime(ot);
-    setPeriodLabel(label);
-
-    const nextClock = ot ? 5 * 60 * 1000 : defaultClockMsBySport("basket", sportSettings?.period_duration_s);
-    setClockMs(nextClock);
-    setClockRunning(false);
-
-    const patch: Partial<MatchRow> = {
-      current_period_index: nextIndex,
-      is_overtime: ot,
-      period_label: label,
-      clock_ms: nextClock,
-      clock_running: false,
-      team_fouls_period_home: 0,
-      team_fouls_period_away: 0,
-    };
-
-    setHomeTeamFouls(0);
-    setAwayTeamFouls(0);
-
-    try {
-      await persistLiveState(patch);
-
-      if (autoLive) {
-        await pushPatch({
-          current_period_index: nextIndex,
-          is_overtime: ot,
-          period_label: label,
-          clock_ms: nextClock,
-          clock_running: false,
-          home_team_fouls: 0,
-          away_team_fouls: 0,
-        });
-      }
-
-      await appendEvent({
-        event_type: "basket_period_change",
-        payload: { current_period_index: nextIndex, period_label: label, is_overtime: ot },
-      });
-    } catch {
-      // handled
-    }
-  }
-
-  async function startClock() {
-    setClockRunning(true);
-    setStatus("live");
-
-    try {
-      await persistLiveState({
-        clock_running: true,
-        status: "live",
-      });
-
-      if (autoLive) {
-        await pushPatch({ clock_running: true, status: "live" });
-      }
-    } catch {
-      // handled
-    }
-  }
-
-  async function pauseClock() {
-    setClockRunning(false);
-    setStatus("paused");
-
-    try {
-      await persistLiveState({
-        clock_running: false,
-        status: "paused",
-      });
-
-      if (autoLive) {
-        await pushPatch({ clock_running: false, status: "paused" });
-      }
-    } catch {
-      // handled
-    }
-  }
-
-  async function resetClock() {
-    const next = isBasket && isOvertime
-      ? 5 * 60 * 1000
-      : defaultClockMsBySport(sport, sportSettings?.period_duration_s);
-
-    setClockMs(next);
-    setClockRunning(false);
-
-    try {
-      await persistLiveState({
-        clock_ms: next,
-        clock_running: false,
-      });
-
-      if (autoLive) {
-        await pushPatch({ clock_ms: next, clock_running: false });
-      }
-    } catch {
-      // handled
-    }
-  }
-
-  async function adjustClock(deltaMs: number) {
-    const next = Math.max(0, clockMs + deltaMs);
-    setClockMs(next);
-
-    try {
-      await persistLiveState({ clock_ms: next });
-
-      if (autoLive) {
-        await pushPatch({ clock_ms: next });
-      }
-    } catch {
-      // handled
-    }
-  }
-
-  async function changeTeamStat(
-    setter: React.Dispatch<React.SetStateAction<number>>,
-    currentValue: number,
-    delta: number,
-    patchName:
-      | "home_team_fouls"
-      | "away_team_fouls"
-      | "home_timeouts"
-      | "away_timeouts"
-      | "home_sets_won"
-      | "away_sets_won"
-      | "home_yellow_cards"
-      | "away_yellow_cards"
-      | "home_red_cards"
-      | "away_red_cards",
-    teamSide?: "home" | "away",
-    eventType?: string,
-  ) {
-    const next = clampMin(currentValue + delta);
-    setter(next);
-
-    const patch: Partial<MatchRow> = { [patchName]: next } as Partial<MatchRow>;
-
-    if (isBasket && (patchName === "home_team_fouls" || patchName === "away_team_fouls")) {
-      patch[patchName === "home_team_fouls" ? "team_fouls_period_home" : "team_fouls_period_away"] = next as any;
-    }
-
-    try {
-      await persistLiveState(patch);
-
-      if (autoLive) {
-        await pushPatch({ [patchName]: next });
-      }
-
-      if (eventType) {
-        await appendEvent({
-          event_type: eventType,
-          team_side: teamSide || null,
-          payload: { delta, value: next },
-        });
-      }
-    } catch {
-      // handled
-    }
-  }
-
-  async function toggleBoolStat(
-    setter: React.Dispatch<React.SetStateAction<boolean>>,
-    currentValue: boolean,
-    patchName: "home_bonus" | "away_bonus",
-  ) {
-    const next = !currentValue;
-    setter(next);
-
-    try {
-      await persistLiveState({ [patchName]: next } as Partial<MatchRow>);
-
-      if (autoLive) {
-        await pushPatch({ [patchName]: next });
-      }
-    } catch {
-      // handled
-    }
-  }
-
-  async function changeShotClock(delta: number | null, reset = false, directValue?: number) {
-    const next =
-      typeof directValue === "number"
-        ? Math.max(0, directValue)
-        : reset
-        ? Number(sportSettings?.shot_clock_s || 24)
-        : Math.max(0, shotClockS + (delta || 0));
-
-    setShotClockS(next);
-
-    try {
-      await persistLiveState({ shot_clock_s: next });
-
-      if (autoLive) {
-        await pushPatch({ shot_clock_s: next });
-      }
-    } catch {
-      // handled
-    }
-  }
-
-  async function togglePossessionArrow() {
-    const next = possessionArrow === "home" ? "away" : "home";
-    setPossessionArrow(next);
-
-    try {
-      await persistLiveState({ possession_arrow: next });
-
-      if (autoLive) {
-        await pushPatch({ possession_arrow: next });
-      }
-
-      await appendEvent({
-        event_type: "basket_possession_arrow",
-        team_side: next,
-        payload: { possession_arrow: next },
-      });
-    } catch {
-      // handled
-    }
-  }
-
-  async function useTimeout(side: "home" | "away") {
-    if (isHandball) {
-      const nextHome = side === "home" ? handballHomeTimeouts + 1 : handballHomeTimeouts;
-      const nextAway = side === "away" ? handballAwayTimeouts + 1 : handballAwayTimeouts;
-
-      setHandballHomeTimeouts(nextHome);
-      setHandballAwayTimeouts(nextAway);
-
-      try {
-        await persistLiveState({
-          handball_home_team_timeouts: nextHome,
-          handball_away_team_timeouts: nextAway,
-        });
-
-        if (autoLive) {
-          await pushPatch({
-            handball_home_team_timeouts: nextHome,
-            handball_away_team_timeouts: nextAway,
-            home_timeouts: nextHome,
-            away_timeouts: nextAway,
-          });
-        }
-
-        await appendEvent({
-          event_type: "handball_timeout",
-          team_side: side,
-          payload: { home: nextHome, away: nextAway },
-        });
-      } catch {
-        // handled
-      }
-      return;
-    }
-
-    if (!isBasket) {
-      const setter = side === "home" ? setHomeTimeouts : setAwayTimeouts;
-      const value = side === "home" ? homeTimeouts : awayTimeouts;
-      const patchName = side === "home" ? "home_timeouts" : "away_timeouts";
-      await changeTeamStat(setter, value, 1, patchName, side, "timeout");
-      return;
-    }
-
-    const isOt = isOvertime || currentPeriodIndex > 4;
-    const isFirstHalf = !isOt && currentPeriodIndex <= 2;
-
-    let current = 0;
-    let patchName: keyof MatchRow;
-
-    if (isOt) {
-      patchName = side === "home" ? "timeouts_overtime_home" : "timeouts_overtime_away";
-      current = side === "home"
-        ? Number(match?.timeouts_overtime_home || 0)
-        : Number(match?.timeouts_overtime_away || 0);
-    } else if (isFirstHalf) {
-      patchName = side === "home" ? "timeouts_first_half_home" : "timeouts_first_half_away";
-      current = side === "home"
-        ? Number(match?.timeouts_first_half_home || 0)
-        : Number(match?.timeouts_first_half_away || 0);
-    } else {
-      patchName = side === "home" ? "timeouts_second_half_home" : "timeouts_second_half_away";
-      current = side === "home"
-        ? Number(match?.timeouts_second_half_home || 0)
-        : Number(match?.timeouts_second_half_away || 0);
-    }
-
-    const next = current + 1;
-    if (side === "home") setHomeTimeouts(next);
-    else setAwayTimeouts(next);
-
-    try {
-      await persistLiveState({ [patchName]: next } as Partial<MatchRow>);
-
-      if (autoLive) {
-        await pushPatch({
-          [side === "home" ? "home_timeouts" : "away_timeouts"]: next,
-        });
-      }
-
-      await appendEvent({
-        event_type: "basket_timeout",
+        event_type: `${sport}_score`,
         team_side: side,
-        payload: { timeout_bucket: patchName, value: next },
+        payload: { delta, home_score: nextHome, away_score: nextAway },
       });
-    } catch {
-      // handled
-    }
+    } catch {}
   }
 
   async function changePlayerStat(
@@ -1287,7 +980,6 @@ export default function ControlPage() {
     delta: number,
   ) {
     if (!match) return;
-
     const source = side === "home" ? homePlayers : awayPlayers;
     const player = source.find((p) => p.id === playerId);
     if (!player) return;
@@ -1305,10 +997,7 @@ export default function ControlPage() {
 
     const next = source.map((p) =>
       p.id === playerId
-        ? {
-            ...p,
-            [field]: nextValue,
-          }
+        ? { ...p, [field]: nextValue }
         : p,
     );
 
@@ -1322,60 +1011,90 @@ export default function ControlPage() {
       .eq("player_id", playerId);
 
     if (error) {
-      flash(`Erreur mise à jour statistique joueur : ${error.message}`);
+      flash(`Erreur statistique joueur : ${error.message}`);
       return;
     }
 
     if (autoLive) {
       try {
-        await pushPatch({
-          [side === "home" ? "home_players" : "away_players"]: next,
-        });
-      } catch (e: any) {
-        flash(e?.message || "Erreur broadcast.");
-      }
+        await pushPatch({ [side === "home" ? "home_players" : "away_players"]: next });
+      } catch {}
     }
 
-    if (isBasket) {
-      await appendEvent({
-        event_type:
-          field === "points"
-            ? "basket_player_points"
-            : field === "fouls"
-            ? "basket_player_foul"
-            : field === "yellow_cards"
-            ? "basket_player_yellow"
-            : "basket_player_red",
-        team_side: side,
-        player_id: playerId,
-        payload: { field, delta, value: nextValue },
-      });
-    }
-
-    if (isRugby && (field === "yellow_cards" || field === "red_cards")) {
-      await appendEvent({
-        event_type: field === "yellow_cards" ? "rugby_player_yellow" : "rugby_player_red",
-        team_side: side,
-        player_id: playerId,
-        payload: { field, delta, value: nextValue },
-      });
-    }
-
-    if (isHandball && (field === "yellow_cards" || field === "red_cards")) {
-      await appendEvent({
-        event_type: field === "yellow_cards" ? "handball_player_warning" : "handball_player_disqualification",
-        team_side: side,
-        player_id: playerId,
-        payload: { field, delta, value: nextValue },
-      });
-    }
+    await appendEvent({
+      event_type: `${sport}_player_${field}`,
+      team_side: side,
+      player_id: playerId,
+      payload: { field, delta, value: nextValue },
+    });
   }
 
-  async function applyRugbyScoring(
-    side: "home" | "away",
-    field: "tries" | "conversions" | "penalties" | "drops",
-    delta: number,
-  ) {
+  async function setBasketPeriod(nextIndex: number) {
+    const label = nextIndex <= 4 ? `Q${nextIndex}` : "OT";
+    const ot = nextIndex > 4;
+    const nextClock = ot ? 5 * 60 * 1000 : defaultClockMsBySport("basket", sportSettings?.period_duration_s);
+
+    setCurrentPeriodIndex(nextIndex);
+    setIsOvertime(ot);
+    setPeriodLabel(label);
+    setClockMs(nextClock);
+    setClockRunning(false);
+    setHomeTeamFouls(0);
+    setAwayTeamFouls(0);
+
+    try {
+      await persistLiveState({
+        current_period_index: nextIndex,
+        is_overtime: ot,
+        period_label: label,
+        clock_ms: nextClock,
+        clock_running: false,
+        team_fouls_period_home: 0,
+        team_fouls_period_away: 0,
+      });
+      if (autoLive) {
+        await pushPatch({
+          current_period_index: nextIndex,
+          is_overtime: ot,
+          period_label: label,
+          clock_ms: nextClock,
+          clock_running: false,
+          home_team_fouls: 0,
+          away_team_fouls: 0,
+        });
+      }
+      await appendEvent({
+        event_type: "basket_period_change",
+        payload: { current_period_index: nextIndex, period_label: label, is_overtime: ot },
+      });
+    } catch {}
+  }
+
+  async function togglePossessionArrow() {
+    const next = possessionArrow === "home" ? "away" : "home";
+    setPossessionArrow(next);
+    try {
+      await persistLiveState({ possession_arrow: next });
+      if (autoLive) await pushPatch({ possession_arrow: next });
+      await appendEvent({ event_type: "basket_possession_arrow", team_side: next, payload: { possession_arrow: next } });
+    } catch {}
+  }
+
+  async function changeShotClock(delta: number | null, reset = false, directValue?: number) {
+    const next =
+      typeof directValue === "number"
+        ? Math.max(0, directValue)
+        : reset
+        ? Number(sportSettings?.shot_clock_s || 24)
+        : Math.max(0, shotClockS + (delta || 0));
+    setShotClockS(next);
+    try {
+      await persistLiveState({ shot_clock_s: next });
+      if (autoLive) await pushPatch({ shot_clock_s: next });
+    } catch {}
+  }
+
+  async function applyRugbyScoring(side: "home" | "away", field: "tries" | "conversions" | "penalties" | "drops", delta: number) {
     const currentHome = {
       tries: rugbyHomeTries,
       conversions: rugbyHomeConversions,
@@ -1389,73 +1108,55 @@ export default function ControlPage() {
       drops: rugbyAwayDrops,
     };
 
-    const nextHomeParts = {
+    const nextHome = {
       tries: side === "home" && field === "tries" ? clampMin(currentHome.tries + delta) : currentHome.tries,
-      conversions:
-        side === "home" && field === "conversions" ? clampMin(currentHome.conversions + delta) : currentHome.conversions,
-      penalties:
-        side === "home" && field === "penalties" ? clampMin(currentHome.penalties + delta) : currentHome.penalties,
+      conversions: side === "home" && field === "conversions" ? clampMin(currentHome.conversions + delta) : currentHome.conversions,
+      penalties: side === "home" && field === "penalties" ? clampMin(currentHome.penalties + delta) : currentHome.penalties,
       drops: side === "home" && field === "drops" ? clampMin(currentHome.drops + delta) : currentHome.drops,
     };
-
-    const nextAwayParts = {
+    const nextAway = {
       tries: side === "away" && field === "tries" ? clampMin(currentAway.tries + delta) : currentAway.tries,
-      conversions:
-        side === "away" && field === "conversions" ? clampMin(currentAway.conversions + delta) : currentAway.conversions,
-      penalties:
-        side === "away" && field === "penalties" ? clampMin(currentAway.penalties + delta) : currentAway.penalties,
+      conversions: side === "away" && field === "conversions" ? clampMin(currentAway.conversions + delta) : currentAway.conversions,
+      penalties: side === "away" && field === "penalties" ? clampMin(currentAway.penalties + delta) : currentAway.penalties,
       drops: side === "away" && field === "drops" ? clampMin(currentAway.drops + delta) : currentAway.drops,
     };
 
-    setRugbyHomeTries(nextHomeParts.tries);
-    setRugbyHomeConversions(nextHomeParts.conversions);
-    setRugbyHomePenalties(nextHomeParts.penalties);
-    setRugbyHomeDrops(nextHomeParts.drops);
-    setRugbyAwayTries(nextAwayParts.tries);
-    setRugbyAwayConversions(nextAwayParts.conversions);
-    setRugbyAwayPenalties(nextAwayParts.penalties);
-    setRugbyAwayDrops(nextAwayParts.drops);
+    setRugbyHomeTries(nextHome.tries);
+    setRugbyHomeConversions(nextHome.conversions);
+    setRugbyHomePenalties(nextHome.penalties);
+    setRugbyHomeDrops(nextHome.drops);
+    setRugbyAwayTries(nextAway.tries);
+    setRugbyAwayConversions(nextAway.conversions);
+    setRugbyAwayPenalties(nextAway.penalties);
+    setRugbyAwayDrops(nextAway.drops);
 
-    const nextHomeScore = recomputeRugbyScore(nextHomeParts);
-    const nextAwayScore = recomputeRugbyScore(nextAwayParts);
-
+    const nextHomeScore = recomputeRugbyScore(nextHome);
+    const nextAwayScore = recomputeRugbyScore(nextAway);
     setHomeScore(nextHomeScore);
     setAwayScore(nextAwayScore);
 
     const patch: Partial<MatchRow> = {
       home_score: nextHomeScore,
       away_score: nextAwayScore,
-      rugby_home_tries: nextHomeParts.tries,
-      rugby_home_conversions: nextHomeParts.conversions,
-      rugby_home_penalties: nextHomeParts.penalties,
-      rugby_home_drop_goals: nextHomeParts.drops,
-      rugby_away_tries: nextAwayParts.tries,
-      rugby_away_conversions: nextAwayParts.conversions,
-      rugby_away_penalties: nextAwayParts.penalties,
-      rugby_away_drop_goals: nextAwayParts.drops,
+      rugby_home_tries: nextHome.tries,
+      rugby_home_conversions: nextHome.conversions,
+      rugby_home_penalties: nextHome.penalties,
+      rugby_home_drop_goals: nextHome.drops,
+      rugby_away_tries: nextAway.tries,
+      rugby_away_conversions: nextAway.conversions,
+      rugby_away_penalties: nextAway.penalties,
+      rugby_away_drop_goals: nextAway.drops,
     };
 
     try {
       await persistLiveState(patch);
-
-      if (autoLive) {
-        await pushPatch(patch);
-      }
-
+      if (autoLive) await pushPatch(patch);
       await appendEvent({
         event_type: `rugby_${field}`,
         team_side: side,
-        payload: {
-          delta,
-          home_score: nextHomeScore,
-          away_score: nextAwayScore,
-          home: nextHomeParts,
-          away: nextAwayParts,
-        },
+        payload: { delta, home: nextHome, away: nextAway, home_score: nextHomeScore, away_score: nextAwayScore },
       });
-    } catch {
-      // handled
-    }
+    } catch {}
   }
 
   async function issueRugbyYellow(side: "home" | "away", player?: PlayerStatRow | null) {
@@ -1474,17 +1175,12 @@ export default function ControlPage() {
       rugby_away_yellow_sin_bin: nextAwayYellow,
       rugby_home_sin_bin_active: nextHomeActive,
       rugby_away_sin_bin_active: nextAwayActive,
-      home_yellow_cards: side === "home" ? homeYellowCards + 1 : homeYellowCards,
-      away_yellow_cards: side === "away" ? awayYellowCards + 1 : awayYellowCards,
     };
-
-    if (side === "home") setHomeYellowCards((v) => v + 1);
-    else setAwayYellowCards((v) => v + 1);
 
     try {
       await persistLiveState(patch);
 
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from("match_sin_bins")
         .insert({
           org_id: match!.org_id,
@@ -1501,53 +1197,35 @@ export default function ControlPage() {
         .select("id, team_side, player_id, player_name_snapshot, shirt_number_snapshot, started_game_clock_ms, duration_s, ended_game_clock_ms, is_active, created_at")
         .maybeSingle();
 
-      if (!error && data) {
-        setSinBins((prev) => [data as SinBinRow, ...prev]);
-      }
+      if (data) setRugbySuspensions((prev) => [data as SuspensionRow, ...prev]);
 
-      if (autoLive) {
-        await pushPatch(patch);
-      }
+      if (autoLive) await pushPatch(patch);
 
       await appendEvent({
         event_type: "rugby_yellow_card",
         team_side: side,
         player_id: player?.id || null,
-        payload: {
-          player_name: player?.name || null,
-          shirt_number: player?.number || null,
-          sin_bin_s: 600,
-        },
+        payload: { player_name: player?.name || null, shirt_number: player?.number || null, duration_s: 600 },
       });
-    } catch {
-      // handled
-    }
+    } catch {}
   }
 
-  async function endSinBin(bin: SinBinRow) {
-    if (!match) return;
-
+  async function endRugbySinBin(row: SuspensionRow) {
     const { error } = await supabase
       .from("match_sin_bins")
-      .update({
-        is_active: false,
-        ended_game_clock_ms: clockMs,
-      })
-      .eq("id", bin.id);
+      .update({ is_active: false, ended_game_clock_ms: clockMs })
+      .eq("id", row.id);
 
     if (error) {
-      flash(`Erreur clôture sin bin : ${error.message}`);
+      flash(error.message);
       return;
     }
 
-    const nextRows = sinBins.map((r) =>
-      r.id === bin.id ? { ...r, is_active: false, ended_game_clock_ms: clockMs } : r,
-    );
-    setSinBins(nextRows);
+    const nextRows = rugbySuspensions.map((r) => (r.id === row.id ? { ...r, is_active: false, ended_game_clock_ms: clockMs } : r));
+    setRugbySuspensions(nextRows);
 
     const nextHomeActive = nextRows.filter((r) => r.is_active && r.team_side === "home").length;
     const nextAwayActive = nextRows.filter((r) => r.is_active && r.team_side === "away").length;
-
     setRugbyHomeSinBinActive(nextHomeActive);
     setRugbyAwaySinBinActive(nextAwayActive);
 
@@ -1556,56 +1234,37 @@ export default function ControlPage() {
         rugby_home_sin_bin_active: nextHomeActive,
         rugby_away_sin_bin_active: nextAwayActive,
       });
-
       if (autoLive) {
         await pushPatch({
           rugby_home_sin_bin_active: nextHomeActive,
           rugby_away_sin_bin_active: nextAwayActive,
         });
       }
-
       await appendEvent({
         event_type: "rugby_sin_bin_end",
-        team_side: bin.team_side,
-        player_id: bin.player_id,
-        payload: {
-          player_name: bin.player_name_snapshot,
-          shirt_number: bin.shirt_number_snapshot,
-        },
+        team_side: row.team_side,
+        player_id: row.player_id,
+        payload: { player_name: row.player_name_snapshot, shirt_number: row.shirt_number_snapshot },
       });
-    } catch {
-      // handled
-    }
+    } catch {}
   }
 
   async function issueRugbyRed(side: "home" | "away", player?: PlayerStatRow | null) {
-    const patch: Partial<MatchRow> = {
-      home_red_cards: side === "home" ? homeRedCards + 1 : homeRedCards,
-      away_red_cards: side === "away" ? awayRedCards + 1 : awayRedCards,
-    };
-
-    if (side === "home") setHomeRedCards((v) => v + 1);
-    else setAwayRedCards((v) => v + 1);
+    const nextHome = side === "home" ? homeRedCards + 1 : homeRedCards;
+    const nextAway = side === "away" ? awayRedCards + 1 : awayRedCards;
+    setHomeRedCards(nextHome);
+    setAwayRedCards(nextAway);
 
     try {
-      await persistLiveState(patch);
-
-      if (autoLive) {
-        await pushPatch(patch);
-      }
-
+      await persistLiveState({ home_red_cards: nextHome, away_red_cards: nextAway });
+      if (autoLive) await pushPatch({ home_red_cards: nextHome, away_red_cards: nextAway });
       await appendEvent({
         event_type: "rugby_red_card",
         team_side: side,
         player_id: player?.id || null,
-        payload: {
-          player_name: player?.name || null,
-          shirt_number: player?.number || null,
-        },
+        payload: { player_name: player?.name || null, shirt_number: player?.number || null },
       });
-    } catch {
-      // handled
-    }
+    } catch {}
   }
 
   async function issueHandball2Min(side: "home" | "away", player?: PlayerStatRow | null) {
@@ -1629,7 +1288,7 @@ export default function ControlPage() {
     try {
       await persistLiveState(patch);
 
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from("match_two_min_suspensions")
         .insert({
           org_id: match!.org_id,
@@ -1646,53 +1305,35 @@ export default function ControlPage() {
         .select("id, team_side, player_id, player_name_snapshot, shirt_number_snapshot, started_game_clock_ms, duration_s, ended_game_clock_ms, is_active, created_at")
         .maybeSingle();
 
-      if (!error && data) {
-        setTwoMinRows((prev) => [data as TwoMinRow, ...prev]);
-      }
+      if (data) setHandballSuspensions((prev) => [data as SuspensionRow, ...prev]);
 
-      if (autoLive) {
-        await pushPatch(patch);
-      }
+      if (autoLive) await pushPatch(patch);
 
       await appendEvent({
         event_type: "handball_2min",
         team_side: side,
         player_id: player?.id || null,
-        payload: {
-          player_name: player?.name || null,
-          shirt_number: player?.number || null,
-          duration_s: 120,
-        },
+        payload: { player_name: player?.name || null, shirt_number: player?.number || null, duration_s: 120 },
       });
-    } catch {
-      // handled
-    }
+    } catch {}
   }
 
-  async function endTwoMin(row: TwoMinRow) {
-    if (!match) return;
-
+  async function endHandball2Min(row: SuspensionRow) {
     const { error } = await supabase
       .from("match_two_min_suspensions")
-      .update({
-        is_active: false,
-        ended_game_clock_ms: clockMs,
-      })
+      .update({ is_active: false, ended_game_clock_ms: clockMs })
       .eq("id", row.id);
 
     if (error) {
-      flash(`Erreur clôture 2 min : ${error.message}`);
+      flash(error.message);
       return;
     }
 
-    const nextRows = twoMinRows.map((r) =>
-      r.id === row.id ? { ...r, is_active: false, ended_game_clock_ms: clockMs } : r,
-    );
-    setTwoMinRows(nextRows);
+    const nextRows = handballSuspensions.map((r) => (r.id === row.id ? { ...r, is_active: false, ended_game_clock_ms: clockMs } : r));
+    setHandballSuspensions(nextRows);
 
     const nextHomeActive = nextRows.filter((r) => r.is_active && r.team_side === "home").length;
     const nextAwayActive = nextRows.filter((r) => r.is_active && r.team_side === "away").length;
-
     setHandballHome2MinActive(nextHomeActive);
     setHandballAway2MinActive(nextAwayActive);
 
@@ -1701,32 +1342,24 @@ export default function ControlPage() {
         handball_home_2min_active: nextHomeActive,
         handball_away_2min_active: nextAwayActive,
       });
-
       if (autoLive) {
         await pushPatch({
           handball_home_2min_active: nextHomeActive,
           handball_away_2min_active: nextAwayActive,
         });
       }
-
       await appendEvent({
         event_type: "handball_2min_end",
         team_side: row.team_side,
         player_id: row.player_id,
-        payload: {
-          player_name: row.player_name_snapshot,
-          shirt_number: row.shirt_number_snapshot,
-        },
+        payload: { player_name: row.player_name_snapshot, shirt_number: row.shirt_number_snapshot },
       });
-    } catch {
-      // handled
-    }
+    } catch {}
   }
 
   async function issueHandballWarning(side: "home" | "away", player?: PlayerStatRow | null) {
     const nextHome = side === "home" ? handballHomeWarnings + 1 : handballHomeWarnings;
     const nextAway = side === "away" ? handballAwayWarnings + 1 : handballAwayWarnings;
-
     setHandballHomeWarnings(nextHome);
     setHandballAwayWarnings(nextAway);
 
@@ -1735,32 +1368,24 @@ export default function ControlPage() {
         handball_home_warnings: nextHome,
         handball_away_warnings: nextAway,
       });
-
       if (autoLive) {
         await pushPatch({
           handball_home_warnings: nextHome,
           handball_away_warnings: nextAway,
         });
       }
-
       await appendEvent({
         event_type: "handball_warning",
         team_side: side,
         player_id: player?.id || null,
-        payload: {
-          player_name: player?.name || null,
-          shirt_number: player?.number || null,
-        },
+        payload: { player_name: player?.name || null, shirt_number: player?.number || null },
       });
-    } catch {
-      // handled
-    }
+    } catch {}
   }
 
   async function issueHandballDisq(side: "home" | "away", player?: PlayerStatRow | null) {
     const nextHome = side === "home" ? handballHomeDisq + 1 : handballHomeDisq;
     const nextAway = side === "away" ? handballAwayDisq + 1 : handballAwayDisq;
-
     setHandballHomeDisq(nextHome);
     setHandballAwayDisq(nextAway);
 
@@ -1769,26 +1394,35 @@ export default function ControlPage() {
         handball_home_disqualifications: nextHome,
         handball_away_disqualifications: nextAway,
       });
-
       if (autoLive) {
         await pushPatch({
           handball_home_disqualifications: nextHome,
           handball_away_disqualifications: nextAway,
         });
       }
-
       await appendEvent({
         event_type: "handball_disqualification",
         team_side: side,
         player_id: player?.id || null,
-        payload: {
-          player_name: player?.name || null,
-          shirt_number: player?.number || null,
-        },
+        payload: { player_name: player?.name || null, shirt_number: player?.number || null },
       });
-    } catch {
-      // handled
-    }
+    } catch {}
+  }
+
+  async function updateVolleyPatch(patch: Partial<MatchRow>, eventType?: string, teamSide?: "home" | "away") {
+    try {
+      await persistLiveState(patch);
+      if (autoLive) await pushPatch(patch as any);
+      if (eventType) await appendEvent({ event_type: eventType, team_side: teamSide || null, payload: patch as any });
+    } catch {}
+  }
+
+  async function updateFootballPatch(patch: Partial<MatchRow>, eventType?: string, teamSide?: "home" | "away") {
+    try {
+      await persistLiveState(patch);
+      if (autoLive) await pushPatch(patch as any);
+      if (eventType) await appendEvent({ event_type: eventType, team_side: teamSide || null, payload: patch as any });
+    } catch {}
   }
 
   async function openFullscreen() {
@@ -1823,14 +1457,14 @@ export default function ControlPage() {
   const showPlayerFouls = !!sportSettings?.show_player_fouls;
   const showTimeouts = !!sportSettings?.show_timeouts;
   const showBonus = !!sportSettings?.show_bonus;
-  const showSets = !!sportSettings?.show_sets;
-  const showCards = !!sportSettings?.show_cards || isRugby || isHandball;
+  const showSets = !!sportSettings?.show_sets || isVolleyball;
+  const showCards = !!sportSettings?.show_cards || isRugby || isHandball || isFootball;
   const showShotClock = !!sportSettings?.show_shot_clock;
 
-  const activeHomeBins = sinBins.filter((s) => s.is_active && s.team_side === "home");
-  const activeAwayBins = sinBins.filter((s) => s.is_active && s.team_side === "away");
-  const activeHome2Min = twoMinRows.filter((s) => s.is_active && s.team_side === "home");
-  const activeAway2Min = twoMinRows.filter((s) => s.is_active && s.team_side === "away");
+  const activeRugbyHome = rugbySuspensions.filter((s) => s.is_active && s.team_side === "home");
+  const activeRugbyAway = rugbySuspensions.filter((s) => s.is_active && s.team_side === "away");
+  const activeHandHome = handballSuspensions.filter((s) => s.is_active && s.team_side === "home");
+  const activeHandAway = handballSuspensions.filter((s) => s.is_active && s.team_side === "away");
 
   return (
     <div style={styles.page}>
@@ -1918,7 +1552,7 @@ export default function ControlPage() {
               </Field>
 
               <Field label="Période">
-                <select value={periodLabel} onChange={(e) => changePeriod(e.target.value)} style={styles.input}>
+                <select value={periodLabel} onChange={(e) => setPeriodLabel(e.target.value)} style={styles.input}>
                   {periodOptions.map((p) => (
                     <option key={p} value={p}>
                       {p}
@@ -1962,7 +1596,7 @@ export default function ControlPage() {
 
             <div style={styles.consoleGrid}>
               <div style={styles.teamCard}>
-                <div style={styles.teamName}>{homeName || "Domicile"}</div>
+                <div style={styles.teamName}>{homeName}</div>
                 <div style={styles.scoreValue}>{homeScore}</div>
                 <div style={styles.scoreActions}>
                   {scoreSteps.map((step) => (
@@ -1981,9 +1615,7 @@ export default function ControlPage() {
               <div style={styles.clockCard}>
                 <div style={styles.clockLabel}>{periodLabel}</div>
                 <div style={styles.clockValue}>{fmtClock(clockMs)}</div>
-                <div style={{ opacity: 0.75, marginBottom: 12 }}>
-                  {clockRunning ? "Chrono actif" : "Chrono arrêté"}
-                </div>
+                <div style={{ opacity: 0.75, marginBottom: 12 }}>{clockRunning ? "Chrono actif" : "Chrono arrêté"}</div>
 
                 <div style={styles.scoreActions}>
                   <button onClick={startClock} style={styles.primaryBtnSmall}>Start</button>
@@ -2013,7 +1645,7 @@ export default function ControlPage() {
               </div>
 
               <div style={styles.teamCard}>
-                <div style={styles.teamName}>{awayName || "Extérieur"}</div>
+                <div style={styles.teamName}>{awayName}</div>
                 <div style={styles.scoreValue}>{awayScore}</div>
                 <div style={styles.scoreActions}>
                   {scoreSteps.map((step) => (
@@ -2047,10 +1679,7 @@ export default function ControlPage() {
                         Q{q}
                       </button>
                     ))}
-                    <button
-                      onClick={() => setBasketPeriod(5)}
-                      style={isOvertime ? styles.primaryBtnSmall : styles.ghostBtnSmall}
-                    >
+                    <button onClick={() => setBasketPeriod(5)} style={isOvertime ? styles.primaryBtnSmall : styles.ghostBtnSmall}>
                       OT
                     </button>
                   </div>
@@ -2066,12 +1695,34 @@ export default function ControlPage() {
                 </div>
 
                 <div style={styles.statCard}>
-                  <div style={styles.statCardTitle}>Temps morts basket</div>
+                  <div style={styles.statCardTitle}>Temps morts</div>
                   <div style={styles.scoreActions}>
-                    <button onClick={() => useTimeout("home")} style={styles.ghostBtnSmall}>
+                    <button
+                      onClick={async () => {
+                        const next = homeTimeouts + 1;
+                        setHomeTimeouts(next);
+                        try {
+                          await persistLiveState({ home_timeouts: next });
+                          if (autoLive) await pushPatch({ home_timeouts: next });
+                          await appendEvent({ event_type: "basket_timeout", team_side: "home", payload: { value: next } });
+                        } catch {}
+                      }}
+                      style={styles.ghostBtnSmall}
+                    >
                       TM {homeName}
                     </button>
-                    <button onClick={() => useTimeout("away")} style={styles.ghostBtnSmall}>
+                    <button
+                      onClick={async () => {
+                        const next = awayTimeouts + 1;
+                        setAwayTimeouts(next);
+                        try {
+                          await persistLiveState({ away_timeouts: next });
+                          if (autoLive) await pushPatch({ away_timeouts: next });
+                          await appendEvent({ event_type: "basket_timeout", team_side: "away", payload: { value: next } });
+                        } catch {}
+                      }}
+                      style={styles.ghostBtnSmall}
+                    >
                       TM {awayName}
                     </button>
                   </div>
@@ -2084,71 +1735,39 @@ export default function ControlPage() {
             <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
               <div style={styles.sectionTitle}>Mode rugby</div>
               <div style={styles.modeGrid}>
+                <StatCardScoreGroup
+                  title="Marque domicile"
+                  buttons={[
+                    { label: "Essai +5", onClick: () => applyRugbyScoring("home", "tries", 1), primary: true },
+                    { label: "Transfo +2", onClick: () => applyRugbyScoring("home", "conversions", 1) },
+                    { label: "Pénalité +3", onClick: () => applyRugbyScoring("home", "penalties", 1) },
+                    { label: "Drop +3", onClick: () => applyRugbyScoring("home", "drops", 1) },
+                    { label: "Essai -1", onClick: () => applyRugbyScoring("home", "tries", -1) },
+                    { label: "Transfo -1", onClick: () => applyRugbyScoring("home", "conversions", -1) },
+                    { label: "Pénalité -1", onClick: () => applyRugbyScoring("home", "penalties", -1) },
+                    { label: "Drop -1", onClick: () => applyRugbyScoring("home", "drops", -1) },
+                  ]}
+                />
+                <StatCardScoreGroup
+                  title="Marque extérieure"
+                  buttons={[
+                    { label: "Essai +5", onClick: () => applyRugbyScoring("away", "tries", 1), primary: true },
+                    { label: "Transfo +2", onClick: () => applyRugbyScoring("away", "conversions", 1) },
+                    { label: "Pénalité +3", onClick: () => applyRugbyScoring("away", "penalties", 1) },
+                    { label: "Drop +3", onClick: () => applyRugbyScoring("away", "drops", 1) },
+                    { label: "Essai -1", onClick: () => applyRugbyScoring("away", "tries", -1) },
+                    { label: "Transfo -1", onClick: () => applyRugbyScoring("away", "conversions", -1) },
+                    { label: "Pénalité -1", onClick: () => applyRugbyScoring("away", "penalties", -1) },
+                    { label: "Drop -1", onClick: () => applyRugbyScoring("away", "drops", -1) },
+                  ]}
+                />
                 <div style={styles.statCard}>
-                  <div style={styles.statCardTitle}>Marque domicile</div>
+                  <div style={styles.statCardTitle}>Cartons & sin bin</div>
                   <div style={styles.scoreActions}>
-                    <button onClick={() => applyRugbyScoring("home", "tries", 1)} style={styles.primaryBtnSmall}>Essai +5</button>
-                    <button onClick={() => applyRugbyScoring("home", "conversions", 1)} style={styles.ghostBtnSmall}>Transfo +2</button>
-                    <button onClick={() => applyRugbyScoring("home", "penalties", 1)} style={styles.ghostBtnSmall}>Pénalité +3</button>
-                    <button onClick={() => applyRugbyScoring("home", "drops", 1)} style={styles.ghostBtnSmall}>Drop +3</button>
-                  </div>
-                  <div style={{ ...styles.scoreActions, marginTop: 8 }}>
-                    <button onClick={() => applyRugbyScoring("home", "tries", -1)} style={styles.ghostBtnSmall}>Essai -1</button>
-                    <button onClick={() => applyRugbyScoring("home", "conversions", -1)} style={styles.ghostBtnSmall}>Transfo -1</button>
-                    <button onClick={() => applyRugbyScoring("home", "penalties", -1)} style={styles.ghostBtnSmall}>Pénalité -1</button>
-                    <button onClick={() => applyRugbyScoring("home", "drops", -1)} style={styles.ghostBtnSmall}>Drop -1</button>
-                  </div>
-                </div>
-
-                <div style={styles.statCard}>
-                  <div style={styles.statCardTitle}>Marque extérieure</div>
-                  <div style={styles.scoreActions}>
-                    <button onClick={() => applyRugbyScoring("away", "tries", 1)} style={styles.primaryBtnSmall}>Essai +5</button>
-                    <button onClick={() => applyRugbyScoring("away", "conversions", 1)} style={styles.ghostBtnSmall}>Transfo +2</button>
-                    <button onClick={() => applyRugbyScoring("away", "penalties", 1)} style={styles.ghostBtnSmall}>Pénalité +3</button>
-                    <button onClick={() => applyRugbyScoring("away", "drops", 1)} style={styles.ghostBtnSmall}>Drop +3</button>
-                  </div>
-                  <div style={{ ...styles.scoreActions, marginTop: 8 }}>
-                    <button onClick={() => applyRugbyScoring("away", "tries", -1)} style={styles.ghostBtnSmall}>Essai -1</button>
-                    <button onClick={() => applyRugbyScoring("away", "conversions", -1)} style={styles.ghostBtnSmall}>Transfo -1</button>
-                    <button onClick={() => applyRugbyScoring("away", "penalties", -1)} style={styles.ghostBtnSmall}>Pénalité -1</button>
-                    <button onClick={() => applyRugbyScoring("away", "drops", -1)} style={styles.ghostBtnSmall}>Drop -1</button>
-                  </div>
-                </div>
-
-                <div style={styles.statCard}>
-                  <div style={styles.statCardTitle}>Paramètres rugby</div>
-                  <div style={{ display: "grid", gap: 10 }}>
-                    <label style={styles.switchRow}>
-                      <input
-                        type="checkbox"
-                        checked={rugbyExtraTime}
-                        onChange={async (e) => {
-                          const next = e.target.checked;
-                          setRugbyExtraTime(next);
-                          try {
-                            await persistLiveState({ rugby_extra_time: next });
-                            if (autoLive) await pushPatch({ rugby_extra_time: next });
-                          } catch {}
-                        }}
-                      />
-                      <span>Prolongation rugby</span>
-                    </label>
-
-                    <Field label="Mode départage">
-                      <input
-                        value={rugbyTiebreakMode}
-                        onChange={(e) => setRugbyTiebreakMode(e.target.value)}
-                        onBlur={async () => {
-                          try {
-                            await persistLiveState({ rugby_tiebreak_mode: rugbyTiebreakMode || null });
-                            if (autoLive) await pushPatch({ rugby_tiebreak_mode: rugbyTiebreakMode || null });
-                          } catch {}
-                        }}
-                        style={styles.input}
-                        placeholder="Ex: prolongation, TAB..."
-                      />
-                    </Field>
+                    <button onClick={() => issueRugbyYellow("home")} style={styles.ghostBtnSmall}>Jaune dom.</button>
+                    <button onClick={() => issueRugbyYellow("away")} style={styles.ghostBtnSmall}>Jaune ext.</button>
+                    <button onClick={() => issueRugbyRed("home")} style={styles.ghostBtnSmall}>Rouge dom.</button>
+                    <button onClick={() => issueRugbyRed("away")} style={styles.ghostBtnSmall}>Rouge ext.</button>
                   </div>
                 </div>
               </div>
@@ -2162,12 +1781,46 @@ export default function ControlPage() {
                 <div style={styles.statCard}>
                   <div style={styles.statCardTitle}>Temps morts d’équipe</div>
                   <div style={styles.scoreActions}>
-                    <button onClick={() => useTimeout("home")} style={styles.ghostBtnSmall}>TM {homeName}</button>
-                    <button onClick={() => useTimeout("away")} style={styles.ghostBtnSmall}>TM {awayName}</button>
+                    <button
+                      onClick={async () => {
+                        const next = handballHomeTimeouts + 1;
+                        setHandballHomeTimeouts(next);
+                        try {
+                          await persistLiveState({ handball_home_team_timeouts: next });
+                          if (autoLive) await pushPatch({ handball_home_team_timeouts: next, home_timeouts: next });
+                          await appendEvent({ event_type: "handball_timeout", team_side: "home", payload: { value: next } });
+                        } catch {}
+                      }}
+                      style={styles.ghostBtnSmall}
+                    >
+                      TM {homeName}
+                    </button>
+                    <button
+                      onClick={async () => {
+                        const next = handballAwayTimeouts + 1;
+                        setHandballAwayTimeouts(next);
+                        try {
+                          await persistLiveState({ handball_away_team_timeouts: next });
+                          if (autoLive) await pushPatch({ handball_away_team_timeouts: next, away_timeouts: next });
+                          await appendEvent({ event_type: "handball_timeout", team_side: "away", payload: { value: next } });
+                        } catch {}
+                      }}
+                      style={styles.ghostBtnSmall}
+                    >
+                      TM {awayName}
+                    </button>
                   </div>
-                  <div style={{ marginTop: 12, display: "grid", gap: 6 }}>
-                    <div>{homeName} : {handballHomeTimeouts}</div>
-                    <div>{awayName} : {handballAwayTimeouts}</div>
+                </div>
+
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>Sanctions équipe</div>
+                  <div style={styles.scoreActions}>
+                    <button onClick={() => issueHandballWarning("home")} style={styles.ghostBtnSmall}>Avert. dom.</button>
+                    <button onClick={() => issueHandballWarning("away")} style={styles.ghostBtnSmall}>Avert. ext.</button>
+                    <button onClick={() => issueHandball2Min("home")} style={styles.ghostBtnSmall}>2 min dom.</button>
+                    <button onClick={() => issueHandball2Min("away")} style={styles.ghostBtnSmall}>2 min ext.</button>
+                    <button onClick={() => issueHandballDisq("home")} style={styles.ghostBtnSmall}>Disq. dom.</button>
+                    <button onClick={() => issueHandballDisq("away")} style={styles.ghostBtnSmall}>Disq. ext.</button>
                   </div>
                 </div>
 
@@ -2187,9 +1840,8 @@ export default function ControlPage() {
                           } catch {}
                         }}
                       />
-                      <span>Prolongation handball</span>
+                      <span>Prolongation</span>
                     </label>
-
                     <Field label="Mode départage">
                       <input
                         value={handballShootoutMode}
@@ -2206,74 +1858,298 @@ export default function ControlPage() {
                     </Field>
                   </div>
                 </div>
+              </div>
+            </section>
+          ) : null}
+
+          {isVolleyball ? (
+            <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
+              <div style={styles.sectionTitle}>Mode volley</div>
+              <div style={styles.modeGrid}>
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>Points du set</div>
+                  <div style={styles.scoreActions}>
+                    <button
+                      onClick={() => {
+                        const next = volleyHomeSetPoints + 1;
+                        setVolleyHomeSetPoints(next);
+                        updateVolleyPatch({ volleyball_home_set_points: next }, "volleyball_point", "home");
+                      }}
+                      style={styles.primaryBtnSmall}
+                    >
+                      +1 {homeName}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const next = Math.max(0, volleyHomeSetPoints - 1);
+                        setVolleyHomeSetPoints(next);
+                        updateVolleyPatch({ volleyball_home_set_points: next }, "volleyball_point_correction", "home");
+                      }}
+                      style={styles.ghostBtnSmall}
+                    >
+                      -1 {homeName}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const next = volleyAwaySetPoints + 1;
+                        setVolleyAwaySetPoints(next);
+                        updateVolleyPatch({ volleyball_away_set_points: next }, "volleyball_point", "away");
+                      }}
+                      style={styles.primaryBtnSmall}
+                    >
+                      +1 {awayName}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const next = Math.max(0, volleyAwaySetPoints - 1);
+                        setVolleyAwaySetPoints(next);
+                        updateVolleyPatch({ volleyball_away_set_points: next }, "volleyball_point_correction", "away");
+                      }}
+                      style={styles.ghostBtnSmall}
+                    >
+                      -1 {awayName}
+                    </button>
+                  </div>
+                </div>
 
                 <div style={styles.statCard}>
-                  <div style={styles.statCardTitle}>Sanctions handball</div>
-                  <div style={{ display: "grid", gap: 6 }}>
-                    <div>{homeName} • Avertissements : {handballHomeWarnings}</div>
-                    <div>{awayName} • Avertissements : {handballAwayWarnings}</div>
-                    <div>{homeName} • 2 min : {handballHome2Min}</div>
-                    <div>{awayName} • 2 min : {handballAway2Min}</div>
-                    <div>{homeName} • Disq. : {handballHomeDisq}</div>
-                    <div>{awayName} • Disq. : {handballAwayDisq}</div>
+                  <div style={styles.statCardTitle}>Service</div>
+                  <div style={styles.scoreActions}>
+                    <button
+                      onClick={() => {
+                        setVolleyHomeServing(true);
+                        setVolleyAwayServing(false);
+                        updateVolleyPatch({ volleyball_home_serving: true, volleyball_away_serving: false }, "volleyball_service", "home");
+                      }}
+                      style={volleyHomeServing ? styles.primaryBtnSmall : styles.ghostBtnSmall}
+                    >
+                      Service {homeName}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setVolleyHomeServing(false);
+                        setVolleyAwayServing(true);
+                        updateVolleyPatch({ volleyball_home_serving: false, volleyball_away_serving: true }, "volleyball_service", "away");
+                      }}
+                      style={volleyAwayServing ? styles.primaryBtnSmall : styles.ghostBtnSmall}
+                    >
+                      Service {awayName}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>Set & temps morts</div>
+                  <div style={styles.scoreActions}>
+                    <button
+                      onClick={() => {
+                        const next = volleyHomeTimeouts + 1;
+                        setVolleyHomeTimeouts(next);
+                        updateVolleyPatch({ volleyball_home_timeouts: next }, "volleyball_timeout", "home");
+                      }}
+                      style={styles.ghostBtnSmall}
+                    >
+                      TM {homeName}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const next = volleyAwayTimeouts + 1;
+                        setVolleyAwayTimeouts(next);
+                        updateVolleyPatch({ volleyball_away_timeouts: next }, "volleyball_timeout", "away");
+                      }}
+                      style={styles.ghostBtnSmall}
+                    >
+                      TM {awayName}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const next = homeSetsWon + 1;
+                        setHomeSetsWon(next);
+                        updateVolleyPatch({ home_sets_won: next }, "volleyball_set_win", "home");
+                      }}
+                      style={styles.primaryBtnSmall}
+                    >
+                      Set {homeName}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const next = awaySetsWon + 1;
+                        setAwaySetsWon(next);
+                        updateVolleyPatch({ away_sets_won: next }, "volleyball_set_win", "away");
+                      }}
+                      style={styles.primaryBtnSmall}
+                    >
+                      Set {awayName}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const next = volleyCurrentSet + 1;
+                        setVolleyCurrentSet(next);
+                        setVolleyHomeSetPoints(0);
+                        setVolleyAwaySetPoints(0);
+                        updateVolleyPatch({
+                          volleyball_current_set: next,
+                          volleyball_home_set_points: 0,
+                          volleyball_away_set_points: 0,
+                        }, "volleyball_next_set");
+                      }}
+                      style={styles.ghostBtnSmall}
+                    >
+                      Set suivant
+                    </button>
                   </div>
                 </div>
               </div>
             </section>
           ) : null}
 
-          {(showTeamFouls || showTimeouts || showBonus || showSets || showCards || isRugby || isHandball) ? (
+          {isFootball ? (
+            <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
+              <div style={styles.sectionTitle}>Mode football</div>
+              <div style={styles.modeGrid}>
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>Cartons</div>
+                  <div style={styles.scoreActions}>
+                    <button
+                      onClick={() => {
+                        const next = footballHomeYellows + 1;
+                        setFootballHomeYellows(next);
+                        updateFootballPatch({ football_home_yellow_cards: next }, "football_yellow", "home");
+                      }}
+                      style={styles.ghostBtnSmall}
+                    >
+                      Jaune {homeName}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const next = footballAwayYellows + 1;
+                        setFootballAwayYellows(next);
+                        updateFootballPatch({ football_away_yellow_cards: next }, "football_yellow", "away");
+                      }}
+                      style={styles.ghostBtnSmall}
+                    >
+                      Jaune {awayName}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const next = footballHomeReds + 1;
+                        setFootballHomeReds(next);
+                        updateFootballPatch({ football_home_red_cards: next }, "football_red", "home");
+                      }}
+                      style={styles.ghostBtnSmall}
+                    >
+                      Rouge {homeName}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const next = footballAwayReds + 1;
+                        setFootballAwayReds(next);
+                        updateFootballPatch({ football_away_red_cards: next }, "football_red", "away");
+                      }}
+                      style={styles.ghostBtnSmall}
+                    >
+                      Rouge {awayName}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>Prolongation & TAB</div>
+                  <div style={{ display: "grid", gap: 10 }}>
+                    <label style={styles.switchRow}>
+                      <input
+                        type="checkbox"
+                        checked={footballExtraTime}
+                        onChange={(e) => {
+                          const next = e.target.checked;
+                          setFootballExtraTime(next);
+                          updateFootballPatch({ football_extra_time: next }, "football_extra_time");
+                        }}
+                      />
+                      <span>Prolongation</span>
+                    </label>
+                    <div style={styles.scoreActions}>
+                      <button
+                        onClick={() => {
+                          const next = footballHomePens + 1;
+                          setFootballHomePens(next);
+                          updateFootballPatch({ football_home_penalty_shootout: next }, "football_penalty_shootout", "home");
+                        }}
+                        style={styles.ghostBtnSmall}
+                      >
+                        TAB {homeName}
+                      </button>
+                      <button
+                        onClick={() => {
+                          const next = footballAwayPens + 1;
+                          setFootballAwayPens(next);
+                          updateFootballPatch({ football_away_penalty_shootout: next }, "football_penalty_shootout", "away");
+                        }}
+                        style={styles.ghostBtnSmall}
+                      >
+                        TAB {awayName}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>Temps additionnel</div>
+                  <div style={{ display: "grid", gap: 8 }}>
+                    <Field label="1re mi-temps">
+                      <input
+                        value={footballAdded1}
+                        onChange={(e) => setFootballAdded1(Number(e.target.value || 0))}
+                        onBlur={() => updateFootballPatch({ football_added_time_first_half: footballAdded1 }, "football_added_time")}
+                        style={styles.input}
+                        type="number"
+                      />
+                    </Field>
+                    <Field label="2e mi-temps">
+                      <input
+                        value={footballAdded2}
+                        onChange={(e) => setFootballAdded2(Number(e.target.value || 0))}
+                        onBlur={() => updateFootballPatch({ football_added_time_second_half: footballAdded2 }, "football_added_time")}
+                        style={styles.input}
+                        type="number"
+                      />
+                    </Field>
+                  </div>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          {(showTeamFouls || showTimeouts || showBonus || showSets || showCards) ? (
             <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
               <div style={styles.sectionTitle}>Statistiques de match</div>
 
               <div style={styles.statsGrid}>
                 {showTeamFouls ? (
                   <StatPairCard
-                    title={isBasket ? "Fautes équipe (période)" : "Fautes équipe"}
+                    title="Fautes équipe"
                     leftValue={homeTeamFouls}
                     rightValue={awayTeamFouls}
                     leftLabel={homeName}
                     rightLabel={awayName}
-                    onLeftMinus={() => changeTeamStat(setHomeTeamFouls, homeTeamFouls, -1, "home_team_fouls", "home", isBasket ? "basket_team_foul" : "team_foul")}
-                    onLeftPlus={() => changeTeamStat(setHomeTeamFouls, homeTeamFouls, 1, "home_team_fouls", "home", isBasket ? "basket_team_foul" : "team_foul")}
-                    onRightMinus={() => changeTeamStat(setAwayTeamFouls, awayTeamFouls, -1, "away_team_fouls", "away", isBasket ? "basket_team_foul" : "team_foul")}
-                    onRightPlus={() => changeTeamStat(setAwayTeamFouls, awayTeamFouls, 1, "away_team_fouls", "away", isBasket ? "basket_team_foul" : "team_foul")}
+                    onLeftMinus={() => setHomeTeamFouls((v) => Math.max(0, v - 1))}
+                    onLeftPlus={() => setHomeTeamFouls((v) => v + 1)}
+                    onRightMinus={() => setAwayTeamFouls((v) => Math.max(0, v - 1))}
+                    onRightPlus={() => setAwayTeamFouls((v) => v + 1)}
                   />
                 ) : null}
 
                 {showTimeouts ? (
                   <StatPairCard
                     title="Temps morts"
-                    leftValue={isHandball ? handballHomeTimeouts : homeTimeouts}
-                    rightValue={isHandball ? handballAwayTimeouts : awayTimeouts}
+                    leftValue={isHandball ? handballHomeTimeouts : isVolleyball ? volleyHomeTimeouts : homeTimeouts}
+                    rightValue={isHandball ? handballAwayTimeouts : isVolleyball ? volleyAwayTimeouts : awayTimeouts}
                     leftLabel={homeName}
                     rightLabel={awayName}
-                    onLeftMinus={() =>
-                      isHandball
-                        ? (async () => {
-                            const next = clampMin(handballHomeTimeouts - 1);
-                            setHandballHomeTimeouts(next);
-                            try {
-                              await persistLiveState({ handball_home_team_timeouts: next });
-                              if (autoLive) await pushPatch({ handball_home_team_timeouts: next, home_timeouts: next });
-                            } catch {}
-                          })()
-                        : changeTeamStat(setHomeTimeouts, homeTimeouts, -1, "home_timeouts", "home", "timeout")
-                    }
-                    onLeftPlus={() => useTimeout("home")}
-                    onRightMinus={() =>
-                      isHandball
-                        ? (async () => {
-                            const next = clampMin(handballAwayTimeouts - 1);
-                            setHandballAwayTimeouts(next);
-                            try {
-                              await persistLiveState({ handball_away_team_timeouts: next });
-                              if (autoLive) await pushPatch({ handball_away_team_timeouts: next, away_timeouts: next });
-                            } catch {}
-                          })()
-                        : changeTeamStat(setAwayTimeouts, awayTimeouts, -1, "away_timeouts", "away", "timeout")
-                    }
-                    onRightPlus={() => useTimeout("away")}
+                    onLeftMinus={() => {}}
+                    onLeftPlus={() => {}}
+                    onRightMinus={() => {}}
+                    onRightPlus={() => {}}
                   />
                 ) : null}
 
@@ -2284,42 +2160,21 @@ export default function ControlPage() {
                     rightValue={awaySetsWon}
                     leftLabel={homeName}
                     rightLabel={awayName}
-                    onLeftMinus={() => changeTeamStat(setHomeSetsWon, homeSetsWon, -1, "home_sets_won", "home", "set_win")}
-                    onLeftPlus={() => changeTeamStat(setHomeSetsWon, homeSetsWon, 1, "home_sets_won", "home", "set_win")}
-                    onRightMinus={() => changeTeamStat(setAwaySetsWon, awaySetsWon, -1, "away_sets_won", "away", "set_win")}
-                    onRightPlus={() => changeTeamStat(setAwaySetsWon, awaySetsWon, 1, "away_sets_won", "away", "set_win")}
+                    onLeftMinus={() => setHomeSetsWon((v) => Math.max(0, v - 1))}
+                    onLeftPlus={() => setHomeSetsWon((v) => v + 1)}
+                    onRightMinus={() => setAwaySetsWon((v) => Math.max(0, v - 1))}
+                    onRightPlus={() => setAwaySetsWon((v) => v + 1)}
                   />
                 ) : null}
 
                 {showCards ? (
                   <div style={styles.statCard}>
-                    <div style={styles.statCardTitle}>Cartons équipe</div>
-
+                    <div style={styles.statCardTitle}>Cartons / sanctions</div>
                     <div style={styles.cardsGrid}>
-                      <MiniStat
-                        title={`${homeName} • Jaunes`}
-                        value={homeYellowCards}
-                        onMinus={() => changeTeamStat(setHomeYellowCards, homeYellowCards, -1, "home_yellow_cards", "home", "yellow_card")}
-                        onPlus={() => changeTeamStat(setHomeYellowCards, homeYellowCards, 1, "home_yellow_cards", "home", "yellow_card")}
-                      />
-                      <MiniStat
-                        title={`${awayName} • Jaunes`}
-                        value={awayYellowCards}
-                        onMinus={() => changeTeamStat(setAwayYellowCards, awayYellowCards, -1, "away_yellow_cards", "away", "yellow_card")}
-                        onPlus={() => changeTeamStat(setAwayYellowCards, awayYellowCards, 1, "away_yellow_cards", "away", "yellow_card")}
-                      />
-                      <MiniStat
-                        title={`${homeName} • Rouges`}
-                        value={homeRedCards}
-                        onMinus={() => changeTeamStat(setHomeRedCards, homeRedCards, -1, "home_red_cards", "home", "red_card")}
-                        onPlus={() => changeTeamStat(setHomeRedCards, homeRedCards, 1, "home_red_cards", "home", "red_card")}
-                      />
-                      <MiniStat
-                        title={`${awayName} • Rouges`}
-                        value={awayRedCards}
-                        onMinus={() => changeTeamStat(setAwayRedCards, awayRedCards, -1, "away_red_cards", "away", "red_card")}
-                        onPlus={() => changeTeamStat(setAwayRedCards, awayRedCards, 1, "away_red_cards", "away", "red_card")}
-                      />
+                      <MiniStat title={`${homeName} • Jaunes`} value={isFootball ? footballHomeYellows : homeYellowCards} onMinus={() => {}} onPlus={() => {}} />
+                      <MiniStat title={`${awayName} • Jaunes`} value={isFootball ? footballAwayYellows : awayYellowCards} onMinus={() => {}} onPlus={() => {}} />
+                      <MiniStat title={`${homeName} • Rouges`} value={isFootball ? footballHomeReds : homeRedCards} onMinus={() => {}} onPlus={() => {}} />
+                      <MiniStat title={`${awayName} • Rouges`} value={isFootball ? footballAwayReds : awayRedCards} onMinus={() => {}} onPlus={() => {}} />
                     </div>
                   </div>
                 ) : null}
@@ -2328,16 +2183,10 @@ export default function ControlPage() {
                   <div style={styles.statCard}>
                     <div style={styles.statCardTitle}>Bonus</div>
                     <div style={styles.bonusGrid}>
-                      <button
-                        onClick={() => toggleBoolStat(setHomeBonus, homeBonus, "home_bonus")}
-                        style={homeBonus ? styles.primaryBtn : styles.ghostBtn}
-                      >
+                      <button onClick={() => setHomeBonus((v) => !v)} style={homeBonus ? styles.primaryBtn : styles.ghostBtn}>
                         {homeName} : {homeBonus ? "ON" : "OFF"}
                       </button>
-                      <button
-                        onClick={() => toggleBoolStat(setAwayBonus, awayBonus, "away_bonus")}
-                        style={awayBonus ? styles.primaryBtn : styles.ghostBtn}
-                      >
+                      <button onClick={() => setAwayBonus((v) => !v)} style={awayBonus ? styles.primaryBtn : styles.ghostBtn}>
                         {awayName} : {awayBonus ? "ON" : "OFF"}
                       </button>
                     </div>
@@ -2347,25 +2196,9 @@ export default function ControlPage() {
                 {isRugby ? (
                   <div style={styles.statCard}>
                     <div style={styles.statCardTitle}>Détail score rugby</div>
-                    <div style={{ display: "grid", gap: 10 }}>
-                      <div style={styles.rugbyScoreLine}>
-                        <span>{homeName}</span>
-                        <span>E {rugbyHomeTries} • T {rugbyHomeConversions} • P {rugbyHomePenalties} • D {rugbyHomeDrops}</span>
-                      </div>
-                      <div style={styles.rugbyScoreLine}>
-                        <span>{awayName}</span>
-                        <span>E {rugbyAwayTries} • T {rugbyAwayConversions} • P {rugbyAwayPenalties} • D {rugbyAwayDrops}</span>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                {isRugby ? (
-                  <div style={styles.statCard}>
-                    <div style={styles.statCardTitle}>Sin bin actifs</div>
                     <div style={{ display: "grid", gap: 8 }}>
-                      <div>{homeName} : {rugbyHomeSinBinActive}</div>
-                      <div>{awayName} : {rugbyAwaySinBinActive}</div>
+                      <div>{homeName} • E {rugbyHomeTries} • T {rugbyHomeConversions} • P {rugbyHomePenalties} • D {rugbyHomeDrops}</div>
+                      <div>{awayName} • E {rugbyAwayTries} • T {rugbyAwayConversions} • P {rugbyAwayPenalties} • D {rugbyAwayDrops}</div>
                     </div>
                   </div>
                 ) : null}
@@ -2374,12 +2207,30 @@ export default function ControlPage() {
                   <div style={styles.statCard}>
                     <div style={styles.statCardTitle}>Sanctions handball</div>
                     <div style={{ display: "grid", gap: 8 }}>
-                      <div>{homeName} • Avertissements : {handballHomeWarnings}</div>
-                      <div>{awayName} • Avertissements : {handballAwayWarnings}</div>
-                      <div>{homeName} • 2 min actives : {handballHome2MinActive}</div>
-                      <div>{awayName} • 2 min actives : {handballAway2MinActive}</div>
-                      <div>{homeName} • Disq. : {handballHomeDisq}</div>
-                      <div>{awayName} • Disq. : {handballAwayDisq}</div>
+                      <div>{homeName} • Avert. {handballHomeWarnings} • 2 min {handballHome2Min} • Disq. {handballHomeDisq}</div>
+                      <div>{awayName} • Avert. {handballAwayWarnings} • 2 min {handballAway2Min} • Disq. {handballAwayDisq}</div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {isVolleyball ? (
+                  <div style={styles.statCard}>
+                    <div style={styles.statCardTitle}>Set courant</div>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      <div>Set {volleyCurrentSet}{volleyIsTiebreak ? " • Tie-break" : ""}</div>
+                      <div>{homeName} : {volleyHomeSetPoints} {volleyHomeServing ? "• Service" : ""}</div>
+                      <div>{awayName} : {volleyAwaySetPoints} {volleyAwayServing ? "• Service" : ""}</div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {isFootball ? (
+                  <div style={styles.statCard}>
+                    <div style={styles.statCardTitle}>Tirs au but / temps additionnel</div>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      <div>TAB : {homeName} {footballHomePens} - {footballAwayPens} {awayName}</div>
+                      <div>+ 1MT {footballAdded1} min • + 2MT {footballAdded2} min</div>
+                      <div>{footballExtraTime ? "Prolongation activée" : "Pas de prolongation"}</div>
                     </div>
                   </div>
                 ) : null}
@@ -2387,123 +2238,49 @@ export default function ControlPage() {
             </section>
           ) : null}
 
-          {isRugby ? (
+          {isRugby && (activeRugbyHome.length > 0 || activeRugbyAway.length > 0) ? (
             <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
-              <div style={styles.sectionTitle}>Cartons rugby & sin bin</div>
-
-              <div style={styles.modeGrid}>
-                <div style={styles.statCard}>
-                  <div style={styles.statCardTitle}>{homeName}</div>
-                  <div style={styles.scoreActions}>
-                    <button onClick={() => issueRugbyYellow("home")} style={styles.ghostBtnSmall}>Jaune équipe</button>
-                    <button onClick={() => issueRugbyRed("home")} style={styles.ghostBtnSmall}>Rouge équipe</button>
-                  </div>
-                  <div style={{ ...styles.scoreActions, marginTop: 8 }}>
-                    {homePlayers.slice(0, 8).map((p) => (
-                      <button key={p.id} onClick={() => issueRugbyYellow("home", p)} style={styles.ghostBtnSmall}>
-                        J #{p.number}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div style={styles.statCard}>
-                  <div style={styles.statCardTitle}>{awayName}</div>
-                  <div style={styles.scoreActions}>
-                    <button onClick={() => issueRugbyYellow("away")} style={styles.ghostBtnSmall}>Jaune équipe</button>
-                    <button onClick={() => issueRugbyRed("away")} style={styles.ghostBtnSmall}>Rouge équipe</button>
-                  </div>
-                  <div style={{ ...styles.scoreActions, marginTop: 8 }}>
-                    {awayPlayers.slice(0, 8).map((p) => (
-                      <button key={p.id} onClick={() => issueRugbyYellow("away", p)} style={styles.ghostBtnSmall}>
-                        J #{p.number}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {(activeHomeBins.length > 0 || activeAwayBins.length > 0) ? (
-                <div style={{ marginTop: 16, display: "grid", gap: 8 }}>
-                  {[...activeHomeBins, ...activeAwayBins].map((bin) => (
-                    <div key={bin.id} style={styles.eventRow}>
-                      <div style={styles.eventMain}>
-                        <div style={styles.eventType}>
-                          {bin.team_side === "home" ? homeName : awayName} • Sin bin actif
-                        </div>
-                        <div style={styles.eventMeta}>
-                          {bin.player_name_snapshot || "Joueur non renseigné"} {bin.shirt_number_snapshot ? `• #${bin.shirt_number_snapshot}` : ""}
-                        </div>
+              <div style={styles.sectionTitle}>Sin bin rugby actifs</div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {[...activeRugbyHome, ...activeRugbyAway].map((row) => (
+                  <div key={row.id} style={styles.eventRow}>
+                    <div style={styles.eventMain}>
+                      <div style={styles.eventType}>
+                        {row.team_side === "home" ? homeName : awayName} • Sin bin actif
                       </div>
-                      <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                        <button onClick={() => endSinBin(bin)} style={styles.primaryBtnSmall}>Clôturer</button>
+                      <div style={styles.eventMeta}>
+                        {row.player_name_snapshot || "Joueur non renseigné"} {row.shirt_number_snapshot ? `• #${row.shirt_number_snapshot}` : ""}
                       </div>
                     </div>
-                  ))}
-                </div>
-              ) : null}
+                    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                      <button onClick={() => endRugbySinBin(row)} style={styles.primaryBtnSmall}>Clôturer</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </section>
           ) : null}
 
-          {isHandball ? (
+          {isHandball && (activeHandHome.length > 0 || activeHandAway.length > 0) ? (
             <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
-              <div style={styles.sectionTitle}>Sanctions handball</div>
-
-              <div style={styles.modeGrid}>
-                <div style={styles.statCard}>
-                  <div style={styles.statCardTitle}>{homeName}</div>
-                  <div style={styles.scoreActions}>
-                    <button onClick={() => issueHandballWarning("home")} style={styles.ghostBtnSmall}>Avert. équipe</button>
-                    <button onClick={() => issueHandball2Min("home")} style={styles.ghostBtnSmall}>2 min équipe</button>
-                    <button onClick={() => issueHandballDisq("home")} style={styles.ghostBtnSmall}>Disq. équipe</button>
-                  </div>
-                  <div style={{ ...styles.scoreActions, marginTop: 8 }}>
-                    {homePlayers.slice(0, 8).map((p) => (
-                      <React.Fragment key={p.id}>
-                        <button onClick={() => issueHandballWarning("home", p)} style={styles.ghostBtnSmall}>A #{p.number}</button>
-                        <button onClick={() => issueHandball2Min("home", p)} style={styles.ghostBtnSmall}>2' #{p.number}</button>
-                      </React.Fragment>
-                    ))}
-                  </div>
-                </div>
-
-                <div style={styles.statCard}>
-                  <div style={styles.statCardTitle}>{awayName}</div>
-                  <div style={styles.scoreActions}>
-                    <button onClick={() => issueHandballWarning("away")} style={styles.ghostBtnSmall}>Avert. équipe</button>
-                    <button onClick={() => issueHandball2Min("away")} style={styles.ghostBtnSmall}>2 min équipe</button>
-                    <button onClick={() => issueHandballDisq("away")} style={styles.ghostBtnSmall}>Disq. équipe</button>
-                  </div>
-                  <div style={{ ...styles.scoreActions, marginTop: 8 }}>
-                    {awayPlayers.slice(0, 8).map((p) => (
-                      <React.Fragment key={p.id}>
-                        <button onClick={() => issueHandballWarning("away", p)} style={styles.ghostBtnSmall}>A #{p.number}</button>
-                        <button onClick={() => issueHandball2Min("away", p)} style={styles.ghostBtnSmall}>2' #{p.number}</button>
-                      </React.Fragment>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {(activeHome2Min.length > 0 || activeAway2Min.length > 0) ? (
-                <div style={{ marginTop: 16, display: "grid", gap: 8 }}>
-                  {[...activeHome2Min, ...activeAway2Min].map((row) => (
-                    <div key={row.id} style={styles.eventRow}>
-                      <div style={styles.eventMain}>
-                        <div style={styles.eventType}>
-                          {row.team_side === "home" ? homeName : awayName} • Exclusion 2 min active
-                        </div>
-                        <div style={styles.eventMeta}>
-                          {row.player_name_snapshot || "Joueur non renseigné"} {row.shirt_number_snapshot ? `• #${row.shirt_number_snapshot}` : ""}
-                        </div>
+              <div style={styles.sectionTitle}>Exclusions 2 minutes actives</div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {[...activeHandHome, ...activeHandAway].map((row) => (
+                  <div key={row.id} style={styles.eventRow}>
+                    <div style={styles.eventMain}>
+                      <div style={styles.eventType}>
+                        {row.team_side === "home" ? homeName : awayName} • 2 min active
                       </div>
-                      <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                        <button onClick={() => endTwoMin(row)} style={styles.primaryBtnSmall}>Clôturer</button>
+                      <div style={styles.eventMeta}>
+                        {row.player_name_snapshot || "Joueur non renseigné"} {row.shirt_number_snapshot ? `• #${row.shirt_number_snapshot}` : ""}
                       </div>
                     </div>
-                  ))}
-                </div>
-              ) : null}
+                    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                      <button onClick={() => endHandball2Min(row)} style={styles.primaryBtnSmall}>Clôturer</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </section>
           ) : null}
 
@@ -2519,7 +2296,6 @@ export default function ControlPage() {
                   sport={sport}
                   onChange={(playerId, field, delta) => changePlayerStat("home", playerId, field, delta)}
                 />
-
                 <PlayerStatsTable
                   title={awayName}
                   players={awayPlayers}
@@ -2531,30 +2307,28 @@ export default function ControlPage() {
             </section>
           ) : null}
 
-          {(isBasket || isRugby || isHandball) ? (
-            <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
-              <div style={styles.sectionTitle}>Journal des événements</div>
-              {events.length === 0 ? (
-                <div style={styles.emptyCard}>Aucun événement enregistré.</div>
-              ) : (
-                <div style={styles.eventList}>
-                  {events.map((ev) => (
-                    <div key={ev.id} style={styles.eventRow}>
-                      <div style={styles.eventMain}>
-                        <div style={styles.eventType}>{ev.event_type}</div>
-                        <div style={styles.eventMeta}>
-                          Seq #{ev.seq} • {ev.team_side || "—"} • P{ev.period_index || "?"} • {fmtClock(ev.game_clock_ms || 0)}
-                        </div>
-                      </div>
-                      <div style={styles.eventPayload}>
-                        {Object.keys(ev.payload || {}).length ? JSON.stringify(ev.payload) : "—"}
+          <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
+            <div style={styles.sectionTitle}>Journal des événements</div>
+            {events.length === 0 ? (
+              <div style={styles.emptyCard}>Aucun événement enregistré.</div>
+            ) : (
+              <div style={styles.eventList}>
+                {events.map((ev) => (
+                  <div key={ev.id} style={styles.eventRow}>
+                    <div style={styles.eventMain}>
+                      <div style={styles.eventType}>{ev.event_type}</div>
+                      <div style={styles.eventMeta}>
+                        Seq #{ev.seq} • {ev.team_side || "—"} • P{ev.period_index || "?"} • {fmtClock(ev.game_clock_ms || 0)}
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          ) : null}
+                    <div style={styles.eventPayload}>
+                      {Object.keys(ev.payload || {}).length ? JSON.stringify(ev.payload) : "—"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         </div>
       </div>
     </div>
@@ -2567,6 +2341,27 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <div style={{ fontSize: 13, opacity: 0.78, marginBottom: 6 }}>{label}</div>
       {children}
     </label>
+  );
+}
+
+function StatCardScoreGroup({
+  title,
+  buttons,
+}: {
+  title: string;
+  buttons: Array<{ label: string; onClick: () => void; primary?: boolean }>;
+}) {
+  return (
+    <div style={styles.statCard}>
+      <div style={styles.statCardTitle}>{title}</div>
+      <div style={styles.scoreActions}>
+        {buttons.map((b, i) => (
+          <button key={`${b.label}-${i}`} onClick={b.onClick} style={b.primary ? styles.primaryBtnSmall : styles.ghostBtnSmall}>
+            {b.label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -2643,14 +2438,8 @@ function PlayerStatsTable({
   ) => void;
 }) {
   const normalizedSport = (sport || "").toLowerCase();
-  const showPoints =
-    normalizedSport === "basket" ||
-    normalizedSport === "rugby" ||
-    normalizedSport === "handball";
-  const showCards =
-    normalizedSport === "football" ||
-    normalizedSport === "rugby" ||
-    normalizedSport === "handball";
+  const showPoints = normalizedSport === "basket" || normalizedSport === "rugby" || normalizedSport === "handball";
+  const showCards = normalizedSport === "football" || normalizedSport === "rugby" || normalizedSport === "handball";
 
   return (
     <div style={styles.playerTableCard}>
@@ -2919,10 +2708,7 @@ const styles: Record<string, any> = {
     border: "1px solid rgba(255,255,255,.08)",
     textAlign: "center",
   },
-  eventList: {
-    display: "grid",
-    gap: 8,
-  },
+  eventList: { display: "grid", gap: 8 },
   eventRow: {
     display: "grid",
     gridTemplateColumns: "260px 1fr",
@@ -2935,17 +2721,7 @@ const styles: Record<string, any> = {
   eventMain: { minWidth: 0 },
   eventType: { fontWeight: 900, fontSize: 14 },
   eventMeta: { fontSize: 12, opacity: 0.72, marginTop: 4 },
-  eventPayload: {
-    fontSize: 12,
-    opacity: 0.86,
-    wordBreak: "break-word",
-  },
-  rugbyScoreLine: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 12,
-    fontSize: 14,
-  },
+  eventPayload: { fontSize: 12, opacity: 0.86, wordBreak: "break-word" },
   primaryBtn: {
     background: "#2563eb",
     color: "white",
