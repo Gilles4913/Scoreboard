@@ -37,6 +37,19 @@ type MatchRow = {
   away_yellow_cards: number | null;
   home_red_cards: number | null;
   away_red_cards: number | null;
+
+  current_period_index: number | null;
+  is_overtime: boolean | null;
+  possession_arrow: "home" | "away" | null;
+  team_fouls_period_home: number | null;
+  team_fouls_period_away: number | null;
+  timeouts_first_half_home: number | null;
+  timeouts_first_half_away: number | null;
+  timeouts_second_half_home: number | null;
+  timeouts_second_half_away: number | null;
+  timeouts_overtime_home: number | null;
+  timeouts_overtime_away: number | null;
+  last_event_seq: number | null;
 };
 
 type OrgRow = {
@@ -116,6 +129,18 @@ type PlayerStatRow = {
   red_cards?: number;
 };
 
+type MatchEventRow = {
+  id: string;
+  seq: number;
+  event_type: string;
+  team_side: "home" | "away" | null;
+  period_index: number | null;
+  game_clock_ms: number | null;
+  shot_clock_s: number | null;
+  payload: Record<string, any>;
+  created_at: string;
+};
+
 function getEnv(name: string): string {
   const v = (import.meta as any).env?.[name];
   return typeof v === "string" ? v : "";
@@ -125,6 +150,10 @@ const DISPLAY_URL = getEnv("VITE_DISPLAY_URL") || "";
 
 function normalizeSport(v: string | null | undefined) {
   return ((v || "football") + "").toLowerCase().trim();
+}
+
+function isBasketSport(sport: string) {
+  return normalizeSport(sport) === "basket";
 }
 
 function defaultClockMsBySport(sport: string, periodDurationS?: number | null) {
@@ -205,12 +234,17 @@ export default function ControlPage() {
   const [team, setTeam] = useState<TeamRow | null>(null);
   const [displaySettings, setDisplaySettings] = useState<DisplaySettings | null>(null);
   const [sportSettings, setSportSettings] = useState<SportSettings | null>(null);
+  const [events, setEvents] = useState<MatchEventRow[]>([]);
 
   const [matchName, setMatchName] = useState("");
   const [homeName, setHomeName] = useState("");
   const [awayName, setAwayName] = useState("");
   const [status, setStatus] = useState("scheduled");
   const [periodLabel, setPeriodLabel] = useState("1MT");
+  const [currentPeriodIndex, setCurrentPeriodIndex] = useState(1);
+  const [isOvertime, setIsOvertime] = useState(false);
+  const [possessionArrow, setPossessionArrow] = useState<"home" | "away">("home");
+
   const [homeScore, setHomeScore] = useState(0);
   const [awayScore, setAwayScore] = useState(0);
   const [clockMs, setClockMs] = useState(0);
@@ -239,6 +273,7 @@ export default function ControlPage() {
   const timerRef = useRef<number | null>(null);
 
   const sport = normalizeSport(org?.sport);
+  const isBasket = isBasketSport(sport);
   const periodOptions = useMemo(
     () => periodOptionsBySport(sport, sportSettings?.period_count),
     [sport, sportSettings?.period_count],
@@ -255,7 +290,7 @@ export default function ControlPage() {
       const { data: matchRow, error: matchErr } = await supabase
         .from("matches")
         .select(
-          "id, org_id, team_id, home_team_id, away_team_id, name, status, scheduled_at, public_display, display_token, home_name, away_name, home_score, away_score, period_label, clock_ms, clock_running, home_team_fouls, away_team_fouls, home_timeouts, away_timeouts, home_bonus, away_bonus, shot_clock_s, home_sets_won, away_sets_won, home_yellow_cards, away_yellow_cards, home_red_cards, away_red_cards",
+          "id, org_id, team_id, home_team_id, away_team_id, name, status, scheduled_at, public_display, display_token, home_name, away_name, home_score, away_score, period_label, clock_ms, clock_running, home_team_fouls, away_team_fouls, home_timeouts, away_timeouts, home_bonus, away_bonus, shot_clock_s, home_sets_won, away_sets_won, home_yellow_cards, away_yellow_cards, home_red_cards, away_red_cards, current_period_index, is_overtime, possession_arrow, team_fouls_period_home, team_fouls_period_away, timeouts_first_half_home, timeouts_first_half_away, timeouts_second_half_home, timeouts_second_half_away, timeouts_overtime_home, timeouts_overtime_away, last_event_seq",
         )
         .eq("id", matchId)
         .maybeSingle();
@@ -271,34 +306,52 @@ export default function ControlPage() {
       const currentMatch = matchRow as MatchRow;
       setMatch(currentMatch);
 
-      const [{ data: orgRow }, { data: teamRow }, { data: dsRow }, { data: ssRow }] =
-        await Promise.all([
-          supabase.from("orgs").select("id, slug, name, sport").eq("id", currentMatch.org_id).maybeSingle(),
-          currentMatch.team_id
-            ? supabase.from("teams").select("id, name").eq("id", currentMatch.team_id).maybeSingle()
-            : Promise.resolve({ data: null }),
-          supabase
-            .from("org_display_settings")
-            .select(
-              "theme, layout_mode, show_score, show_clock, show_period, show_status, show_lower_third, show_logos, show_sponsors, dual_language, lang_primary, lang_secondary, sponsor_rotate_s",
-            )
-            .eq("org_id", currentMatch.org_id)
-            .maybeSingle(),
-          supabase
-            .from("org_sport_settings")
-            .select(
-              "org_id, sport, period_count, period_duration_s, extra_time_enabled, penalties_enabled, show_team_fouls, show_player_fouls, show_timeouts, show_bonus, show_sets, show_cards, show_shot_clock, max_team_fouls, max_player_fouls, max_timeouts, shot_clock_s",
-            )
-            .eq("org_id", currentMatch.org_id)
-            .maybeSingle(),
-        ]);
+      const [
+        { data: orgRow },
+        { data: teamRow },
+        { data: dsRow },
+        { data: ssRow },
+        { data: eventsRows, error: eventsErr },
+      ] = await Promise.all([
+        supabase.from("orgs").select("id, slug, name, sport").eq("id", currentMatch.org_id).maybeSingle(),
+        currentMatch.team_id
+          ? supabase.from("teams").select("id, name").eq("id", currentMatch.team_id).maybeSingle()
+          : Promise.resolve({ data: null }),
+        supabase
+          .from("org_display_settings")
+          .select(
+            "theme, layout_mode, show_score, show_clock, show_period, show_status, show_lower_third, show_logos, show_sponsors, dual_language, lang_primary, lang_secondary, sponsor_rotate_s",
+          )
+          .eq("org_id", currentMatch.org_id)
+          .maybeSingle(),
+        supabase
+          .from("org_sport_settings")
+          .select(
+            "org_id, sport, period_count, period_duration_s, extra_time_enabled, penalties_enabled, show_team_fouls, show_player_fouls, show_timeouts, show_bonus, show_sets, show_cards, show_shot_clock, max_team_fouls, max_player_fouls, max_timeouts, shot_clock_s",
+          )
+          .eq("org_id", currentMatch.org_id)
+          .maybeSingle(),
+        supabase
+          .from("match_events")
+          .select("id, seq, event_type, team_side, period_index, game_clock_ms, shot_clock_s, payload, created_at")
+          .eq("match_id", currentMatch.id)
+          .order("seq", { ascending: false })
+          .limit(20),
+      ]);
 
       if (cancelled) return;
+
+      if (eventsErr) {
+        setErr(eventsErr.message);
+        setLoading(false);
+        return;
+      }
 
       setOrg((orgRow as OrgRow) || null);
       setTeam((teamRow as TeamRow) || null);
       setDisplaySettings((dsRow as DisplaySettings) || null);
       setSportSettings((ssRow as SportSettings) || null);
+      setEvents((eventsRows as MatchEventRow[]) || []);
 
       const sportValue = normalizeSport((orgRow as OrgRow | null)?.sport);
       const ss = (ssRow as SportSettings | null) || null;
@@ -315,6 +368,10 @@ export default function ControlPage() {
           periodOptionsBySport(sportValue, ss?.period_count)[0] ||
           "1MT",
       );
+      setCurrentPeriodIndex(Number(currentMatch.current_period_index || 1));
+      setIsOvertime(!!currentMatch.is_overtime);
+      setPossessionArrow((currentMatch.possession_arrow || "home") as "home" | "away");
+
       setHomeScore(Number(currentMatch.home_score || 0));
       setAwayScore(Number(currentMatch.away_score || 0));
       setClockMs(
@@ -324,10 +381,39 @@ export default function ControlPage() {
       );
       setClockRunning(!!currentMatch.clock_running);
 
-      setHomeTeamFouls(Number(currentMatch.home_team_fouls || 0));
-      setAwayTeamFouls(Number(currentMatch.away_team_fouls || 0));
-      setHomeTimeouts(Number(currentMatch.home_timeouts || 0));
-      setAwayTimeouts(Number(currentMatch.away_timeouts || 0));
+      setHomeTeamFouls(
+        Number(
+          isBasket
+            ? currentMatch.team_fouls_period_home || 0
+            : currentMatch.home_team_fouls || 0,
+        ),
+      );
+      setAwayTeamFouls(
+        Number(
+          isBasket
+            ? currentMatch.team_fouls_period_away || 0
+            : currentMatch.away_team_fouls || 0,
+        ),
+      );
+
+      if (isBasket) {
+        const p = Number(currentMatch.current_period_index || 1);
+        const isOt = !!currentMatch.is_overtime;
+        if (isOt || p >= 5) {
+          setHomeTimeouts(Number(currentMatch.timeouts_overtime_home || 0));
+          setAwayTimeouts(Number(currentMatch.timeouts_overtime_away || 0));
+        } else if (p <= 2) {
+          setHomeTimeouts(Number(currentMatch.timeouts_first_half_home || 0));
+          setAwayTimeouts(Number(currentMatch.timeouts_first_half_away || 0));
+        } else {
+          setHomeTimeouts(Number(currentMatch.timeouts_second_half_home || 0));
+          setAwayTimeouts(Number(currentMatch.timeouts_second_half_away || 0));
+        }
+      } else {
+        setHomeTimeouts(Number(currentMatch.home_timeouts || 0));
+        setAwayTimeouts(Number(currentMatch.away_timeouts || 0));
+      }
+
       setHomeBonus(!!currentMatch.home_bonus);
       setAwayBonus(!!currentMatch.away_bonus);
       setShotClockS(
@@ -366,20 +452,13 @@ export default function ControlPage() {
 
       if (!cancelled && !matchPlayersErr) {
         const mp = (matchPlayersData as unknown as MatchPlayerRow[]) || [];
-
         const homeTeamId = currentMatch.home_team_id || currentMatch.team_id || null;
         const awayTeamId = currentMatch.away_team_id || null;
 
-        const homeRows = toPlayerStatRows(
-          mp.filter((p) => !homeTeamId || p.team_id === homeTeamId),
+        setHomePlayers(toPlayerStatRows(mp.filter((p) => !homeTeamId || p.team_id === homeTeamId)));
+        setAwayPlayers(
+          awayTeamId ? toPlayerStatRows(mp.filter((p) => p.team_id === awayTeamId)) : [],
         );
-
-        const awayRows = awayTeamId
-          ? toPlayerStatRows(mp.filter((p) => p.team_id === awayTeamId))
-          : [];
-
-        setHomePlayers(homeRows);
-        setAwayPlayers(awayRows);
       }
 
       setLoading(false);
@@ -444,6 +523,53 @@ export default function ControlPage() {
     setMatch((prev) => (prev ? { ...prev, ...patch } : prev));
   }
 
+  async function appendEvent(params: {
+    event_type: string;
+    team_side?: "home" | "away" | null;
+    player_id?: string | null;
+    team_id?: string | null;
+    payload?: Record<string, any>;
+  }) {
+    if (!match) return;
+
+    const nextSeq = Number(match.last_event_seq || 0) + 1;
+
+    const { data, error } = await supabase
+      .from("match_events")
+      .insert({
+        org_id: match.org_id,
+        match_id: match.id,
+        seq: nextSeq,
+        event_type: params.event_type,
+        team_side: params.team_side || null,
+        team_id: params.team_id || null,
+        player_id: params.player_id || null,
+        period_index: currentPeriodIndex,
+        game_clock_ms: clockMs,
+        shot_clock_s: shotClockS,
+        payload: params.payload || {},
+      })
+      .select("id, seq, event_type, team_side, period_index, game_clock_ms, shot_clock_s, payload, created_at")
+      .maybeSingle();
+
+    if (error) {
+      flash(`Erreur journal événement : ${error.message}`);
+      return;
+    }
+
+    if (data) {
+      setEvents((prev) => [data as MatchEventRow, ...prev].slice(0, 20));
+      setMatch((prev) =>
+        prev
+          ? {
+              ...prev,
+              last_event_seq: nextSeq,
+            }
+          : prev,
+      );
+    }
+  }
+
   async function pushPatch(patch: Record<string, any>) {
     if (!match) return;
 
@@ -501,6 +627,11 @@ export default function ControlPage() {
       away_red_cards: awayRedCards,
       home_players: homePlayers,
       away_players: awayPlayers,
+
+      possession_arrow: possessionArrow,
+      current_period_index: currentPeriodIndex,
+      is_overtime: isOvertime,
+
       ...patch,
     };
 
@@ -533,13 +664,18 @@ export default function ControlPage() {
       away_yellow_cards: awayYellowCards,
       home_red_cards: homeRedCards,
       away_red_cards: awayRedCards,
+      current_period_index: currentPeriodIndex,
+      is_overtime: isOvertime,
+      possession_arrow: possessionArrow,
+      team_fouls_period_home: homeTeamFouls,
+      team_fouls_period_away: awayTeamFouls,
     };
 
     try {
       await persistLiveState(payload);
       flash("Match sauvegardé avec succès.");
     } catch {
-      // message already shown
+      // handled
     }
   }
 
@@ -568,6 +704,18 @@ export default function ControlPage() {
       if (autoLive) {
         await pushPatch({ home_score: nextHome, away_score: nextAway });
       }
+
+      if (isBasket) {
+        await appendEvent({
+          event_type: delta > 0 ? `basket_score_${delta}` : "basket_score_correction",
+          team_side: side,
+          payload: {
+            delta,
+            home_score: nextHome,
+            away_score: nextAway,
+          },
+        });
+      }
     } catch {
       // handled
     }
@@ -582,6 +730,60 @@ export default function ControlPage() {
       if (autoLive) {
         await pushPatch({ period_label: next });
       }
+
+      await appendEvent({
+        event_type: "period_change",
+        payload: { period_label: next },
+      });
+    } catch {
+      // handled
+    }
+  }
+
+  async function setBasketPeriod(nextIndex: number) {
+    const label = nextIndex <= 4 ? `Q${nextIndex}` : "OT";
+    const ot = nextIndex > 4;
+
+    setCurrentPeriodIndex(nextIndex);
+    setIsOvertime(ot);
+    setPeriodLabel(label);
+
+    const nextClock = ot ? 5 * 60 * 1000 : defaultClockMsBySport("basket", sportSettings?.period_duration_s);
+    setClockMs(nextClock);
+    setClockRunning(false);
+
+    const patch: Partial<MatchRow> = {
+      current_period_index: nextIndex,
+      is_overtime: ot,
+      period_label: label,
+      clock_ms: nextClock,
+      clock_running: false,
+      team_fouls_period_home: 0,
+      team_fouls_period_away: 0,
+    };
+
+    setHomeTeamFouls(0);
+    setAwayTeamFouls(0);
+
+    try {
+      await persistLiveState(patch);
+
+      if (autoLive) {
+        await pushPatch({
+          current_period_index: nextIndex,
+          is_overtime: ot,
+          period_label: label,
+          clock_ms: nextClock,
+          clock_running: false,
+          home_team_fouls: 0,
+          away_team_fouls: 0,
+        });
+      }
+
+      await appendEvent({
+        event_type: "basket_period_change",
+        payload: { current_period_index: nextIndex, period_label: label, is_overtime: ot },
+      });
     } catch {
       // handled
     }
@@ -624,7 +826,10 @@ export default function ControlPage() {
   }
 
   async function resetClock() {
-    const next = defaultClockMsBySport(sport, sportSettings?.period_duration_s);
+    const next = isBasket && isOvertime
+      ? 5 * 60 * 1000
+      : defaultClockMsBySport(sport, sportSettings?.period_duration_s);
+
     setClockMs(next);
     setClockRunning(false);
 
@@ -672,15 +877,31 @@ export default function ControlPage() {
       | "away_yellow_cards"
       | "home_red_cards"
       | "away_red_cards",
+    teamSide?: "home" | "away",
+    eventType?: string,
   ) {
     const next = clampMin(currentValue + delta);
     setter(next);
 
+    const patch: Partial<MatchRow> = { [patchName]: next } as Partial<MatchRow>;
+
+    if (isBasket && (patchName === "home_team_fouls" || patchName === "away_team_fouls")) {
+      patch[patchName === "home_team_fouls" ? "team_fouls_period_home" : "team_fouls_period_away"] = next as any;
+    }
+
     try {
-      await persistLiveState({ [patchName]: next } as Partial<MatchRow>);
+      await persistLiveState(patch);
 
       if (autoLive) {
         await pushPatch({ [patchName]: next });
+      }
+
+      if (eventType) {
+        await appendEvent({
+          event_type: eventType,
+          team_side: teamSide || null,
+          payload: { delta, value: next },
+        });
       }
     } catch {
       // handled
@@ -706,10 +927,13 @@ export default function ControlPage() {
     }
   }
 
-  async function changeShotClock(delta: number | null, reset = false) {
-    const next = reset
-      ? Number(sportSettings?.shot_clock_s || 24)
-      : Math.max(0, shotClockS + (delta || 0));
+  async function changeShotClock(delta: number | null, reset = false, directValue?: number) {
+    const next =
+      typeof directValue === "number"
+        ? Math.max(0, directValue)
+        : reset
+        ? Number(sportSettings?.shot_clock_s || 24)
+        : Math.max(0, shotClockS + (delta || 0));
 
     setShotClockS(next);
 
@@ -719,6 +943,82 @@ export default function ControlPage() {
       if (autoLive) {
         await pushPatch({ shot_clock_s: next });
       }
+    } catch {
+      // handled
+    }
+  }
+
+  async function togglePossessionArrow() {
+    const next = possessionArrow === "home" ? "away" : "home";
+    setPossessionArrow(next);
+
+    try {
+      await persistLiveState({ possession_arrow: next });
+
+      if (autoLive) {
+        await pushPatch({ possession_arrow: next });
+      }
+
+      await appendEvent({
+        event_type: "basket_possession_arrow",
+        team_side: next,
+        payload: { possession_arrow: next },
+      });
+    } catch {
+      // handled
+    }
+  }
+
+  async function useTimeout(side: "home" | "away") {
+    if (!isBasket) {
+      const setter = side === "home" ? setHomeTimeouts : setAwayTimeouts;
+      const value = side === "home" ? homeTimeouts : awayTimeouts;
+      const patchName = side === "home" ? "home_timeouts" : "away_timeouts";
+      await changeTeamStat(setter, value, 1, patchName, side, "timeout");
+      return;
+    }
+
+    const isOt = isOvertime || currentPeriodIndex > 4;
+    const isFirstHalf = !isOt && currentPeriodIndex <= 2;
+
+    let current = 0;
+    let patchName: keyof MatchRow;
+
+    if (isOt) {
+      patchName = side === "home" ? "timeouts_overtime_home" : "timeouts_overtime_away";
+      current = side === "home"
+        ? Number(match?.timeouts_overtime_home || 0)
+        : Number(match?.timeouts_overtime_away || 0);
+    } else if (isFirstHalf) {
+      patchName = side === "home" ? "timeouts_first_half_home" : "timeouts_first_half_away";
+      current = side === "home"
+        ? Number(match?.timeouts_first_half_home || 0)
+        : Number(match?.timeouts_first_half_away || 0);
+    } else {
+      patchName = side === "home" ? "timeouts_second_half_home" : "timeouts_second_half_away";
+      current = side === "home"
+        ? Number(match?.timeouts_second_half_home || 0)
+        : Number(match?.timeouts_second_half_away || 0);
+    }
+
+    const next = current + 1;
+    if (side === "home") setHomeTimeouts(next);
+    else setAwayTimeouts(next);
+
+    try {
+      await persistLiveState({ [patchName]: next } as Partial<MatchRow>);
+
+      if (autoLive) {
+        await pushPatch({
+          [side === "home" ? "home_timeouts" : "away_timeouts"]: next,
+        });
+      }
+
+      await appendEvent({
+        event_type: "basket_timeout",
+        team_side: side,
+        payload: { timeout_bucket: patchName, value: next },
+      });
     } catch {
       // handled
     }
@@ -778,6 +1078,22 @@ export default function ControlPage() {
       } catch (e: any) {
         flash(e?.message || "Erreur broadcast.");
       }
+    }
+
+    if (isBasket) {
+      await appendEvent({
+        event_type:
+          field === "points"
+            ? "basket_player_points"
+            : field === "fouls"
+            ? "basket_player_foul"
+            : field === "yellow_cards"
+            ? "basket_player_yellow"
+            : "basket_player_red",
+        team_side: side,
+        player_id: playerId,
+        payload: { field, delta, value: nextValue },
+      });
     }
   }
 
@@ -990,7 +1306,8 @@ export default function ControlPage() {
                     <div style={{ ...styles.scoreActions, marginTop: 8 }}>
                       <button onClick={() => changeShotClock(-1)} style={styles.ghostBtnSmall}>-1</button>
                       <button onClick={() => changeShotClock(1)} style={styles.primaryBtnSmall}>+1</button>
-                      <button onClick={() => changeShotClock(null, true)} style={styles.ghostBtnSmall}>Reset</button>
+                      <button onClick={() => changeShotClock(null, false, 14)} style={styles.ghostBtnSmall}>14</button>
+                      <button onClick={() => changeShotClock(null, true)} style={styles.ghostBtnSmall}>24</button>
                     </div>
                   </div>
                 ) : null}
@@ -1015,6 +1332,56 @@ export default function ControlPage() {
             </div>
           </section>
 
+          {isBasket ? (
+            <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
+              <div style={styles.sectionTitle}>Mode basket</div>
+
+              <div style={styles.basketGrid}>
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>Périodes</div>
+                  <div style={styles.scoreActions}>
+                    {[1, 2, 3, 4].map((q) => (
+                      <button
+                        key={q}
+                        onClick={() => setBasketPeriod(q)}
+                        style={currentPeriodIndex === q && !isOvertime ? styles.primaryBtnSmall : styles.ghostBtnSmall}
+                      >
+                        Q{q}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => setBasketPeriod(5)}
+                      style={isOvertime ? styles.primaryBtnSmall : styles.ghostBtnSmall}
+                    >
+                      OT
+                    </button>
+                  </div>
+                </div>
+
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>Possession alternée</div>
+                  <div style={styles.scoreActions}>
+                    <button onClick={togglePossessionArrow} style={styles.primaryBtn}>
+                      Flèche : {possessionArrow === "home" ? homeName : awayName}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>Temps morts basket</div>
+                  <div style={styles.scoreActions}>
+                    <button onClick={() => useTimeout("home")} style={styles.ghostBtnSmall}>
+                      TM {homeName}
+                    </button>
+                    <button onClick={() => useTimeout("away")} style={styles.ghostBtnSmall}>
+                      TM {awayName}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
           {(showTeamFouls || showTimeouts || showBonus || showSets || showCards) ? (
             <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
               <div style={styles.sectionTitle}>Statistiques de match</div>
@@ -1022,15 +1389,15 @@ export default function ControlPage() {
               <div style={styles.statsGrid}>
                 {showTeamFouls ? (
                   <StatPairCard
-                    title="Fautes équipe"
+                    title={isBasket ? "Fautes équipe (période)" : "Fautes équipe"}
                     leftValue={homeTeamFouls}
                     rightValue={awayTeamFouls}
                     leftLabel={homeName}
                     rightLabel={awayName}
-                    onLeftMinus={() => changeTeamStat(setHomeTeamFouls, homeTeamFouls, -1, "home_team_fouls")}
-                    onLeftPlus={() => changeTeamStat(setHomeTeamFouls, homeTeamFouls, 1, "home_team_fouls")}
-                    onRightMinus={() => changeTeamStat(setAwayTeamFouls, awayTeamFouls, -1, "away_team_fouls")}
-                    onRightPlus={() => changeTeamStat(setAwayTeamFouls, awayTeamFouls, 1, "away_team_fouls")}
+                    onLeftMinus={() => changeTeamStat(setHomeTeamFouls, homeTeamFouls, -1, "home_team_fouls", "home", isBasket ? "basket_team_foul" : "team_foul")}
+                    onLeftPlus={() => changeTeamStat(setHomeTeamFouls, homeTeamFouls, 1, "home_team_fouls", "home", isBasket ? "basket_team_foul" : "team_foul")}
+                    onRightMinus={() => changeTeamStat(setAwayTeamFouls, awayTeamFouls, -1, "away_team_fouls", "away", isBasket ? "basket_team_foul" : "team_foul")}
+                    onRightPlus={() => changeTeamStat(setAwayTeamFouls, awayTeamFouls, 1, "away_team_fouls", "away", isBasket ? "basket_team_foul" : "team_foul")}
                   />
                 ) : null}
 
@@ -1041,10 +1408,10 @@ export default function ControlPage() {
                     rightValue={awayTimeouts}
                     leftLabel={homeName}
                     rightLabel={awayName}
-                    onLeftMinus={() => changeTeamStat(setHomeTimeouts, homeTimeouts, -1, "home_timeouts")}
-                    onLeftPlus={() => changeTeamStat(setHomeTimeouts, homeTimeouts, 1, "home_timeouts")}
-                    onRightMinus={() => changeTeamStat(setAwayTimeouts, awayTimeouts, -1, "away_timeouts")}
-                    onRightPlus={() => changeTeamStat(setAwayTimeouts, awayTimeouts, 1, "away_timeouts")}
+                    onLeftMinus={() => changeTeamStat(setHomeTimeouts, homeTimeouts, -1, "home_timeouts", "home", "timeout")}
+                    onLeftPlus={() => (isBasket ? useTimeout("home") : changeTeamStat(setHomeTimeouts, homeTimeouts, 1, "home_timeouts", "home", "timeout"))}
+                    onRightMinus={() => changeTeamStat(setAwayTimeouts, awayTimeouts, -1, "away_timeouts", "away", "timeout")}
+                    onRightPlus={() => (isBasket ? useTimeout("away") : changeTeamStat(setAwayTimeouts, awayTimeouts, 1, "away_timeouts", "away", "timeout"))}
                   />
                 ) : null}
 
@@ -1055,10 +1422,10 @@ export default function ControlPage() {
                     rightValue={awaySetsWon}
                     leftLabel={homeName}
                     rightLabel={awayName}
-                    onLeftMinus={() => changeTeamStat(setHomeSetsWon, homeSetsWon, -1, "home_sets_won")}
-                    onLeftPlus={() => changeTeamStat(setHomeSetsWon, homeSetsWon, 1, "home_sets_won")}
-                    onRightMinus={() => changeTeamStat(setAwaySetsWon, awaySetsWon, -1, "away_sets_won")}
-                    onRightPlus={() => changeTeamStat(setAwaySetsWon, awaySetsWon, 1, "away_sets_won")}
+                    onLeftMinus={() => changeTeamStat(setHomeSetsWon, homeSetsWon, -1, "home_sets_won", "home", "set_win")}
+                    onLeftPlus={() => changeTeamStat(setHomeSetsWon, homeSetsWon, 1, "home_sets_won", "home", "set_win")}
+                    onRightMinus={() => changeTeamStat(setAwaySetsWon, awaySetsWon, -1, "away_sets_won", "away", "set_win")}
+                    onRightPlus={() => changeTeamStat(setAwaySetsWon, awaySetsWon, 1, "away_sets_won", "away", "set_win")}
                   />
                 ) : null}
 
@@ -1070,26 +1437,26 @@ export default function ControlPage() {
                       <MiniStat
                         title={`${homeName} • Jaunes`}
                         value={homeYellowCards}
-                        onMinus={() => changeTeamStat(setHomeYellowCards, homeYellowCards, -1, "home_yellow_cards")}
-                        onPlus={() => changeTeamStat(setHomeYellowCards, homeYellowCards, 1, "home_yellow_cards")}
+                        onMinus={() => changeTeamStat(setHomeYellowCards, homeYellowCards, -1, "home_yellow_cards", "home", "yellow_card")}
+                        onPlus={() => changeTeamStat(setHomeYellowCards, homeYellowCards, 1, "home_yellow_cards", "home", "yellow_card")}
                       />
                       <MiniStat
                         title={`${awayName} • Jaunes`}
                         value={awayYellowCards}
-                        onMinus={() => changeTeamStat(setAwayYellowCards, awayYellowCards, -1, "away_yellow_cards")}
-                        onPlus={() => changeTeamStat(setAwayYellowCards, awayYellowCards, 1, "away_yellow_cards")}
+                        onMinus={() => changeTeamStat(setAwayYellowCards, awayYellowCards, -1, "away_yellow_cards", "away", "yellow_card")}
+                        onPlus={() => changeTeamStat(setAwayYellowCards, awayYellowCards, 1, "away_yellow_cards", "away", "yellow_card")}
                       />
                       <MiniStat
                         title={`${homeName} • Rouges`}
                         value={homeRedCards}
-                        onMinus={() => changeTeamStat(setHomeRedCards, homeRedCards, -1, "home_red_cards")}
-                        onPlus={() => changeTeamStat(setHomeRedCards, homeRedCards, 1, "home_red_cards")}
+                        onMinus={() => changeTeamStat(setHomeRedCards, homeRedCards, -1, "home_red_cards", "home", "red_card")}
+                        onPlus={() => changeTeamStat(setHomeRedCards, homeRedCards, 1, "home_red_cards", "home", "red_card")}
                       />
                       <MiniStat
                         title={`${awayName} • Rouges`}
                         value={awayRedCards}
-                        onMinus={() => changeTeamStat(setAwayRedCards, awayRedCards, -1, "away_red_cards")}
-                        onPlus={() => changeTeamStat(setAwayRedCards, awayRedCards, 1, "away_red_cards")}
+                        onMinus={() => changeTeamStat(setAwayRedCards, awayRedCards, -1, "away_red_cards", "away", "red_card")}
+                        onPlus={() => changeTeamStat(setAwayRedCards, awayRedCards, 1, "away_red_cards", "away", "red_card")}
                       />
                     </div>
                   </div>
@@ -1139,6 +1506,31 @@ export default function ControlPage() {
                   onChange={(playerId, field, delta) => changePlayerStat("away", playerId, field, delta)}
                 />
               </div>
+            </section>
+          ) : null}
+
+          {isBasket ? (
+            <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
+              <div style={styles.sectionTitle}>Journal des événements</div>
+              {events.length === 0 ? (
+                <div style={styles.emptyCard}>Aucun événement enregistré.</div>
+              ) : (
+                <div style={styles.eventList}>
+                  {events.map((ev) => (
+                    <div key={ev.id} style={styles.eventRow}>
+                      <div style={styles.eventMain}>
+                        <div style={styles.eventType}>{ev.event_type}</div>
+                        <div style={styles.eventMeta}>
+                          Seq #{ev.seq} • {ev.team_side || "—"} • P{ev.period_index || "?"} • {fmtClock(ev.game_clock_ms || 0)}
+                        </div>
+                      </div>
+                      <div style={styles.eventPayload}>
+                        {Object.keys(ev.payload || {}).length ? JSON.stringify(ev.payload) : "—"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
           ) : null}
         </div>
@@ -1451,6 +1843,11 @@ const styles: Record<string, any> = {
     gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
     gap: 14,
   },
+  basketGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+    gap: 14,
+  },
   statCard: {
     padding: 14,
     borderRadius: 16,
@@ -1499,6 +1896,27 @@ const styles: Record<string, any> = {
     border: "1px solid rgba(255,255,255,.08)",
     textAlign: "center",
   },
+  eventList: {
+    display: "grid",
+    gap: 8,
+  },
+  eventRow: {
+    display: "grid",
+    gridTemplateColumns: "260px 1fr",
+    gap: 12,
+    padding: 10,
+    borderRadius: 12,
+    background: "rgba(255,255,255,.03)",
+    border: "1px solid rgba(255,255,255,.06)",
+  },
+  eventMain: { minWidth: 0 },
+  eventType: { fontWeight: 900, fontSize: 14 },
+  eventMeta: { fontSize: 12, opacity: 0.72, marginTop: 4 },
+  eventPayload: {
+    fontSize: 12,
+    opacity: 0.86,
+    wordBreak: "break-word",
+  },
   primaryBtn: {
     background: "#2563eb",
     color: "white",
@@ -1545,5 +1963,11 @@ const styles: Record<string, any> = {
     fontWeight: 800,
     display: "inline-flex",
     alignItems: "center",
+  },
+  emptyCard: {
+    padding: 16,
+    borderRadius: 16,
+    background: "rgba(255,255,255,.03)",
+    border: "1px solid rgba(255,255,255,.08)",
   },
 };
