@@ -1,38 +1,36 @@
-function trimSlash(s: string) {
-  return s.replace(/\/+$/, "");
+export type TeamLike = {
+  id?: string | null;
+  slug?: string | null;
+  name?: string | null;
+};
+
+function sanitizeBaseUrl(displayBaseUrl?: string | null) {
+  return (displayBaseUrl || "").trim().replace(/\/$/, "");
 }
 
-function getDisplayBaseUrl() {
-  // Prefer VITE_DISPLAY_URL (same naming as apps/home) then VITE_DISPLAY_BASE_URL (legacy)
-  const a = (import.meta.env.VITE_DISPLAY_URL as string | undefined)?.trim();
-  const b = (import.meta.env.VITE_DISPLAY_BASE_URL as string | undefined)?.trim();
-  const base = a || b;
+export function buildStableDisplayUrl(
+  displayBaseUrl: string,
+  team?: TeamLike | null,
+): string {
+  const base = sanitizeBaseUrl(displayBaseUrl);
+  if (!base || !team) return "";
 
-  // fallback local
-  return trimSlash(base || "http://localhost:5174");
-}
-
-export function buildDisplayUrl(params: { token?: string; org?: string }) {
-  const base = getDisplayBaseUrl();
-
-  if (params.token) return `${base}/?token=${encodeURIComponent(params.token)}`;
-  if (params.org) return `${base}/?org=${encodeURIComponent(params.org)}`;
-
-  return `${base}/`;
-}
-
-export async function copyToClipboard(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const el = document.createElement("textarea");
-    el.value = text;
-    el.setAttribute("readonly", "true");
-    el.style.position = "fixed";
-    el.style.left = "-9999px";
-    document.body.appendChild(el);
-    el.select();
-    document.execCommand("copy");
-    document.body.removeChild(el);
+  if (team.slug) {
+    return `${base}/?teamSlug=${encodeURIComponent(team.slug)}`;
   }
+
+  if (team.id) {
+    return `${base}/?teamId=${encodeURIComponent(team.id)}`;
+  }
+
+  return "";
+}
+
+export function hasStableDisplayTarget(team?: TeamLike | null): boolean {
+  return !!(team && (team.slug || team.id));
+}
+
+export function getDisplayBaseUrl(): string {
+  const env = (import.meta as any)?.env || {};
+  return sanitizeBaseUrl(env.VITE_DISPLAY_APP_URL || env.VITE_DISPLAY_URL || "");
 }
