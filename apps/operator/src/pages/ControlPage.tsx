@@ -920,41 +920,84 @@ export default function ControlPage() {
   }
 
   async function startClock() {
-    setClockRunning(true);
-    setStatus("live");
-    try {
-      await persistLiveState({ clock_running: true, status: "live" });
-      if (autoLive) await pushPatch({ clock_running: true, status: "live" });
-    } catch {}
-  }
+  const nextClockMs =
+    clockMs > 0 ? clockMs : defaultClockMsBySport(sport, sportSettings?.period_duration_s);
 
-  async function pauseClock() {
-    setClockRunning(false);
-    setStatus("paused");
-    try {
-      await persistLiveState({ clock_running: false, status: "paused" });
-      if (autoLive) await pushPatch({ clock_running: false, status: "paused" });
-    } catch {}
-  }
+  setClockMs(nextClockMs);
+  setClockRunning(true);
+  setStatus("live");
 
-  async function resetClock() {
-    const next = defaultClockMsBySport(sport, sportSettings?.period_duration_s);
-    setClockMs(next);
-    setClockRunning(false);
-    try {
-      await persistLiveState({ clock_ms: next, clock_running: false });
-      if (autoLive) await pushPatch({ clock_ms: next, clock_running: false });
-    } catch {}
-  }
+  try {
+    await persistLiveState({
+      clock_ms: nextClockMs,
+      clock_running: true,
+      status: "live",
+    });
 
-  async function adjustClock(deltaMs: number) {
-    const next = Math.max(0, clockMs + deltaMs);
-    setClockMs(next);
-    try {
-      await persistLiveState({ clock_ms: next });
-      if (autoLive) await pushPatch({ clock_ms: next });
-    } catch {}
-  }
+    if (autoLive) {
+      await pushPatch({
+        clock_ms: nextClockMs,
+        clock_running: true,
+        status: "live",
+      });
+    }
+  } catch {}
+}
+
+ async function pauseClock() {
+  setClockRunning(false);
+  setStatus("paused");
+
+  try {
+    await persistLiveState({
+      clock_running: false,
+      status: "paused",
+      clock_ms: clockMs,
+    });
+
+    if (autoLive) {
+      await pushPatch({
+        clock_running: false,
+        status: "paused",
+        clock_ms: clockMs,
+      });
+    }
+  } catch {}
+}
+
+ async function resetClock() {
+  const next = defaultClockMsBySport(sport, sportSettings?.period_duration_s);
+
+  setClockMs(next);
+  setClockRunning(false);
+
+  try {
+    await persistLiveState({
+      clock_ms: next,
+      clock_running: false,
+    });
+
+    if (autoLive) {
+      await pushPatch({
+        clock_ms: next,
+        clock_running: false,
+      });
+    }
+  } catch {}
+}
+
+ async function adjustClock(deltaMs: number) {
+  const next = Math.max(0, clockMs + deltaMs);
+  setClockMs(next);
+
+  try {
+    await persistLiveState({ clock_ms: next });
+
+    if (autoLive) {
+      await pushPatch({ clock_ms: next });
+    }
+  } catch {}
+}
 
   async function changeScore(side: "home" | "away", delta: number) {
     const nextHome = side === "home" ? Math.max(0, homeScore + delta) : homeScore;
