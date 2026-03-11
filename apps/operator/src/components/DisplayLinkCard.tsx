@@ -1,161 +1,194 @@
-// apps/operator/src/components/DisplayLinkCard.tsx
-import { useMemo, useState } from "react";
-import { QRCodeCanvas } from "qrcode.react";
-import { buildDisplayUrl, copyToClipboard } from "../utils/displayLink";
+import React from "react";
 
-type Props = {
-  matchId: string;
-  displayToken: string;
-  matchName?: string;
-  subtitle?: string; // ex: "HOME vs AWAY"
+type TeamLike = {
+  id?: string | null;
+  slug?: string | null;
+  name?: string | null;
 };
 
-export function DisplayLinkCard({ matchId, displayToken, matchName, subtitle }: Props) {
-  const [copied, setCopied] = useState(false);
-  const [bigQr, setBigQr] = useState(false);
+type Props = {
+  team?: TeamLike | null;
+  displayBaseUrl?: string;
+  title?: string;
+  description?: string;
+};
 
-  // ✅ token-only URL (matchId optionnel)
-  const url = useMemo(() => buildDisplayUrl({ token: displayToken /* matchId */ }), [displayToken]);
+function buildStableDisplayUrl(displayBaseUrl: string, team?: TeamLike | null) {
+  const base = (displayBaseUrl || "").trim().replace(/\/$/, "");
+  if (!base || !team) return "";
 
-  async function onCopy() {
-    await copyToClipboard(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1200);
+  if (team.slug) {
+    return `${base}/?teamSlug=${encodeURIComponent(team.slug)}`;
   }
 
+  if (team.id) {
+    return `${base}/?teamId=${encodeURIComponent(team.id)}`;
+  }
+
+  return "";
+}
+
+async function copyToClipboard(value: string) {
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export default function DisplayLinkCard({
+  team,
+  displayBaseUrl = ((import.meta as any).env?.VITE_DISPLAY_APP_URL ||
+    (import.meta as any).env?.VITE_DISPLAY_URL ||
+    "") as string,
+  title,
+  description,
+}: Props) {
+  const stableUrl = buildStableDisplayUrl(displayBaseUrl, team);
+
   return (
-    <div style={{ border: "1px solid #2a2d33", borderRadius: 12, padding: 14, background: "#0f1114" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
-        <div style={{ flex: 1, minWidth: 280 }}>
-          <div style={{ fontWeight: 800, marginBottom: 6, fontSize: 16 }}>📺 Lien Display (TV / écran)</div>
-          {matchName ? <div style={{ color: "#e5e7eb", marginBottom: 4, fontWeight: 700 }}>{matchName}</div> : null}
-          {subtitle ? <div style={{ color: "#9aa0a6", marginBottom: 10 }}>{subtitle}</div> : null}
-
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <code
-              style={{
-                padding: "8px 10px",
-                background: "#111214",
-                borderRadius: 10,
-                userSelect: "all",
-                overflowWrap: "anywhere",
-                border: "1px solid #1b1c1f",
-              }}
-            >
-              {url}
-            </code>
-
-            <button onClick={onCopy} style={{ padding: "8px 12px", borderRadius: 10 }}>
-              {copied ? "✅ Copié" : "📋 Copier"}
-            </button>
-
-            <a href={url} target="_blank" rel="noreferrer" style={{ padding: "8px 12px" }}>
-              Ouvrir
-            </a>
+    <div style={styles.card}>
+      <div style={styles.header}>
+        <div>
+          <div style={styles.title}>
+            {title || `Écran public stable${team?.name ? ` — ${team.name}` : ""}`}
           </div>
-
-          <div style={{ marginTop: 10, fontSize: 12, color: "#9aa0a6" }}>
-            ✅ Recommandé : scanne le QR depuis ton téléphone, puis ouvre le lien sur l’écran (AirPlay/Chromecast/SmartTV).
-          </div>
-
-          <div style={{ marginTop: 10, fontSize: 12, color: "#6b7280" }}>
-            matchId: <code style={{ userSelect: "all" }}>{matchId}</code>
-          </div>
-        </div>
-
-        <div style={{ textAlign: "center", minWidth: 160 }}>
-          <div style={{ fontSize: 12, color: "#9aa0a6", marginBottom: 6 }}>QR Code</div>
-
-          <div
-            style={{
-              background: "white",
-              padding: 10,
-              borderRadius: 12,
-              display: "inline-block",
-              cursor: "pointer",
-              border: "1px solid #e5e7eb",
-            }}
-            title="Cliquer pour agrandir"
-            onClick={() => setBigQr(true)}
-          >
-            <QRCodeCanvas value={url} size={140} />
-          </div>
-
-          <div style={{ marginTop: 8 }}>
-            <button onClick={() => setBigQr(true)} style={{ padding: "6px 10px", borderRadius: 10, fontSize: 12 }}>
-              🔍 Grand QR
-            </button>
+          <div style={styles.description}>
+            {description ||
+              "Le mode public par token match a été supprimé. Cette carte expose uniquement l’URL stable par équipe."}
           </div>
         </div>
       </div>
 
-      {/* Simple modal */}
-      {bigQr && (
-        <div
-          onClick={() => setBigQr(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.75)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 9999,
-            padding: 20,
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: "#0f1114",
-              border: "1px solid #2a2d33",
-              borderRadius: 16,
-              padding: 18,
-              width: "min(520px, 95vw)",
-              textAlign: "center",
-            }}
-          >
-            <div style={{ fontWeight: 800, marginBottom: 10, fontSize: 16, color: "#e5e7eb" }}>QR Code Display</div>
-            <div style={{ background: "white", padding: 16, borderRadius: 16, display: "inline-block" }}>
-              <QRCodeCanvas value={url} size={360} />
-            </div>
-
-            <div style={{ marginTop: 14 }}>
-              <code
-                style={{
-                  display: "inline-block",
-                  maxWidth: "100%",
-                  padding: "8px 10px",
-                  background: "#111214",
-                  borderRadius: 10,
-                  userSelect: "all",
-                  overflowWrap: "anywhere",
-                  color: "#e5e7eb",
-                  border: "1px solid #1b1c1f",
-                }}
-              >
-                {url}
-              </code>
-            </div>
-
-            <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 12, flexWrap: "wrap" }}>
-              <button onClick={onCopy} style={{ padding: "8px 12px", borderRadius: 10 }}>
-                {copied ? "✅ Copié" : "📋 Copier"}
-              </button>
-              <a href={url} target="_blank" rel="noreferrer" style={{ padding: "8px 12px" }}>
-                Ouvrir
-              </a>
-              <button onClick={() => setBigQr(false)} style={{ padding: "8px 12px", borderRadius: 10 }}>
-                Fermer
-              </button>
-            </div>
-
-            <div style={{ marginTop: 10, fontSize: 12, color: "#9aa0a6" }}>
-              Clique en dehors de la fenêtre pour fermer.
-            </div>
-          </div>
+      {!stableUrl ? (
+        <div style={styles.warningBox}>
+          Impossible de générer le lien public stable. Cette équipe doit avoir un <b>slug</b> ou un <b>id</b> exploitable.
         </div>
+      ) : (
+        <>
+          <div style={styles.label}>URL stable équipe</div>
+          <div style={styles.urlBox}>{stableUrl}</div>
+
+          <div style={styles.helpText}>
+            Cette URL est destinée à un écran fixe, une TV ou un panneau LED affecté à cette équipe.
+          </div>
+
+          <div style={styles.actions}>
+            <button
+              style={styles.primaryBtn}
+              onClick={async () => {
+                const ok = await copyToClipboard(stableUrl);
+                window.alert(ok ? "Lien copié." : "Copie impossible.");
+              }}
+            >
+              Copier le lien
+            </button>
+
+            <a
+              href={stableUrl}
+              target="_blank"
+              rel="noreferrer"
+              style={styles.linkBtn}
+            >
+              Ouvrir l’écran
+            </a>
+          </div>
+
+          <div style={styles.footerNote}>
+            Paramètre utilisé : <code>?teamSlug=...</code> ou <code>?teamId=...</code>
+          </div>
+        </>
       )}
     </div>
   );
 }
+
+const styles: Record<string, React.CSSProperties> = {
+  card: {
+    padding: 16,
+    borderRadius: 16,
+    background: "rgba(255,255,255,.03)",
+    border: "1px solid rgba(255,255,255,.08)",
+    color: "#e7eefc",
+    fontFamily:
+      "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 16,
+    alignItems: "flex-start",
+  },
+  title: {
+    fontSize: 16,
+    fontWeight: 900,
+  },
+  description: {
+    marginTop: 6,
+    fontSize: 13,
+    opacity: 0.8,
+    lineHeight: 1.55,
+  },
+  warningBox: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 14,
+    background: "rgba(217,119,6,.12)",
+    border: "1px solid rgba(217,119,6,.3)",
+    lineHeight: 1.6,
+    fontSize: 14,
+  },
+  label: {
+    marginTop: 14,
+    fontSize: 12,
+    opacity: 0.72,
+  },
+  urlBox: {
+    marginTop: 8,
+    padding: 14,
+    borderRadius: 14,
+    background: "rgba(255,255,255,.03)",
+    border: "1px solid rgba(255,255,255,.08)",
+    wordBreak: "break-all",
+    lineHeight: 1.6,
+    fontSize: 14,
+  },
+  helpText: {
+    marginTop: 12,
+    opacity: 0.82,
+    lineHeight: 1.6,
+    fontSize: 14,
+  },
+  actions: {
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+    marginTop: 16,
+  },
+  primaryBtn: {
+    background: "#2563eb",
+    color: "white",
+    border: "1px solid rgba(255,255,255,.1)",
+    borderRadius: 12,
+    padding: "12px 16px",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+  linkBtn: {
+    textDecoration: "none",
+    background: "#1e3a8a",
+    color: "white",
+    border: "1px solid rgba(255,255,255,.1)",
+    borderRadius: 12,
+    padding: "12px 16px",
+    fontWeight: 800,
+    display: "inline-flex",
+    alignItems: "center",
+  },
+  footerNote: {
+    marginTop: 14,
+    fontSize: 12,
+    opacity: 0.72,
+  },
+};
