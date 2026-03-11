@@ -50,7 +50,6 @@ const MATCH_SELECT = `
   status,
   scheduled_at,
   public_display,
-  display_token,
   home_name,
   away_name,
   home_score,
@@ -218,10 +217,7 @@ async function loadSponsors(
   supabase: ReturnType<typeof createClient>,
   orgId: string,
 ) {
-  const candidateTables = [
-    "org_sponsors",
-    "sponsors",
-  ];
+  const candidateTables = ["org_sponsors", "sponsors"];
 
   for (const table of candidateTables) {
     const res = await supabase
@@ -291,21 +287,6 @@ async function loadMatchPlayers(
     home_players: rows.filter((r: any) => homeTeamId && r.team_id === homeTeamId),
     away_players: rows.filter((r: any) => awayTeamId && r.team_id === awayTeamId),
   };
-}
-
-async function findMatchByToken(
-  supabase: ReturnType<typeof createClient>,
-  token: string,
-) {
-  const { data, error } = await supabase
-    .from("matches")
-    .select(MATCH_SELECT)
-    .eq("display_token", token)
-    .limit(1)
-    .maybeSingle();
-
-  if (error) throw error;
-  return data;
 }
 
 async function findMatchById(
@@ -422,7 +403,6 @@ serve(async (req) => {
     );
 
     const url = new URL(req.url);
-    const token = url.searchParams.get("token");
     const matchId = url.searchParams.get("matchId");
     const teamSlug = url.searchParams.get("teamSlug");
     const teamId = url.searchParams.get("teamId");
@@ -434,33 +414,36 @@ serve(async (req) => {
       match = await findMatchById(supabase, matchId);
     }
 
-    if (!match && token) {
-      match = await findMatchByToken(supabase, token);
-    }
-
     if (!match && (teamSlug || teamId)) {
       team = await resolveTeam(supabase, teamSlug, teamId);
+
       if (!team) {
-        return json({
-          error: "Team not found.",
-          match: null,
-          org: null,
-          display_settings: {},
-          sport_settings: {},
-        }, 404);
+        return json(
+          {
+            error: "Team not found.",
+            match: null,
+            org: null,
+            display_settings: {},
+            sport_settings: {},
+          },
+          404,
+        );
       }
 
       match = await findBestMatchForTeam(supabase, team.id);
     }
 
     if (!match) {
-      return json({
-        error: "No match found for the provided token/match/team context.",
-        match: null,
-        org: null,
-        display_settings: {},
-        sport_settings: {},
-      }, 404);
+      return json(
+        {
+          error: "No match found for the provided team or match context.",
+          match: null,
+          org: null,
+          display_settings: {},
+          sport_settings: {},
+        },
+        404,
+      );
     }
 
     const orgId = String(match.org_id ?? team?.org_id ?? "");
