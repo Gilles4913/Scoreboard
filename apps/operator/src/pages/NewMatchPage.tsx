@@ -7,7 +7,7 @@ const LS_ACTIVE_ORG_SLUG = "scoreDisplay.activeOrgSlug";
 
 type OrgRow = {
   id: string;
-  slug: string;
+  slug: string | null;
   name: string;
   sport: string | null;
 };
@@ -15,44 +15,74 @@ type OrgRow = {
 type TeamRow = {
   id: string;
   org_id: string;
+  slug: string | null;
   name: string;
+  category: string | null;
+  code: string | null;
+};
+
+type TeamOption = {
+  id: string;
+  name: string;
+  slug: string | null;
   category: string | null;
   code: string | null;
 };
 
 type SportSettingsRow = {
   org_id: string;
-  sport: string;
-  period_count: number;
-  period_duration_s: number;
-};
-
-type PlayerRow = {
-  id: string;
-  org_id: string;
-  team_id: string;
-  number: string;
-  name: string;
-  position: string | null;
-  is_active: boolean;
-};
-
-type SelectedPlayer = {
-  player_id: string;
-  shirt_number: string;
-  is_selected: boolean;
-  is_starter: boolean;
+  sport: string | null;
+  period_count: number | null;
+  period_duration_s: number | null;
+  extra_time_enabled: boolean | null;
+  penalties_enabled: boolean | null;
+  show_team_fouls: boolean | null;
+  show_player_fouls: boolean | null;
+  show_timeouts: boolean | null;
+  show_bonus: boolean | null;
+  show_sets: boolean | null;
+  show_cards: boolean | null;
+  show_shot_clock: boolean | null;
+  max_team_fouls: number | null;
+  max_player_fouls: number | null;
+  max_timeouts: number | null;
+  shot_clock_s: number | null;
 };
 
 function normalizeSport(v: string | null | undefined) {
   return ((v || "football") + "").toLowerCase().trim();
 }
 
-function defaultDisplayToken() {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+function defaultClockMsBySport(sport: string, periodDurationS?: number | null) {
+  if (typeof periodDurationS === "number" && periodDurationS >= 0) {
+    return periodDurationS * 1000;
+  }
+  const s = normalizeSport(sport);
+  if (s === "basket") return 10 * 60 * 1000;
+  if (s === "handball") return 30 * 60 * 1000;
+  if (s === "rugby") return 40 * 60 * 1000;
+  if (s === "volleyball") return 0;
+  return 45 * 60 * 1000;
 }
 
-function toLocalDatetimeInputValue(date: Date) {
+function defaultPeriodLabelBySport(sport: string) {
+  const s = normalizeSport(sport);
+  if (s === "basket") return "Q1";
+  if (s === "volleyball") return "Set 1";
+  return "1MT";
+}
+
+function defaultStatusBySport() {
+  return "scheduled";
+}
+
+function buildDefaultMatchName(homeName: string, awayName: string) {
+  const h = homeName.trim() || "Domicile";
+  const a = awayName.trim() || "Extérieur";
+  return `${h} vs ${a}`;
+}
+
+function toIsoLocalInputValue(date: Date) {
   const pad = (n: number) => String(n).padStart(2, "0");
   const yyyy = date.getFullYear();
   const mm = pad(date.getMonth() + 1);
@@ -62,17 +92,11 @@ function toLocalDatetimeInputValue(date: Date) {
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
 }
 
-function buildInitialSelection(players: PlayerRow[]) {
-  const out: Record<string, SelectedPlayer> = {};
-  players.forEach((p, index) => {
-    out[p.id] = {
-      player_id: p.id,
-      shirt_number: p.number,
-      is_selected: true,
-      is_starter: index < 5,
-    };
-  });
-  return out;
+function inferDefaultScheduledAt() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(18, 0, 0, 0);
+  return toIsoLocalInputValue(d);
 }
 
 export default function NewMatchPage() {
@@ -82,40 +106,22 @@ export default function NewMatchPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
-  const [info, setInfo] = useState("");
 
   const [org, setOrg] = useState<OrgRow | null>(null);
-  const [homeTeam, setHomeTeam] = useState<TeamRow | null>(null);
-  const [allTeams, setAllTeams] = useState<TeamRow[]>([]);
+  const [team, setTeam] = useState<TeamRow | null>(null);
+  const [teams, setTeams] = useState<TeamOption[]>([]);
   const [sportSettings, setSportSettings] = useState<SportSettingsRow | null>(null);
 
-  const [homePlayers, setHomePlayers] = useState<PlayerRow[]>([]);
-  const [awayPlayers, setAwayPlayers] = useState<PlayerRow[]>([]);
-
-  const [selectedHomePlayers, setSelectedHomePlayers] = useState<Record<string, SelectedPlayer>>({});
-  const [selectedAwayPlayers, setSelectedAwayPlayers] = useState<Record<string, SelectedPlayer>>({});
-
-  const [awayTeamMode, setAwayTeamMode] = useState<"internal" | "external">("external");
+  const [scheduledAt, setScheduledAt] = useState(inferDefaultScheduledAt());
+  const [name, setName] = useState("");
+  const [homeTeamId, setHomeTeamId] = useState(teamId || "");
   const [awayTeamId, setAwayTeamId] = useState("");
-  const [awayExternalName, setAwayExternalName] = useState("Adversaire");
-
-  const [matchName, setMatchName] = useState("");
   const [homeName, setHomeName] = useState("");
   const [awayName, setAwayName] = useState("");
-  const [scheduledAt, setScheduledAt] = useState(
-    toLocalDatetimeInputValue(new Date(Date.now() + 86400000)),
-  );
-  const [publicDisplay, setPublicDisplay] = useState(true);
-  const [displayToken, setDisplayToken] = useState(defaultDisplayToken());
+  const [neutralMatchName, setNeutralMatchName] = useState(false);
 
-  const activeOrgId = useMemo(
-    () => (localStorage.getItem(LS_ACTIVE_ORG_ID) || "").trim(),
-    [],
-  );
-  const activeOrgSlug = useMemo(
-    () => (localStorage.getItem(LS_ACTIVE_ORG_SLUG) || "").trim(),
-    [],
-  );
+  const activeOrgId = useMemo(() => (localStorage.getItem(LS_ACTIVE_ORG_ID) || "").trim(), []);
+  const activeOrgSlug = useMemo(() => (localStorage.getItem(LS_ACTIVE_ORG_SLUG) || "").trim(), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -140,45 +146,47 @@ export default function NewMatchPage() {
       const currentOrg = orgRow as OrgRow;
       setOrg(currentOrg);
 
-      const [
-        { data: homeTeamRow, error: homeTeamErr },
-        { data: sportRow, error: sportErr },
-        { data: teamsRows, error: teamsErr },
-        { data: homePlayersRows, error: homePlayersErr },
-      ] = await Promise.all([
-        supabase
-          .from("teams")
-          .select("id, org_id, name, category, code")
-          .eq("id", teamId)
-          .maybeSingle(),
-        supabase
-          .from("org_sport_settings")
-          .select("org_id, sport, period_count, period_duration_s")
-          .eq("org_id", currentOrg.id)
-          .maybeSingle(),
-        supabase
-          .from("teams")
-          .select("id, org_id, name, category, code")
-          .eq("org_id", currentOrg.id)
-          .order("name", { ascending: true }),
-        supabase
-          .from("players")
-          .select("id, org_id, team_id, number, name, position, is_active")
-          .eq("team_id", teamId)
-          .eq("is_active", true)
-          .order("number", { ascending: true }),
-      ]);
+      const [{ data: teamRow, error: teamErr }, { data: teamRows, error: teamsErr }, { data: ssRow, error: ssErr }] =
+        await Promise.all([
+          supabase
+            .from("teams")
+            .select("id, org_id, slug, name, category, code")
+            .eq("id", teamId)
+            .maybeSingle(),
+          supabase
+            .from("teams")
+            .select("id, name, slug, category, code")
+            .eq("org_id", currentOrg.id)
+            .order("name", { ascending: true }),
+          supabase
+            .from("org_sport_settings")
+            .select(`
+              org_id,
+              sport,
+              period_count,
+              period_duration_s,
+              extra_time_enabled,
+              penalties_enabled,
+              show_team_fouls,
+              show_player_fouls,
+              show_timeouts,
+              show_bonus,
+              show_sets,
+              show_cards,
+              show_shot_clock,
+              max_team_fouls,
+              max_player_fouls,
+              max_timeouts,
+              shot_clock_s
+            `)
+            .eq("org_id", currentOrg.id)
+            .maybeSingle(),
+        ]);
 
       if (cancelled) return;
 
-      if (homeTeamErr || !homeTeamRow) {
-        setErr(homeTeamErr?.message || "Équipe domicile introuvable.");
-        setLoading(false);
-        return;
-      }
-
-      if (sportErr) {
-        setErr(sportErr.message);
+      if (teamErr || !teamRow) {
+        setErr(teamErr?.message || "Équipe introuvable.");
         setLoading(false);
         return;
       }
@@ -189,29 +197,34 @@ export default function NewMatchPage() {
         return;
       }
 
-      if (homePlayersErr) {
-        setErr(homePlayersErr.message);
+      if (ssErr) {
+        setErr(ssErr.message);
         setLoading(false);
         return;
       }
 
-      const currentHomeTeam = homeTeamRow as TeamRow;
-      const currentTeams = (teamsRows as TeamRow[]) || [];
-      const currentHomePlayers = (homePlayersRows as PlayerRow[]) || [];
+      const currentTeam = teamRow as TeamRow;
+      const teamOptions = (teamRows as TeamOption[]) || [];
+      const settings = (ssRow as SportSettingsRow) || null;
 
-      setHomeTeam(currentHomeTeam);
-      setSportSettings((sportRow as SportSettingsRow | null) || null);
-      setAllTeams(currentTeams);
-      setHomePlayers(currentHomePlayers);
-      setSelectedHomePlayers(buildInitialSelection(currentHomePlayers));
+      setTeam(currentTeam);
+      setTeams(teamOptions);
+      setSportSettings(settings);
 
-      const defaultHome = currentHomeTeam.name || currentOrg.name || "Équipe domicile";
-      const defaultAway = "Adversaire";
+      const initialHomeName = currentTeam.name || "Domicile";
+      setHomeName(initialHomeName);
 
-      setHomeName(defaultHome);
-      setAwayName(defaultAway);
-      setAwayExternalName(defaultAway);
-      setMatchName(`${defaultHome} vs ${defaultAway}`);
+      const firstOpponent =
+        teamOptions.find((t) => t.id !== currentTeam.id) || null;
+
+      if (firstOpponent) {
+        setAwayTeamId(firstOpponent.id);
+        setAwayName(firstOpponent.name || "Extérieur");
+        setName(buildDefaultMatchName(initialHomeName, firstOpponent.name || "Extérieur"));
+      } else {
+        setAwayName("Extérieur");
+        setName(buildDefaultMatchName(initialHomeName, "Extérieur"));
+      }
 
       setLoading(false);
     }
@@ -223,266 +236,152 @@ export default function NewMatchPage() {
   }, [activeOrgId, activeOrgSlug, teamId]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadAwayPlayers() {
-      if (awayTeamMode !== "internal" || !awayTeamId) {
-        setAwayPlayers([]);
-        setSelectedAwayPlayers({});
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from("players")
-        .select("id, org_id, team_id, number, name, position, is_active")
-        .eq("team_id", awayTeamId)
-        .eq("is_active", true)
-        .order("number", { ascending: true });
-
-      if (cancelled) return;
-
-      if (error) {
-        flash(`Erreur chargement joueurs extérieurs : ${error.message}`);
-        setAwayPlayers([]);
-        setSelectedAwayPlayers({});
-        return;
-      }
-
-      const rows = (data as PlayerRow[]) || [];
-      setAwayPlayers(rows);
-      setSelectedAwayPlayers(buildInitialSelection(rows));
+    if (!neutralMatchName) {
+      setName(buildDefaultMatchName(homeName, awayName));
     }
+  }, [homeName, awayName, neutralMatchName]);
 
-    loadAwayPlayers();
-    return () => {
-      cancelled = true;
-    };
-  }, [awayTeamMode, awayTeamId]);
+  const sport = normalizeSport(org?.sport || sportSettings?.sport);
 
-  useEffect(() => {
-    if (!homeTeam) return;
-
-    const homeLabel = homeTeam.name || "Domicile";
-    const awayLabel =
-      awayTeamMode === "internal"
-        ? allTeams.find((t) => t.id === awayTeamId)?.name || "Équipe extérieure"
-        : awayExternalName || "Adversaire";
-
-    setHomeName(homeLabel);
-    setAwayName(awayLabel);
-    setMatchName(`${homeLabel} vs ${awayLabel}`);
-  }, [homeTeam, awayTeamMode, awayTeamId, awayExternalName, allTeams]);
-
-  function flash(message: string) {
-    setInfo(message);
-    window.setTimeout(() => setInfo(""), 2600);
-  }
-
-  function togglePlayerSelection(
-    player: PlayerRow,
-    side: "home" | "away",
-  ) {
-    const setter = side === "home" ? setSelectedHomePlayers : setSelectedAwayPlayers;
-
-    setter((prev) => {
-      const current = prev[player.id] || {
-        player_id: player.id,
-        shirt_number: player.number,
-        is_selected: false,
-        is_starter: false,
-      };
-
-      return {
-        ...prev,
-        [player.id]: {
-          ...current,
-          is_selected: !current.is_selected,
-          is_starter: current.is_selected ? false : current.is_starter,
-        },
-      };
-    });
-  }
-
-  function toggleStarter(player: PlayerRow, side: "home" | "away") {
-    const setter = side === "home" ? setSelectedHomePlayers : setSelectedAwayPlayers;
-
-    setter((prev) => {
-      const current = prev[player.id] || {
-        player_id: player.id,
-        shirt_number: player.number,
-        is_selected: true,
-        is_starter: false,
-      };
-
-      return {
-        ...prev,
-        [player.id]: {
-          ...current,
-          is_selected: true,
-          is_starter: !current.is_starter,
-        },
-      };
-    });
-  }
-
-  function updateShirtNumber(
-    player: PlayerRow,
-    side: "home" | "away",
-    shirtNumber: string,
-  ) {
-    const setter = side === "home" ? setSelectedHomePlayers : setSelectedAwayPlayers;
-
-    setter((prev) => {
-      const current = prev[player.id] || {
-        player_id: player.id,
-        shirt_number: player.number,
-        is_selected: true,
-        is_starter: false,
-      };
-
-      return {
-        ...prev,
-        [player.id]: {
-          ...current,
-          shirt_number: shirtNumber,
-        },
-      };
-    });
-  }
+  const opponentOptions = useMemo(
+    () => teams.filter((t) => t.id !== homeTeamId),
+    [teams, homeTeamId],
+  );
 
   async function createMatch() {
-    if (!org || !homeTeam) return;
+    if (!org || !team) return;
 
-    const homeSelected = Object.values(selectedHomePlayers).filter((p) => p.is_selected);
-    if (homeSelected.length === 0) {
-      flash("Sélectionne au moins un joueur domicile.");
+    const trimmedHome = homeName.trim() || team.name || "Domicile";
+    const trimmedAway = awayName.trim() || "Extérieur";
+    const trimmedName = (neutralMatchName ? name.trim() : buildDefaultMatchName(trimmedHome, trimmedAway)) || buildDefaultMatchName(trimmedHome, trimmedAway);
+
+    if (!scheduledAt.trim()) {
+      setErr("La date / heure du match est obligatoire.");
       return;
     }
 
-    const resolvedAwayTeam =
-      awayTeamMode === "internal"
-        ? allTeams.find((t) => t.id === awayTeamId) || null
-        : null;
-
-    const awaySelected =
-      awayTeamMode === "internal"
-        ? Object.values(selectedAwayPlayers).filter((p) => p.is_selected)
-        : [];
-
-    if (awayTeamMode === "internal" && !resolvedAwayTeam) {
-      flash("Choisis une équipe extérieure.");
-      return;
-    }
-
-    if (awayTeamMode === "internal" && awaySelected.length === 0) {
-      flash("Sélectionne au moins un joueur extérieur.");
+    if (!trimmedHome || !trimmedAway) {
+      setErr("Les noms domicile / extérieur sont obligatoires.");
       return;
     }
 
     setSaving(true);
+    setErr("");
 
-    const payload: Record<string, any> = {
+    const insertPayload: Record<string, any> = {
       org_id: org.id,
-      team_id: homeTeam.id,
-      home_team_id: homeTeam.id,
-      away_team_id: resolvedAwayTeam?.id || null,
-      name: matchName.trim() || `${homeName.trim() || homeTeam.name} vs ${awayName.trim() || "Adversaire"}`,
-      status: "scheduled",
-      scheduled_at: scheduledAt ? new Date(scheduledAt).toISOString() : null,
-      home_name: homeName.trim() || homeTeam.name,
-      away_name: awayName.trim() || resolvedAwayTeam?.name || "Adversaire",
+      team_id: team.id,
+      home_team_id: homeTeamId || team.id,
+      away_team_id: awayTeamId || null,
+      name: trimmedName,
+      status: defaultStatusBySport(),
+      scheduled_at: new Date(scheduledAt).toISOString(),
+      home_name: trimmedHome,
+      away_name: trimmedAway,
       home_score: 0,
       away_score: 0,
-      public_display: publicDisplay,
-      display_token: displayToken.trim() || defaultDisplayToken(),
-      is_live: false,
+      period_label: defaultPeriodLabelBySport(sport),
+      clock_ms: defaultClockMsBySport(sport, sportSettings?.period_duration_s),
+      clock_running: false,
+
+      home_team_fouls: 0,
+      away_team_fouls: 0,
+      home_timeouts: 0,
+      away_timeouts: 0,
+      home_bonus: false,
+      away_bonus: false,
+      shot_clock_s: sportSettings?.shot_clock_s ?? 24,
+      home_sets_won: 0,
+      away_sets_won: 0,
+      home_yellow_cards: 0,
+      away_yellow_cards: 0,
+      home_red_cards: 0,
+      away_red_cards: 0,
+      current_period_index: 1,
+      is_overtime: false,
+      possession_arrow: "home",
+
+      rugby_home_tries: 0,
+      rugby_away_tries: 0,
+      rugby_home_conversions: 0,
+      rugby_away_conversions: 0,
+      rugby_home_penalties: 0,
+      rugby_away_penalties: 0,
+      rugby_home_drop_goals: 0,
+      rugby_away_drop_goals: 0,
+      rugby_home_yellow_sin_bin: 0,
+      rugby_away_yellow_sin_bin: 0,
+      rugby_home_sin_bin_active: 0,
+      rugby_away_sin_bin_active: 0,
+      rugby_extra_time: false,
+      rugby_tiebreak_mode: null,
+
+      handball_home_2min: 0,
+      handball_away_2min: 0,
+      handball_home_2min_active: 0,
+      handball_away_2min_active: 0,
+      handball_home_team_timeouts: 0,
+      handball_away_team_timeouts: 0,
+      handball_home_warnings: 0,
+      handball_away_warnings: 0,
+      handball_home_disqualifications: 0,
+      handball_away_disqualifications: 0,
+      handball_extra_time: false,
+      handball_shootout_mode: null,
+
+      volleyball_home_timeouts: 0,
+      volleyball_away_timeouts: 0,
+      volleyball_home_set_points: 0,
+      volleyball_away_set_points: 0,
+      volleyball_home_serving: false,
+      volleyball_away_serving: false,
+      volleyball_current_set: 1,
+      volleyball_is_tiebreak: false,
+
+      football_home_yellow_cards: 0,
+      football_away_yellow_cards: 0,
+      football_home_red_cards: 0,
+      football_away_red_cards: 0,
+      football_home_penalty_shootout: 0,
+      football_away_penalty_shootout: 0,
+      football_extra_time: false,
+      football_added_time_first_half: 0,
+      football_added_time_second_half: 0,
+      football_added_time_extra_1: 0,
+      football_added_time_extra_2: 0,
     };
 
     const { data, error } = await supabase
       .from("matches")
-      .insert(payload)
+      .insert(insertPayload)
       .select("id")
       .maybeSingle();
 
+    setSaving(false);
+
     if (error || !data?.id) {
-      setSaving(false);
-      flash(error?.message || "Impossible de créer le match.");
+      setErr(error?.message || "Impossible de créer le match.");
       return;
     }
 
-    const matchId = data.id as string;
-
-    const homeMatchPlayersPayload = homePlayers
-      .filter((p) => selectedHomePlayers[p.id]?.is_selected)
-      .map((p) => ({
-        org_id: org.id,
-        match_id: matchId,
-        team_id: homeTeam.id,
-        player_id: p.id,
-        shirt_number: selectedHomePlayers[p.id]?.shirt_number?.trim() || p.number,
-        is_starter: !!selectedHomePlayers[p.id]?.is_starter,
-        is_selected: true,
-        fouls: 0,
-        points: 0,
-        yellow_cards: 0,
-        red_cards: 0,
-      }));
-
-    const awayMatchPlayersPayload =
-      awayTeamMode === "internal" && resolvedAwayTeam
-        ? awayPlayers
-            .filter((p) => selectedAwayPlayers[p.id]?.is_selected)
-            .map((p) => ({
-              org_id: org.id,
-              match_id: matchId,
-              team_id: resolvedAwayTeam.id,
-              player_id: p.id,
-              shirt_number: selectedAwayPlayers[p.id]?.shirt_number?.trim() || p.number,
-              is_starter: !!selectedAwayPlayers[p.id]?.is_starter,
-              is_selected: true,
-              fouls: 0,
-              points: 0,
-              yellow_cards: 0,
-              red_cards: 0,
-            }))
-        : [];
-
-    const matchPlayersPayload = [...homeMatchPlayersPayload, ...awayMatchPlayersPayload];
-
-    if (matchPlayersPayload.length > 0) {
-      const { error: mpErr } = await supabase.from("match_players").insert(matchPlayersPayload);
-      if (mpErr) {
-        setSaving(false);
-        flash(`Match créé, mais erreur feuille de match : ${mpErr.message}`);
-        return;
-      }
-    }
-
-    setSaving(false);
-    flash("Match préparé avec succès.");
-    nav(`/matches/${matchId}/control`, { replace: true });
+    nav(`/matches/${data.id}/control`);
   }
 
   if (loading) {
     return (
       <div style={styles.page}>
-        <div style={styles.centerBox}>Chargement de la préparation match…</div>
+        <div style={styles.centerBox}>Chargement…</div>
       </div>
     );
   }
 
-  if (err || !org || !homeTeam) {
+  if (err && !org) {
     return (
       <div style={styles.page}>
-        <div style={styles.errorBox}>{err || "Contexte introuvable."}</div>
+        <div style={styles.errorBox}>{err}</div>
       </div>
     );
   }
-
-  const selectedHomeCount = Object.values(selectedHomePlayers).filter((p) => p.is_selected).length;
-  const selectedAwayCount = Object.values(selectedAwayPlayers).filter((p) => p.is_selected).length;
-  const sport = normalizeSport(org.sport);
-  const awayInternalChoices = allTeams.filter((t) => t.id !== homeTeam.id);
 
   return (
     <div style={styles.page}>
@@ -491,59 +390,26 @@ export default function NewMatchPage() {
           <div>
             <div style={styles.title}>Préparer un match</div>
             <div style={styles.subtitle}>
-              {org.name} • {homeTeam.name} • sport : <b>{sport}</b>
+              {org?.name || "Organisation"} {team?.name ? `• ${team.name}` : ""} {sport ? `• ${sport}` : ""}
             </div>
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button onClick={() => nav(`/teams/${homeTeam.id}/matches`)} style={styles.ghostBtn}>
-              Retour matchs
+            <button
+              onClick={() => nav(team?.id ? `/teams/${team.id}/matches` : "/teams")}
+              style={styles.ghostBtn}
+            >
+              Retour
             </button>
-            <button onClick={() => nav(`/teams/${homeTeam.id}/players`)} style={styles.ghostBtn}>
-              Gérer joueurs domicile
-            </button>
-            {awayTeamMode === "internal" && awayTeamId ? (
-              <button onClick={() => nav(`/teams/${awayTeamId}/players`)} style={styles.ghostBtn}>
-                Gérer joueurs extérieur
-              </button>
-            ) : null}
           </div>
         </div>
 
-        {info ? <div style={styles.infoBox}>{info}</div> : null}
+        {err ? <div style={styles.inlineError}>{err}</div> : null}
 
-        <div style={styles.hero}>
-          <div>
-            <div style={styles.heroTitle}>Création match V2</div>
-            <div style={styles.heroText}>
-              Cette version prépare un vrai match domicile / extérieur, avec feuille de match pour les deux côtés.
-            </div>
-          </div>
-
-          <div style={styles.kpiGrid}>
-            <div style={styles.kpiCard}>
-              <div style={styles.kpiLabel}>Joueurs domicile</div>
-              <div style={styles.kpiValue}>{selectedHomeCount}</div>
-            </div>
-            <div style={styles.kpiCard}>
-              <div style={styles.kpiLabel}>Joueurs extérieur</div>
-              <div style={styles.kpiValue}>{awayTeamMode === "internal" ? selectedAwayCount : 0}</div>
-            </div>
-            <div style={styles.kpiCard}>
-              <div style={styles.kpiLabel}>Display public</div>
-              <div style={styles.kpiValue}>{publicDisplay ? "Oui" : "Non"}</div>
-            </div>
-          </div>
-        </div>
-
-        <section style={styles.panel}>
-          <div style={styles.sectionTitle}>Informations du match</div>
+        <div style={styles.panel}>
+          <div style={styles.sectionTitle}>Configuration initiale</div>
 
           <div style={styles.formGrid}>
-            <Field label="Nom du match">
-              <input value={matchName} onChange={(e) => setMatchName(e.target.value)} style={styles.input} />
-            </Field>
-
             <Field label="Date / heure">
               <input
                 type="datetime-local"
@@ -553,206 +419,155 @@ export default function NewMatchPage() {
               />
             </Field>
 
-            <Field label="Équipe domicile">
-              <input value={homeName} onChange={(e) => setHomeName(e.target.value)} style={styles.input} />
+            <Field label="Équipe support">
+              <input
+                readOnly
+                value={team?.name || ""}
+                style={{ ...styles.input, opacity: 0.82 }}
+              />
             </Field>
 
-            <Field label="Mode équipe extérieure">
+            <Field label="Équipe domicile">
               <select
-                value={awayTeamMode}
-                onChange={(e) => setAwayTeamMode(e.target.value as "internal" | "external")}
+                value={homeTeamId}
+                onChange={(e) => {
+                  const nextId = e.target.value;
+                  const nextTeam = teams.find((t) => t.id === nextId) || null;
+                  setHomeTeamId(nextId);
+                  setHomeName(nextTeam?.name || "Domicile");
+
+                  if (awayTeamId === nextId) {
+                    const replacement = teams.find((t) => t.id !== nextId) || null;
+                    setAwayTeamId(replacement?.id || "");
+                    setAwayName(replacement?.name || "Extérieur");
+                  }
+                }}
                 style={styles.input}
               >
-                <option value="external">Adversaire externe (texte)</option>
-                <option value="internal">Équipe interne</option>
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
               </select>
             </Field>
 
-            {awayTeamMode === "internal" ? (
-              <Field label="Équipe extérieure">
-                <select
-                  value={awayTeamId}
-                  onChange={(e) => setAwayTeamId(e.target.value)}
-                  style={styles.input}
-                >
-                  <option value="">Choisir une équipe</option>
-                  {awayInternalChoices.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            ) : (
-              <Field label="Nom adversaire extérieur">
+            <Field label="Équipe extérieure">
+              <select
+                value={awayTeamId}
+                onChange={(e) => {
+                  const nextId = e.target.value;
+                  const nextTeam = teams.find((t) => t.id === nextId) || null;
+                  setAwayTeamId(nextId);
+                  setAwayName(nextTeam?.name || "Extérieur");
+                }}
+                style={styles.input}
+              >
+                <option value="">Équipe extérieure libre</option>
+                {opponentOptions.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Nom affiché domicile">
+              <input
+                value={homeName}
+                onChange={(e) => setHomeName(e.target.value)}
+                style={styles.input}
+              />
+            </Field>
+
+            <Field label="Nom affiché extérieur">
+              <input
+                value={awayName}
+                onChange={(e) => setAwayName(e.target.value)}
+                style={styles.input}
+              />
+            </Field>
+
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label style={styles.switchRow}>
                 <input
-                  value={awayExternalName}
-                  onChange={(e) => setAwayExternalName(e.target.value)}
-                  style={styles.input}
+                  type="checkbox"
+                  checked={neutralMatchName}
+                  onChange={(e) => setNeutralMatchName(e.target.checked)}
+                />
+                <span>Nom de match personnalisé</span>
+              </label>
+            </div>
+
+            <div style={{ gridColumn: "1 / -1" }}>
+              <Field label="Nom du match">
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  style={{
+                    ...styles.input,
+                    opacity: neutralMatchName ? 1 : 0.78,
+                  }}
+                  readOnly={!neutralMatchName}
                 />
               </Field>
-            )}
-
-            <Field label="Nom affiché équipe extérieure">
-              <input value={awayName} onChange={(e) => setAwayName(e.target.value)} style={styles.input} />
-            </Field>
-
-            <Field label="Display public">
-              <select
-                value={publicDisplay ? "yes" : "no"}
-                onChange={(e) => setPublicDisplay(e.target.value === "yes")}
-                style={styles.input}
-              >
-                <option value="yes">Oui</option>
-                <option value="no">Non</option>
-              </select>
-            </Field>
-
-            <Field label="Token display">
-              <input value={displayToken} onChange={(e) => setDisplayToken(e.target.value)} style={styles.input} />
-            </Field>
+            </div>
           </div>
-        </section>
+        </div>
 
-        <Section title="Feuille de match — domicile">
-          {homePlayers.length === 0 ? (
-            <div style={styles.emptyCard}>Aucun joueur actif sur l’équipe domicile.</div>
-          ) : (
-            <PlayerSelectionList
-              players={homePlayers}
-              selectedPlayers={selectedHomePlayers}
-              side="home"
-              onTogglePlayer={togglePlayerSelection}
-              onToggleStarter={toggleStarter}
-              onUpdateShirtNumber={updateShirtNumber}
-            />
-          )}
-        </Section>
+        <div style={styles.grid}>
+          <section style={styles.panel}>
+            <div style={styles.sectionTitle}>Initialisation live</div>
 
-        {awayTeamMode === "internal" ? (
-          <Section title="Feuille de match — extérieur">
-            {!awayTeamId ? (
-              <div style={styles.emptyCard}>Choisis d’abord une équipe extérieure.</div>
-            ) : awayPlayers.length === 0 ? (
-              <div style={styles.emptyCard}>Aucun joueur actif sur l’équipe extérieure.</div>
-            ) : (
-              <PlayerSelectionList
-                players={awayPlayers}
-                selectedPlayers={selectedAwayPlayers}
-                side="away"
-                onTogglePlayer={togglePlayerSelection}
-                onToggleStarter={toggleStarter}
-                onUpdateShirtNumber={updateShirtNumber}
+            <div style={styles.infoList}>
+              <InfoLine label="Statut initial" value="scheduled" />
+              <InfoLine label="Période initiale" value={defaultPeriodLabelBySport(sport)} />
+              <InfoLine
+                label="Horloge initiale"
+                value={`${Math.floor(defaultClockMsBySport(sport, sportSettings?.period_duration_s) / 60000)} min`}
               />
-            )}
-          </Section>
-        ) : null}
+              <InfoLine
+                label="Shot clock initial"
+                value={String(sportSettings?.shot_clock_s ?? 24)}
+              />
+            </div>
+          </section>
 
-        <section style={styles.noticeCard}>
-          <div style={styles.noticeTitle}>Préconfiguration</div>
-          <div style={styles.noticeText}>
-            Le match sera créé avec :
-            <br />
-            • `home_team_id` = équipe actuelle
-            <br />
-            • `away_team_id` = équipe extérieure si interne
-            <br />
-            • feuille de match persistée dans <b>match_players</b>
-            <br />
-            • fallback texte conservé via `home_name` / `away_name`
-          </div>
-        </section>
+          <section style={styles.panel}>
+            <div style={styles.sectionTitle}>Mode public</div>
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 18 }}>
-          <button onClick={createMatch} style={styles.primaryBtn} disabled={saving}>
-            {saving ? "Création..." : "Créer et ouvrir la régie"}
-          </button>
-          <button onClick={() => nav(`/teams/${homeTeam.id}/matches`)} style={styles.ghostBtn}>
+            <div style={styles.helpText}>
+              Le mode public par token a été supprimé. Le futur écran public de ce match passera par l’URL stable de l’équipe support.
+            </div>
+
+            <div style={styles.publicBox}>
+              <div style={styles.publicLabel}>Équipe support</div>
+              <div style={styles.publicValue}>
+                {team?.name || "—"} {team?.slug ? `• slug: ${team.slug}` : "• pas de slug"}
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div style={styles.bottomBar}>
+          <button
+            onClick={() => nav(team?.id ? `/teams/${team.id}/matches` : "/teams")}
+            style={styles.ghostBtn}
+            disabled={saving}
+          >
             Annuler
+          </button>
+
+          <button
+            onClick={createMatch}
+            style={styles.primaryBtn}
+            disabled={saving}
+          >
+            {saving ? "Création…" : "Créer le match"}
           </button>
         </div>
       </div>
     </div>
-  );
-}
-
-function PlayerSelectionList({
-  players,
-  selectedPlayers,
-  side,
-  onTogglePlayer,
-  onToggleStarter,
-  onUpdateShirtNumber,
-}: {
-  players: PlayerRow[];
-  selectedPlayers: Record<string, SelectedPlayer>;
-  side: "home" | "away";
-  onTogglePlayer: (player: PlayerRow, side: "home" | "away") => void;
-  onToggleStarter: (player: PlayerRow, side: "home" | "away") => void;
-  onUpdateShirtNumber: (player: PlayerRow, side: "home" | "away", shirtNumber: string) => void;
-}) {
-  return (
-    <div style={styles.list}>
-      {players.map((player) => {
-        const selection = selectedPlayers[player.id] || {
-          player_id: player.id,
-          shirt_number: player.number,
-          is_selected: false,
-          is_starter: false,
-        };
-
-        return (
-          <div key={player.id} style={styles.playerCard}>
-            <div style={styles.playerCardGrid}>
-              <div>
-                <div style={styles.playerName}>
-                  #{selection.shirt_number || player.number} {player.name}
-                </div>
-                <div style={styles.playerMeta}>{player.position || "Poste libre"}</div>
-              </div>
-
-              <div style={styles.playerControls}>
-                <label style={styles.checkboxRow}>
-                  <input
-                    type="checkbox"
-                    checked={selection.is_selected}
-                    onChange={() => onTogglePlayer(player, side)}
-                  />
-                  <span>Sélectionné</span>
-                </label>
-
-                <label style={styles.checkboxRow}>
-                  <input
-                    type="checkbox"
-                    checked={selection.is_starter}
-                    onChange={() => onToggleStarter(player, side)}
-                  />
-                  <span>Titulaire</span>
-                </label>
-
-                <div style={{ minWidth: 110 }}>
-                  <div style={{ fontSize: 12, opacity: 0.72, marginBottom: 6 }}>N° match</div>
-                  <input
-                    value={selection.shirt_number}
-                    onChange={(e) => onUpdateShirtNumber(player, side, e.target.value)}
-                    style={styles.input}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section style={{ marginTop: 22 }}>
-      <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 12 }}>{title}</div>
-      {children}
-    </section>
   );
 }
 
@@ -765,15 +580,35 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
+function InfoLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={styles.infoLine}>
+      <span style={styles.infoLineLabel}>{label}</span>
+      <span style={styles.infoLineValue}>{value}</span>
+    </div>
+  );
+}
+
+const styles: Record<string, any> = {
   page: {
     minHeight: "100vh",
     background: "#0b0f14",
     color: "#e7eefc",
     padding: 24,
-    fontFamily: 'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial',
+    fontFamily:
+      "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
   },
-  container: { maxWidth: 1180, margin: "0 auto" },
+  container: { maxWidth: 1080, margin: "0 auto" },
+  topbar: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    flexWrap: "wrap",
+    marginBottom: 18,
+  },
+  title: { fontSize: 30, fontWeight: 900 },
+  subtitle: { marginTop: 4, fontSize: 13, opacity: 0.72 },
   centerBox: {
     maxWidth: 560,
     margin: "60px auto",
@@ -791,85 +626,24 @@ const styles: Record<string, React.CSSProperties> = {
     background: "rgba(220,38,38,.10)",
     border: "1px solid rgba(220,38,38,.28)",
   },
-  infoBox: {
+  inlineError: {
     marginBottom: 14,
-    padding: 12,
-    borderRadius: 12,
-    background: "rgba(37,99,235,.12)",
-    border: "1px solid rgba(37,99,235,.28)",
-    color: "#dbeafe",
+    padding: 14,
+    borderRadius: 14,
+    background: "rgba(220,38,38,.10)",
+    border: "1px solid rgba(220,38,38,.28)",
+    color: "#fecaca",
+    fontWeight: 700,
   },
-  topbar: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 12,
-    flexWrap: "wrap",
-    marginBottom: 18,
-  },
-  title: { fontSize: 30, fontWeight: 900 },
-  subtitle: { marginTop: 4, fontSize: 13, opacity: 0.72 },
-  hero: {
-    display: "grid",
-    gridTemplateColumns: "1.2fr .8fr",
-    gap: 16,
-    padding: 18,
-    borderRadius: 18,
-    background: "linear-gradient(180deg, rgba(37,99,235,.10), rgba(255,255,255,.03))",
-    border: "1px solid rgba(255,255,255,.08)",
-    marginBottom: 18,
-  },
-  heroTitle: { fontSize: 22, fontWeight: 900 },
-  heroText: { marginTop: 8, lineHeight: 1.6, opacity: 0.9 },
-  kpiGrid: { display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 10 },
-  kpiCard: {
-    padding: 16,
-    borderRadius: 16,
-    background: "rgba(255,255,255,.04)",
-    border: "1px solid rgba(255,255,255,.08)",
-  },
-  kpiLabel: { fontSize: 13, opacity: 0.74 },
-  kpiValue: { fontSize: 28, fontWeight: 900, marginTop: 6 },
   panel: {
     padding: 16,
     borderRadius: 18,
     background: "rgba(255,255,255,.03)",
     border: "1px solid rgba(255,255,255,.08)",
+    marginBottom: 18,
   },
   sectionTitle: { fontSize: 18, fontWeight: 900, marginBottom: 14 },
-  formGrid: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: 14,
-  },
-  list: { display: "grid", gap: 12 },
-  playerCard: {
-    padding: 14,
-    borderRadius: 16,
-    background: "rgba(255,255,255,.03)",
-    border: "1px solid rgba(255,255,255,.08)",
-  },
-  playerCardGrid: {
-    display: "grid",
-    gridTemplateColumns: "1.2fr 1fr",
-    gap: 14,
-    alignItems: "center",
-  },
-  playerName: { fontSize: 16, fontWeight: 900 },
-  playerMeta: { marginTop: 4, fontSize: 13, opacity: 0.72 },
-  playerControls: {
-    display: "flex",
-    gap: 12,
-    flexWrap: "wrap",
-    alignItems: "center",
-    justifyContent: "flex-end",
-  },
-  checkboxRow: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 8,
-    fontSize: 14,
-  },
+  formGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 },
   input: {
     width: "100%",
     background: "rgba(255,255,255,.05)",
@@ -880,15 +654,48 @@ const styles: Record<string, React.CSSProperties> = {
     outline: "none",
     boxSizing: "border-box",
   },
-  noticeCard: {
-    marginTop: 18,
-    padding: 16,
-    borderRadius: 16,
-    background: "rgba(255,255,255,.04)",
+  switchRow: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    fontSize: 14,
+    marginTop: 4,
+  },
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 18,
+    marginTop: 4,
+  },
+  infoList: { display: "grid", gap: 10 },
+  infoLine: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    padding: 12,
+    borderRadius: 12,
+    background: "rgba(255,255,255,.03)",
     border: "1px solid rgba(255,255,255,.08)",
   },
-  noticeTitle: { fontWeight: 900, fontSize: 16, marginBottom: 8 },
-  noticeText: { fontSize: 14, lineHeight: 1.7, opacity: 0.9 },
+  infoLineLabel: { opacity: 0.72 },
+  infoLineValue: { fontWeight: 800 },
+  helpText: { lineHeight: 1.6, opacity: 0.9 },
+  publicBox: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 14,
+    background: "rgba(255,255,255,.03)",
+    border: "1px solid rgba(255,255,255,.08)",
+  },
+  publicLabel: { fontSize: 13, opacity: 0.72, marginBottom: 8 },
+  publicValue: { fontWeight: 800 },
+  bottomBar: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 20,
+    flexWrap: "wrap",
+  },
   primaryBtn: {
     background: "#2563eb",
     color: "white",
@@ -906,11 +713,5 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "12px 16px",
     fontWeight: 700,
     cursor: "pointer",
-  },
-  emptyCard: {
-    padding: 16,
-    borderRadius: 16,
-    background: "rgba(255,255,255,.03)",
-    border: "1px solid rgba(255,255,255,.08)",
   },
 };
