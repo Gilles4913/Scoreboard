@@ -28,8 +28,6 @@ type MatchRow = {
   name: string | null;
   status: string | null;
   scheduled_at: string | null;
-  public_display: boolean | null;
-  display_token: string | null;
   home_name: string | null;
   away_name: string | null;
 };
@@ -39,7 +37,10 @@ function getEnv(name: string): string {
   return typeof v === "string" ? v : "";
 }
 
-const DISPLAY_URL = getEnv("VITE_DISPLAY_URL") || "";
+const DISPLAY_URL =
+  getEnv("VITE_DISPLAY_APP_URL") ||
+  getEnv("VITE_DISPLAY_URL") ||
+  "";
 
 function fmtDate(input: string | null) {
   if (!input) return "Date non définie";
@@ -110,7 +111,7 @@ export default function TeamMatchesPage() {
         supabase.from("teams").select("id, org_id, slug, name, category, code").eq("id", teamId).maybeSingle(),
         supabase
           .from("matches")
-          .select("id, team_id, name, status, scheduled_at, public_display, display_token, home_name, away_name")
+          .select("id, team_id, name, status, scheduled_at, home_name, away_name")
           .eq("org_id", (orgRow as OrgRow).id)
           .eq("team_id", teamId)
           .order("scheduled_at", { ascending: true, nullsFirst: true }),
@@ -146,21 +147,16 @@ export default function TeamMatchesPage() {
     window.setTimeout(() => setInfo(""), 2600);
   }
 
-  function displayLink(m: MatchRow) {
-    if (!DISPLAY_URL) return "";
-    const base = DISPLAY_URL.replace(/\/$/, "");
-    if (m.display_token) return `${base}/?token=${encodeURIComponent(m.display_token)}`;
-    return `${base}/?matchId=${encodeURIComponent(m.id)}`;
-  }
-
   function controlLink(m: MatchRow) {
     return `${window.location.origin}/matches/${encodeURIComponent(m.id)}/control`;
   }
 
   function stableTeamDisplayLink() {
-    if (!DISPLAY_URL || !team?.slug) return "";
+    if (!DISPLAY_URL) return "";
     const base = DISPLAY_URL.replace(/\/$/, "");
-    return `${base}/?teamSlug=${encodeURIComponent(team.slug)}`;
+    if (team?.slug) return `${base}/?teamSlug=${encodeURIComponent(team.slug)}`;
+    if (team?.id) return `${base}/?teamId=${encodeURIComponent(team.id)}`;
+    return "";
   }
 
   async function copyText(value: string) {
@@ -209,7 +205,6 @@ export default function TeamMatchesPage() {
 
   const activeMatches = matches.filter((m) => ["scheduled", "live", "paused"].includes(normalizeStatus(m.status)));
   const archivedMatches = matches.filter((m) => ["finished", "archived"].includes(normalizeStatus(m.status)));
-
   const stableLink = stableTeamDisplayLink();
 
   if (loading) {
@@ -243,8 +238,8 @@ export default function TeamMatchesPage() {
             <button onClick={() => nav("/teams")} style={styles.ghostBtn}>Retour équipes</button>
             <button onClick={() => nav(`/teams/${teamId}/matches/new`)} style={styles.primaryBtn}>Préparer un match</button>
             <button onClick={() => nav(`/teams/${teamId}/players`)} style={styles.ghostBtn}>Joueurs</button>
-            <button onClick={() => nav(`/matches/${m.id}/roster`)} style={styles.ghostBtnSmall}>Feuille de match</button>
             <button onClick={() => nav(`/teams/${teamId}/branding`)} style={styles.ghostBtn}>Branding</button>
+            <button onClick={() => nav("/display-settings")} style={styles.ghostBtn}>Paramètres Display</button>
             {stableLink ? (
               <a href={stableLink} target="_blank" rel="noreferrer" style={styles.linkBtn}>
                 Écran stable équipe
@@ -261,7 +256,6 @@ export default function TeamMatchesPage() {
                 QR écran stable
               </button>
             ) : null}
-            <button onClick={() => nav("/display-settings")} style={styles.ghostBtn}>Paramètres Display</button>
           </div>
         </div>
 
@@ -327,7 +321,6 @@ export default function TeamMatchesPage() {
             <div style={styles.list}>
               {activeMatches.map((m) => {
                 const badge = statusBadge(m.status);
-                const dLink = displayLink(m);
                 const cLink = controlLink(m);
                 const status = normalizeStatus(m.status);
 
@@ -354,30 +347,12 @@ export default function TeamMatchesPage() {
                       <button onClick={() => nav(`/matches/${m.id}/control`)} style={styles.primaryBtn}>
                         Éditer / régie
                       </button>
-                      {dLink ? (
-                        <a href={dLink} target="_blank" rel="noreferrer" style={styles.linkBtn}>
-                          Écran public
-                        </a>
-                      ) : null}
-                      {dLink ? (
-                        <button onClick={() => copyText(dLink)} style={styles.ghostBtnSmall}>
-                          Copier lien écran
-                        </button>
-                      ) : null}
+                      <button onClick={() => nav(`/matches/${m.id}/roster`)} style={styles.ghostBtnSmall}>
+                        Feuille de match
+                      </button>
                       <button onClick={() => copyText(cLink)} style={styles.ghostBtnSmall}>
                         Copier lien régie
                       </button>
-                      {dLink ? (
-                        <button
-                          onClick={() => {
-                            setSelectedQr(dLink);
-                            setSelectedQrTitle(`QR écran — ${matchTitle(m)}`);
-                          }}
-                          style={styles.ghostBtnSmall}
-                        >
-                          QR écran
-                        </button>
-                      ) : null}
                       <button
                         onClick={() => {
                           setSelectedQr(cLink);
@@ -387,6 +362,11 @@ export default function TeamMatchesPage() {
                       >
                         QR régie
                       </button>
+                      {stableLink ? (
+                        <button onClick={() => copyText(stableLink)} style={styles.ghostBtnSmall}>
+                          Copier lien écran stable
+                        </button>
+                      ) : null}
                       {status === "scheduled" ? (
                         <button onClick={() => deleteMatch(m.id)} style={styles.dangerBtn}>
                           Supprimer
@@ -431,6 +411,9 @@ export default function TeamMatchesPage() {
                     <div style={styles.actionRow}>
                       <button onClick={() => nav(`/matches/${m.id}/control`)} style={styles.ghostBtn}>
                         Ouvrir
+                      </button>
+                      <button onClick={() => nav(`/matches/${m.id}/roster`)} style={styles.ghostBtn}>
+                        Feuille de match
                       </button>
                       {status === "finished" ? (
                         <button onClick={() => archiveMatch(m.id)} style={styles.ghostBtn}>
@@ -519,49 +502,66 @@ const styles: Record<string, React.CSSProperties> = {
   },
   stableLinkLabel: { fontSize: 13, opacity: 0.7, marginBottom: 8 },
   stableLinkValue: {
-    fontSize: 13,
-    lineHeight: 1.6,
     wordBreak: "break-all",
+    fontSize: 14,
+    lineHeight: 1.6,
+    padding: 12,
+    borderRadius: 12,
     background: "rgba(255,255,255,.03)",
     border: "1px solid rgba(255,255,255,.08)",
-    borderRadius: 12,
-    padding: 12,
   },
   qrPanel: {
-    marginTop: 14,
     marginBottom: 18,
     padding: 16,
-    borderRadius: 16,
-    background: "rgba(255,255,255,.04)",
+    borderRadius: 18,
+    background: "rgba(255,255,255,.03)",
     border: "1px solid rgba(255,255,255,.08)",
   },
-  list: { display: "grid", gap: 14 },
+  list: { display: "grid", gap: 12 },
   card: {
     padding: 16,
     borderRadius: 16,
     background: "rgba(255,255,255,.03)",
     border: "1px solid rgba(255,255,255,.08)",
   },
-  cardHeader: { display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" },
+  cardHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    alignItems: "flex-start",
+    flexWrap: "wrap",
+  },
   cardTitle: { fontSize: 18, fontWeight: 900 },
   cardMeta: { marginTop: 4, fontSize: 13, opacity: 0.72 },
   badge: {
-    border: "1px solid transparent",
+    borderWidth: 1,
+    borderStyle: "solid",
     borderRadius: 999,
-    padding: "7px 12px",
-    fontSize: 13,
+    padding: "6px 10px",
+    fontSize: 12,
     fontWeight: 800,
-    whiteSpace: "nowrap",
   },
-  actionRow: { display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14 },
+  actionRow: {
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+    marginTop: 14,
+  },
+  emptyCard: {
+    padding: 16,
+    borderRadius: 16,
+    background: "rgba(255,255,255,.03)",
+    border: "1px solid rgba(255,255,255,.08)",
+  },
   primaryBtn: {
     background: "#2563eb",
     color: "white",
     border: "1px solid rgba(255,255,255,.10)",
     borderRadius: 12,
-    padding: "10px 14px",
+    padding: "12px 16px",
     fontWeight: 800,
     cursor: "pointer",
+    textDecoration: "none",
   },
   ghostBtn: {
     background: "transparent",
@@ -571,24 +571,17 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "12px 16px",
     fontWeight: 700,
     cursor: "pointer",
+    textDecoration: "none",
   },
   ghostBtnSmall: {
     background: "transparent",
     color: "#e7eefc",
     border: "1px solid rgba(255,255,255,.14)",
     borderRadius: 12,
-    padding: "10px 12px",
+    padding: "9px 12px",
     fontWeight: 700,
     cursor: "pointer",
-  },
-  dangerBtn: {
-    background: "rgba(220,38,38,.16)",
-    color: "#fecaca",
-    border: "1px solid rgba(220,38,38,.35)",
-    borderRadius: 12,
-    padding: "10px 12px",
-    fontWeight: 800,
-    cursor: "pointer",
+    textDecoration: "none",
   },
   linkBtn: {
     textDecoration: "none",
@@ -596,15 +589,18 @@ const styles: Record<string, React.CSSProperties> = {
     color: "white",
     border: "1px solid rgba(255,255,255,.10)",
     borderRadius: 12,
-    padding: "10px 12px",
+    padding: "12px 14px",
     fontWeight: 800,
     display: "inline-flex",
     alignItems: "center",
   },
-  emptyCard: {
-    padding: 16,
-    borderRadius: 16,
-    background: "rgba(255,255,255,.03)",
-    border: "1px solid rgba(255,255,255,.08)",
+  dangerBtn: {
+    background: "rgba(220,38,38,.16)",
+    color: "#fecaca",
+    border: "1px solid rgba(220,38,38,.35)",
+    borderRadius: 12,
+    padding: "9px 12px",
+    fontWeight: 800,
+    cursor: "pointer",
   },
 };
