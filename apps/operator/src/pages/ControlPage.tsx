@@ -111,6 +111,7 @@ type OrgRow = {
 type TeamRow = {
   id: string;
   name: string;
+  slug: string | null;
 };
 
 type MatchPlayerRow = {
@@ -208,7 +209,10 @@ function getEnv(name: string): string {
   return typeof v === "string" ? v : "";
 }
 
-const DISPLAY_URL = getEnv("VITE_DISPLAY_URL") || "";
+const DISPLAY_URL =
+  getEnv("VITE_DISPLAY_APP_URL") ||
+  getEnv("VITE_DISPLAY_URL") ||
+  "";
 
 function normalizeSport(v: string | null | undefined) {
   return ((v || "football") + "").toLowerCase().trim();
@@ -437,7 +441,7 @@ export default function ControlPage() {
       ] = await Promise.all([
         supabase.from("orgs").select("id, slug, name, sport").eq("id", currentMatch.org_id).maybeSingle(),
         currentMatch.team_id
-          ? supabase.from("teams").select("id, name").eq("id", currentMatch.team_id).maybeSingle()
+          ? supabase.from("teams").select("id, name, slug").eq("id", currentMatch.team_id).maybeSingle()
           : Promise.resolve({ data: null }),
         supabase
           .from("org_display_settings")
@@ -645,10 +649,11 @@ export default function ControlPage() {
   }, [handballSuspensions, isHandball]);
 
   function displayLink() {
-    if (!match || !DISPLAY_URL) return "";
+    if (!DISPLAY_URL) return "";
     const base = DISPLAY_URL.replace(/\/$/, "");
-    if (match.display_token) return `${base}/?token=${encodeURIComponent(match.display_token)}`;
-    return `${base}/?matchId=${encodeURIComponent(match.id)}`;
+    if (team?.slug) return `${base}/?teamSlug=${encodeURIComponent(team.slug)}`;
+    if (team?.id) return `${base}/?teamId=${encodeURIComponent(team.id)}`;
+    return "";
   }
 
   function controlLink() {
@@ -715,117 +720,118 @@ export default function ControlPage() {
   }
 
   async function pushPatch(extra: Record<string, any>) {
-  if (!match) return;
+    if (!match) return;
 
-  const payload = {
-    match_id: match.id,
-    match_name: matchName,
-    venue: org?.name || "",
-    sport,
-    status,
-    home_name: homeName,
-    away_name: awayName,
-    home_score: homeScore,
-    away_score: awayScore,
-    clock_ms: clockMs,
-    clock_running: clockRunning,
-    period_label: periodLabel,
+    const payload = {
+      match_id: match.id,
+      match_name: matchName,
+      venue: org?.name || "",
+      sport,
+      status,
+      home_name: homeName,
+      away_name: awayName,
+      home_score: homeScore,
+      away_score: awayScore,
+      clock_ms: clockMs,
+      clock_running: clockRunning,
+      period_label: periodLabel,
 
-    show_score: displaySettings?.show_score ?? true,
-    show_clock: displaySettings?.show_clock ?? true,
-    show_period: displaySettings?.show_period ?? true,
-    show_status: displaySettings?.show_status ?? true,
-    show_lower_third: displaySettings?.show_lower_third ?? true,
-    show_logos: displaySettings?.show_logos ?? true,
-    show_sponsors: displaySettings?.show_sponsors ?? true,
+      show_score: displaySettings?.show_score ?? true,
+      show_clock: displaySettings?.show_clock ?? true,
+      show_period: displaySettings?.show_period ?? true,
+      show_status: displaySettings?.show_status ?? true,
+      show_lower_third: displaySettings?.show_lower_third ?? true,
+      show_logos: displaySettings?.show_logos ?? true,
+      show_sponsors: displaySettings?.show_sponsors ?? true,
 
-    show_team_fouls: sportSettings?.show_team_fouls ?? false,
-    show_player_fouls: sportSettings?.show_player_fouls ?? false,
-    show_timeouts: sportSettings?.show_timeouts ?? false,
-    show_bonus: sportSettings?.show_bonus ?? false,
-    show_sets: sportSettings?.show_sets ?? false,
-    show_cards: sportSettings?.show_cards ?? false,
-    show_shot_clock: sportSettings?.show_shot_clock ?? false,
+      show_team_fouls: sportSettings?.show_team_fouls ?? false,
+      show_player_fouls: sportSettings?.show_player_fouls ?? false,
+      show_timeouts: sportSettings?.show_timeouts ?? false,
+      show_bonus: sportSettings?.show_bonus ?? false,
+      show_sets: sportSettings?.show_sets ?? false,
+      show_cards: sportSettings?.show_cards ?? false,
+      show_shot_clock: sportSettings?.show_shot_clock ?? false,
 
-    layout_mode: displaySettings?.layout_mode ?? "stadium",
+      layout_mode: displaySettings?.layout_mode ?? "stadium",
 
-    home: { name: homeName },
-    away: { name: awayName },
+      home: { name: homeName },
+      away: { name: awayName },
 
-    home_team_fouls: homeTeamFouls,
-    away_team_fouls: awayTeamFouls,
-    home_timeouts: isHandball ? handballHomeTimeouts : isVolleyball ? volleyHomeTimeouts : homeTimeouts,
-    away_timeouts: isHandball ? handballAwayTimeouts : isVolleyball ? volleyAwayTimeouts : awayTimeouts,
-    home_bonus: homeBonus,
-    away_bonus: awayBonus,
-    shot_clock_s: shotClockS,
-    home_sets_won: homeSetsWon,
-    away_sets_won: awaySetsWon,
-    home_yellow_cards: isFootball ? footballHomeYellows : homeYellowCards,
-    away_yellow_cards: isFootball ? footballAwayYellows : awayYellowCards,
-    home_red_cards: isFootball ? footballHomeReds : homeRedCards,
-    away_red_cards: isFootball ? footballAwayReds : awayRedCards,
-    home_players: homePlayers,
-    away_players: awayPlayers,
+      home_team_fouls: homeTeamFouls,
+      away_team_fouls: awayTeamFouls,
+      home_timeouts: isHandball ? handballHomeTimeouts : isVolleyball ? volleyHomeTimeouts : homeTimeouts,
+      away_timeouts: isHandball ? handballAwayTimeouts : isVolleyball ? volleyAwayTimeouts : awayTimeouts,
+      home_bonus: homeBonus,
+      away_bonus: awayBonus,
+      shot_clock_s: shotClockS,
+      home_sets_won: homeSetsWon,
+      away_sets_won: awaySetsWon,
+      home_yellow_cards: isFootball ? footballHomeYellows : homeYellowCards,
+      away_yellow_cards: isFootball ? footballAwayYellows : awayYellowCards,
+      home_red_cards: isFootball ? footballHomeReds : homeRedCards,
+      away_red_cards: isFootball ? footballAwayReds : awayRedCards,
+      home_players: homePlayers,
+      away_players: awayPlayers,
 
-    possession_arrow: possessionArrow,
-    current_period_index: currentPeriodIndex,
-    is_overtime: isOvertime,
+      possession_arrow: possessionArrow,
+      current_period_index: currentPeriodIndex,
+      is_overtime: isOvertime,
 
-    rugby_home_tries: rugbyHomeTries,
-    rugby_away_tries: rugbyAwayTries,
-    rugby_home_conversions: rugbyHomeConversions,
-    rugby_away_conversions: rugbyAwayConversions,
-    rugby_home_penalties: rugbyHomePenalties,
-    rugby_away_penalties: rugbyAwayPenalties,
-    rugby_home_drop_goals: rugbyHomeDrops,
-    rugby_away_drop_goals: rugbyAwayDrops,
-    rugby_home_yellow_sin_bin: rugbyHomeYellowSinBin,
-    rugby_away_yellow_sin_bin: rugbyAwayYellowSinBin,
-    rugby_home_sin_bin_active: rugbyHomeSinBinActive,
-    rugby_away_sin_bin_active: rugbyAwaySinBinActive,
-    rugby_extra_time: rugbyExtraTime,
-    rugby_tiebreak_mode: rugbyTiebreakMode,
+      rugby_home_tries: rugbyHomeTries,
+      rugby_away_tries: rugbyAwayTries,
+      rugby_home_conversions: rugbyHomeConversions,
+      rugby_away_conversions: rugbyAwayConversions,
+      rugby_home_penalties: rugbyHomePenalties,
+      rugby_away_penalties: rugbyAwayPenalties,
+      rugby_home_drop_goals: rugbyHomeDrops,
+      rugby_away_drop_goals: rugbyAwayDrops,
+      rugby_home_yellow_sin_bin: rugbyHomeYellowSinBin,
+      rugby_away_yellow_sin_bin: rugbyAwayYellowSinBin,
+      rugby_home_sin_bin_active: rugbyHomeSinBinActive,
+      rugby_away_sin_bin_active: rugbyAwaySinBinActive,
+      rugby_extra_time: rugbyExtraTime,
+      rugby_tiebreak_mode: rugbyTiebreakMode,
 
-    handball_home_2min: handballHome2Min,
-    handball_away_2min: handballAway2Min,
-    handball_home_2min_active: handballHome2MinActive,
-    handball_away_2min_active: handballAway2MinActive,
-    handball_home_team_timeouts: handballHomeTimeouts,
-    handball_away_team_timeouts: handballAwayTimeouts,
-    handball_home_warnings: handballHomeWarnings,
-    handball_away_warnings: handballAwayWarnings,
-    handball_home_disqualifications: handballHomeDisq,
-    handball_away_disqualifications: handballAwayDisq,
-    handball_extra_time: handballExtraTime,
-    handball_shootout_mode: handballShootoutMode,
+      handball_home_2min: handballHome2Min,
+      handball_away_2min: handballAway2Min,
+      handball_home_2min_active: handballHome2MinActive,
+      handball_away_2min_active: handballAway2MinActive,
+      handball_home_team_timeouts: handballHomeTimeouts,
+      handball_away_team_timeouts: handballAwayTimeouts,
+      handball_home_warnings: handballHomeWarnings,
+      handball_away_warnings: handballAwayWarnings,
+      handball_home_disqualifications: handballHomeDisq,
+      handball_away_disqualifications: handballAwayDisq,
+      handball_extra_time: handballExtraTime,
+      handball_shootout_mode: handballShootoutMode,
 
-    volleyball_home_timeouts: volleyHomeTimeouts,
-    volleyball_away_timeouts: volleyAwayTimeouts,
-    volleyball_home_set_points: volleyHomeSetPoints,
-    volleyball_away_set_points: volleyAwaySetPoints,
-    volleyball_home_serving: volleyHomeServing,
-    volleyball_away_serving: volleyAwayServing,
-    volleyball_current_set: volleyCurrentSet,
-    volleyball_is_tiebreak: volleyIsTiebreak,
+      volleyball_home_timeouts: volleyHomeTimeouts,
+      volleyball_away_timeouts: volleyAwayTimeouts,
+      volleyball_home_set_points: volleyHomeSetPoints,
+      volleyball_away_set_points: volleyAwaySetPoints,
+      volleyball_home_serving: volleyHomeServing,
+      volleyball_away_serving: volleyAwayServing,
+      volleyball_current_set: volleyCurrentSet,
+      volleyball_is_tiebreak: volleyIsTiebreak,
 
-    football_home_yellow_cards: footballHomeYellows,
-    football_away_yellow_cards: footballAwayYellows,
-    football_home_red_cards: footballHomeReds,
-    football_away_red_cards: footballAwayReds,
-    football_home_penalty_shootout: footballHomePens,
-    football_away_penalty_shootout: footballAwayPens,
-    football_extra_time: footballExtraTime,
-    football_added_time_first_half: footballAdded1,
-    football_added_time_second_half: footballAdded2,
-    football_added_time_extra_1: footballAddedEx1,
-    football_added_time_extra_2: footballAddedEx2,
+      football_home_yellow_cards: footballHomeYellows,
+      football_away_yellow_cards: footballAwayYellows,
+      football_home_red_cards: footballHomeReds,
+      football_away_red_cards: footballAwayReds,
+      football_home_penalty_shootout: footballHomePens,
+      football_away_penalty_shootout: footballAwayPens,
+      football_extra_time: footballExtraTime,
+      football_added_time_first_half: footballAdded1,
+      football_added_time_second_half: footballAdded2,
+      football_added_time_extra_1: footballAddedEx1,
+      football_added_time_extra_2: footballAddedEx2,
 
-    ...extra,
-  };
+      ...extra,
+    };
 
-  await sendTvBroadcast(match.id, payload);
-}
+    await sendTvBroadcast(match.id, payload);
+  }
+
   async function saveMatch() {
     const payload: Partial<MatchRow> = {
       name: matchName.trim() || `${homeName} vs ${awayName}`,
@@ -906,6 +912,7 @@ export default function ControlPage() {
 
     try {
       await persistLiveState(payload);
+      await pushPatch(payload);
       flash("Match sauvegardé.");
     } catch {}
   }
@@ -913,91 +920,91 @@ export default function ControlPage() {
   async function syncNow() {
     try {
       await pushPatch({});
-      flash("État envoyé au Display.");
+      flash("État envoyé à l’écran public.");
     } catch (e: any) {
       flash(e?.message || "Erreur broadcast.");
     }
   }
 
   async function startClock() {
-  const nextClockMs =
-    clockMs > 0 ? clockMs : defaultClockMsBySport(sport, sportSettings?.period_duration_s);
+    const nextClockMs =
+      clockMs > 0 ? clockMs : defaultClockMsBySport(sport, sportSettings?.period_duration_s);
 
-  setClockMs(nextClockMs);
-  setClockRunning(true);
-  setStatus("live");
+    setClockMs(nextClockMs);
+    setClockRunning(true);
+    setStatus("live");
 
-  try {
-    await persistLiveState({
-      clock_ms: nextClockMs,
-      clock_running: true,
-      status: "live",
-    });
-
-    if (autoLive) {
-      await pushPatch({
+    try {
+      await persistLiveState({
         clock_ms: nextClockMs,
         clock_running: true,
         status: "live",
       });
-    }
-  } catch {}
-}
 
- async function pauseClock() {
-  setClockRunning(false);
-  setStatus("paused");
+      if (autoLive) {
+        await pushPatch({
+          clock_ms: nextClockMs,
+          clock_running: true,
+          status: "live",
+        });
+      }
+    } catch {}
+  }
 
-  try {
-    await persistLiveState({
-      clock_running: false,
-      status: "paused",
-      clock_ms: clockMs,
-    });
+  async function pauseClock() {
+    setClockRunning(false);
+    setStatus("paused");
 
-    if (autoLive) {
-      await pushPatch({
+    try {
+      await persistLiveState({
         clock_running: false,
         status: "paused",
         clock_ms: clockMs,
       });
-    }
-  } catch {}
-}
 
- async function resetClock() {
-  const next = defaultClockMsBySport(sport, sportSettings?.period_duration_s);
+      if (autoLive) {
+        await pushPatch({
+          clock_running: false,
+          status: "paused",
+          clock_ms: clockMs,
+        });
+      }
+    } catch {}
+  }
 
-  setClockMs(next);
-  setClockRunning(false);
+  async function resetClock() {
+    const next = defaultClockMsBySport(sport, sportSettings?.period_duration_s);
 
-  try {
-    await persistLiveState({
-      clock_ms: next,
-      clock_running: false,
-    });
+    setClockMs(next);
+    setClockRunning(false);
 
-    if (autoLive) {
-      await pushPatch({
+    try {
+      await persistLiveState({
         clock_ms: next,
         clock_running: false,
       });
-    }
-  } catch {}
-}
 
- async function adjustClock(deltaMs: number) {
-  const next = Math.max(0, clockMs + deltaMs);
-  setClockMs(next);
+      if (autoLive) {
+        await pushPatch({
+          clock_ms: next,
+          clock_running: false,
+        });
+      }
+    } catch {}
+  }
 
-  try {
-    await persistLiveState({ clock_ms: next });
+  async function adjustClock(deltaMs: number) {
+    const next = Math.max(0, clockMs + deltaMs);
+    setClockMs(next);
 
-    if (autoLive) {
-      await pushPatch({ clock_ms: next });
-    }
-  } catch {}
-}
+    try {
+      await persistLiveState({ clock_ms: next });
+
+      if (autoLive) {
+        await pushPatch({ clock_ms: next });
+      }
+    } catch {}
+  }
 
   async function changeScore(side: "home" | "away", delta: number) {
     const nextHome = side === "home" ? Math.max(0, homeScore + delta) : homeScore;
@@ -1013,6 +1020,84 @@ export default function ControlPage() {
         event_type: `${sport}_score`,
         team_side: side,
         payload: { delta, home_score: nextHome, away_score: nextAway },
+      });
+    } catch {}
+  }
+
+  async function changeTeamFouls(side: "home" | "away", delta: number) {
+    const nextHome = side === "home" ? Math.max(0, homeTeamFouls + delta) : homeTeamFouls;
+    const nextAway = side === "away" ? Math.max(0, awayTeamFouls + delta) : awayTeamFouls;
+
+    setHomeTeamFouls(nextHome);
+    setAwayTeamFouls(nextAway);
+
+    try {
+      await persistLiveState({
+        home_team_fouls: nextHome,
+        away_team_fouls: nextAway,
+      });
+      if (autoLive) {
+        await pushPatch({
+          home_team_fouls: nextHome,
+          away_team_fouls: nextAway,
+        });
+      }
+      await appendEvent({
+        event_type: `${sport}_team_foul`,
+        team_side: side,
+        payload: { home_team_fouls: nextHome, away_team_fouls: nextAway, delta },
+      });
+    } catch {}
+  }
+
+  async function changeSetsWon(side: "home" | "away", delta: number) {
+    const nextHome = side === "home" ? Math.max(0, homeSetsWon + delta) : homeSetsWon;
+    const nextAway = side === "away" ? Math.max(0, awaySetsWon + delta) : awaySetsWon;
+
+    setHomeSetsWon(nextHome);
+    setAwaySetsWon(nextAway);
+
+    try {
+      await persistLiveState({
+        home_sets_won: nextHome,
+        away_sets_won: nextAway,
+      });
+      if (autoLive) {
+        await pushPatch({
+          home_sets_won: nextHome,
+          away_sets_won: nextAway,
+        });
+      }
+      await appendEvent({
+        event_type: `${sport}_sets`,
+        team_side: side,
+        payload: { home_sets_won: nextHome, away_sets_won: nextAway, delta },
+      });
+    } catch {}
+  }
+
+  async function toggleBonus(side: "home" | "away") {
+    const nextHome = side === "home" ? !homeBonus : homeBonus;
+    const nextAway = side === "away" ? !awayBonus : awayBonus;
+
+    setHomeBonus(nextHome);
+    setAwayBonus(nextAway);
+
+    try {
+      await persistLiveState({
+        home_bonus: nextHome,
+        away_bonus: nextAway,
+      });
+      if (autoLive) {
+        await pushPatch({
+          home_bonus: nextHome,
+          away_bonus: nextAway,
+        });
+      }
+      await appendEvent({
+        event_type: `${sport}_bonus`,
+        team_side: side,
+        payload: { home_bonus: nextHome, away_bonus: nextAway },
       });
     } catch {}
   }
@@ -1095,6 +1180,8 @@ export default function ControlPage() {
         clock_running: false,
         team_fouls_period_home: 0,
         team_fouls_period_away: 0,
+        home_team_fouls: 0,
+        away_team_fouls: 0,
       });
       if (autoLive) {
         await pushPatch({
@@ -1543,7 +1630,9 @@ export default function ControlPage() {
           <div>
             <div style={styles.heroTitle}>{matchName}</div>
             <div style={styles.heroText}>
-              Cette régie pilote le match courant. En mode <b>Auto live</b>, chaque action part immédiatement vers l’écran public et est persistée en base.
+              Cette régie pilote le match courant. L’écran public utilise désormais une <b>URL stable par équipe</b>,
+              adaptée à un affichage permanent. En mode <b>Auto live</b>, chaque action est persistée puis envoyée
+              immédiatement à l’écran public.
             </div>
 
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 14 }}>
@@ -1559,7 +1648,7 @@ export default function ControlPage() {
               Sauvegarder
             </button>
             <button onClick={syncNow} style={styles.ghostBtn}>
-              Envoyer au Display
+              Envoyer à l’écran public
             </button>
             {displayHref ? (
               <a href={displayHref} target="_blank" rel="noreferrer" style={styles.linkBtn}>
@@ -1623,13 +1712,15 @@ export default function ControlPage() {
               </div>
 
               <div style={styles.qrCard}>
-                <div style={styles.qrTitle}>QR écran public</div>
+                <div style={styles.qrTitle}>QR écran public stable équipe</div>
                 {displayHref ? (
                   <div style={{ background: "white", padding: 8, borderRadius: 10, marginTop: 10, display: "inline-block" }}>
                     <QRCodeSVG value={displayHref} size={160} />
                   </div>
                 ) : (
-                  <div style={{ marginTop: 12, opacity: 0.7 }}>Lien écran indisponible.</div>
+                  <div style={{ marginTop: 12, opacity: 0.7 }}>
+                    Lien écran indisponible. Vérifie qu’une équipe stable est bien rattachée au match.
+                  </div>
                 )}
               </div>
             </div>
@@ -1830,7 +1921,7 @@ export default function ControlPage() {
                         const next = handballHomeTimeouts + 1;
                         setHandballHomeTimeouts(next);
                         try {
-                          await persistLiveState({ handball_home_team_timeouts: next });
+                          await persistLiveState({ handball_home_team_timeouts: next, home_timeouts: next });
                           if (autoLive) await pushPatch({ handball_home_team_timeouts: next, home_timeouts: next });
                           await appendEvent({ event_type: "handball_timeout", team_side: "home", payload: { value: next } });
                         } catch {}
@@ -1844,7 +1935,7 @@ export default function ControlPage() {
                         const next = handballAwayTimeouts + 1;
                         setHandballAwayTimeouts(next);
                         try {
-                          await persistLiveState({ handball_away_team_timeouts: next });
+                          await persistLiveState({ handball_away_team_timeouts: next, away_timeouts: next });
                           if (autoLive) await pushPatch({ handball_away_team_timeouts: next, away_timeouts: next });
                           await appendEvent({ event_type: "handball_timeout", team_side: "away", payload: { value: next } });
                         } catch {}
@@ -2176,10 +2267,10 @@ export default function ControlPage() {
                     rightValue={awayTeamFouls}
                     leftLabel={homeName}
                     rightLabel={awayName}
-                    onLeftMinus={() => setHomeTeamFouls((v) => Math.max(0, v - 1))}
-                    onLeftPlus={() => setHomeTeamFouls((v) => v + 1)}
-                    onRightMinus={() => setAwayTeamFouls((v) => Math.max(0, v - 1))}
-                    onRightPlus={() => setAwayTeamFouls((v) => v + 1)}
+                    onLeftMinus={() => changeTeamFouls("home", -1)}
+                    onLeftPlus={() => changeTeamFouls("home", 1)}
+                    onRightMinus={() => changeTeamFouls("away", -1)}
+                    onRightPlus={() => changeTeamFouls("away", 1)}
                   />
                 ) : null}
 
@@ -2204,10 +2295,10 @@ export default function ControlPage() {
                     rightValue={awaySetsWon}
                     leftLabel={homeName}
                     rightLabel={awayName}
-                    onLeftMinus={() => setHomeSetsWon((v) => Math.max(0, v - 1))}
-                    onLeftPlus={() => setHomeSetsWon((v) => v + 1)}
-                    onRightMinus={() => setAwaySetsWon((v) => Math.max(0, v - 1))}
-                    onRightPlus={() => setAwaySetsWon((v) => v + 1)}
+                    onLeftMinus={() => changeSetsWon("home", -1)}
+                    onLeftPlus={() => changeSetsWon("home", 1)}
+                    onRightMinus={() => changeSetsWon("away", -1)}
+                    onRightPlus={() => changeSetsWon("away", 1)}
                   />
                 ) : null}
 
@@ -2227,10 +2318,10 @@ export default function ControlPage() {
                   <div style={styles.statCard}>
                     <div style={styles.statCardTitle}>Bonus</div>
                     <div style={styles.bonusGrid}>
-                      <button onClick={() => setHomeBonus((v) => !v)} style={homeBonus ? styles.primaryBtn : styles.ghostBtn}>
+                      <button onClick={() => toggleBonus("home")} style={homeBonus ? styles.primaryBtn : styles.ghostBtn}>
                         {homeName} : {homeBonus ? "ON" : "OFF"}
                       </button>
-                      <button onClick={() => setAwayBonus((v) => !v)} style={awayBonus ? styles.primaryBtn : styles.ghostBtn}>
+                      <button onClick={() => toggleBonus("away")} style={awayBonus ? styles.primaryBtn : styles.ghostBtn}>
                         {awayName} : {awayBonus ? "ON" : "OFF"}
                       </button>
                     </div>
