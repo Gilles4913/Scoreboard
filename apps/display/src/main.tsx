@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
 import Scoreboard, { ScoreboardContext } from "./components/Scoreboard";
@@ -208,35 +208,58 @@ function App() {
   const [err, setErr] = useState("");
 
   const [localTick, setLocalTick] = useState(0);
-  const lastBaseClockRef = React.useRef<number | null>(null);
-  const lastBaseTsRef = React.useRef<number>(Date.now());
+
+  const lastBaseClockRef = useRef<number>(0);
+  const lastBaseTsRef = useRef<number>(Date.now());
+  const lastRunningRef = useRef<boolean>(false);
+  const lastMatchIdRef = useRef<string>("");
 
   useEffect(() => {
-    const t = setInterval(() => setLocalTick((v) => v + 1), 250);
-    return () => clearInterval(t);
+    const t = window.setInterval(() => setLocalTick((v) => v + 1), 250);
+    return () => window.clearInterval(t);
   }, []);
 
   useEffect(() => {
     if (!ctx) return;
-    if (typeof ctx.clock_ms === "number") {
-      lastBaseClockRef.current = ctx.clock_ms;
+
+    const nextClockMs = typeof ctx.clock_ms === "number" ? ctx.clock_ms : 0;
+    const nextRunning = !!ctx.clock_running;
+    const nextMatchId = String(ctx.match_id ?? "");
+
+    const runningChanged = nextRunning !== lastRunningRef.current;
+    const matchChanged = nextMatchId !== lastMatchIdRef.current;
+    const clockChanged = nextClockMs !== lastBaseClockRef.current;
+
+    if (runningChanged || matchChanged || clockChanged) {
+      lastBaseClockRef.current = nextClockMs;
       lastBaseTsRef.current = Date.now();
+      lastRunningRef.current = nextRunning;
+      lastMatchIdRef.current = nextMatchId;
     }
-  }, [ctx?.clock_ms]);
+  }, [ctx?.clock_ms, ctx?.clock_running, ctx?.match_id]);
 
   const computedContext = useMemo(() => {
     if (!ctx) return null;
 
-    if (!ctx.clock_running || typeof lastBaseClockRef.current !== "number") {
+    if (!ctx.clock_running) {
       return ctx;
     }
 
     const elapsed = Date.now() - lastBaseTsRef.current;
-    const clock_ms = Math.max(0, lastBaseClockRef.current - elapsed);
+    const baseClockMs = typeof lastBaseClockRef.current === "number" ? lastBaseClockRef.current : 0;
+    const computedClockMs = Math.max(0, baseClockMs - elapsed);
+
+    if (computedClockMs <= 0) {
+      return {
+        ...ctx,
+        clock_ms: 0,
+        clock_running: false,
+      };
+    }
 
     return {
       ...ctx,
-      clock_ms,
+      clock_ms: computedClockMs,
     };
   }, [ctx, localTick]);
 
@@ -285,8 +308,11 @@ function App() {
         const json = await fetchContext();
         if (cancelled) return;
 
-        setResolvedMatchId(json?.match?.id || matchIdFromUrl || "");
-        setCtx(buildContextFromResponse(json));
+        const nextCtx = buildContextFromResponse(json);
+        const nextMatchId = json?.match?.id || matchIdFromUrl || "";
+
+        setResolvedMatchId(nextMatchId);
+        setCtx(nextCtx);
       } catch (e: any) {
         if (!cancelled) {
           setErr(e?.message || "Impossible de charger le contexte display.");
@@ -308,31 +334,35 @@ function App() {
       try {
         const json = await fetchContext();
         const nextMatchId = json?.match?.id || "";
+        const nextCtx = buildContextFromResponse(json);
 
-        if (!nextMatchId) return;
-
-        if (nextMatchId !== resolvedMatchId) {
+        if (nextMatchId && nextMatchId !== resolvedMatchId) {
           setResolvedMatchId(nextMatchId);
         }
 
         setCtx((prev) => {
-          const nextCtx = buildContextFromResponse(json);
-          return prev ? mergeContext(prev, nextCtx) : nextCtx;
+          if (!prev) return nextCtx;
+
+          if (prev.match_id && nextCtx.match_id && prev.match_id !== nextCtx.match_id) {
+            return nextCtx;
+          }
+
+          return mergeContext(prev, nextCtx);
         });
       } catch (e) {
         console.error("[display] stable team refresh failed", e);
       }
-    }, 15000);
+    }, 3000);
 
     return () => window.clearInterval(interval);
-  }, [isStableTeamMode, resolvedMatchId]);
+  }, [isStableTeamMode, resolvedMatchId, token, matchIdFromUrl, teamSlug, teamId]);
 
   useEffect(() => {
     if (!resolvedMatchId) return;
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
 
     const topic = `match:${resolvedMatchId}`;
-    const channel = supabase.channel(topic);
+    const channel = supabase.channel(`display:${topic}`);
 
     channel
       .on("broadcast", { event: "*" }, (message) => {
