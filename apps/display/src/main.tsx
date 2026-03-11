@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import ReactDOM from "react-dom/client";
-import { createClient, RealtimeChannel } from "@supabase/supabase-js";
+import { createClient } from "@supabase/supabase-js";
 import Scoreboard, { ScoreboardContext } from "./components/Scoreboard";
 
 function getEnv(name: string): string {
@@ -32,6 +32,169 @@ function mergeContext(prev: ScoreboardContext, patch: Partial<ScoreboardContext>
   };
 }
 
+function buildContextFromResponse(json: any): ScoreboardContext {
+  const match = json?.match || {};
+  const org = json?.org || {};
+  const displaySettings = json?.display_settings || {};
+  const sportSettings = json?.sport_settings || {};
+
+  return {
+    theme: displaySettings.theme ?? "dark",
+    dual_language: displaySettings.dual_language ?? false,
+    lang_primary: displaySettings.lang_primary ?? "FR",
+    lang_secondary: displaySettings.lang_secondary ?? "EN",
+    show_lower_third: displaySettings.show_lower_third ?? true,
+    show_logos: displaySettings.show_logos ?? true,
+    sponsor_rotate_s: displaySettings.sponsor_rotate_s ?? 10,
+    show_score: displaySettings.show_score ?? true,
+    show_clock: displaySettings.show_clock ?? true,
+    show_period: displaySettings.show_period ?? true,
+    show_status: displaySettings.show_status ?? true,
+    show_sponsors: displaySettings.show_sponsors ?? true,
+    layout_mode: displaySettings.layout_mode ?? "stadium",
+
+    show_team_fouls: sportSettings.show_team_fouls ?? false,
+    show_player_fouls: sportSettings.show_player_fouls ?? false,
+    show_timeouts: sportSettings.show_timeouts ?? false,
+    show_bonus: sportSettings.show_bonus ?? false,
+    show_sets: sportSettings.show_sets ?? false,
+    show_cards: sportSettings.show_cards ?? false,
+    show_shot_clock: sportSettings.show_shot_clock ?? false,
+
+    match_id: match.id,
+    match_name: match.name ?? "",
+    status: match.status ?? "scheduled",
+    sport: org.sport ?? sportSettings.sport ?? "football",
+    venue: org.name ?? "",
+
+    home_name: match.home_name ?? match.home?.name ?? "Domicile",
+    away_name: match.away_name ?? match.away?.name ?? "Extérieur",
+    home_score: match.home_score ?? 0,
+    away_score: match.away_score ?? 0,
+    clock_ms: match.clock_ms ?? 0,
+    clock_running: match.clock_running ?? false,
+    period_label: match.period_label ?? "",
+
+    home_team_fouls: match.home_team_fouls ?? 0,
+    away_team_fouls: match.away_team_fouls ?? 0,
+    home_timeouts: match.home_timeouts ?? 0,
+    away_timeouts: match.away_timeouts ?? 0,
+    home_bonus: match.home_bonus ?? false,
+    away_bonus: match.away_bonus ?? false,
+    shot_clock_s: match.shot_clock_s ?? 0,
+    possession_arrow: match.possession_arrow ?? null,
+
+    home_sets_won: match.home_sets_won ?? 0,
+    away_sets_won: match.away_sets_won ?? 0,
+
+    home_yellow_cards: match.home_yellow_cards ?? 0,
+    away_yellow_cards: match.away_yellow_cards ?? 0,
+    home_red_cards: match.home_red_cards ?? 0,
+    away_red_cards: match.away_red_cards ?? 0,
+
+    rugby_home_tries: match.rugby_home_tries ?? 0,
+    rugby_away_tries: match.rugby_away_tries ?? 0,
+    rugby_home_conversions: match.rugby_home_conversions ?? 0,
+    rugby_away_conversions: match.rugby_away_conversions ?? 0,
+    rugby_home_penalties: match.rugby_home_penalties ?? 0,
+    rugby_away_penalties: match.rugby_away_penalties ?? 0,
+    rugby_home_drop_goals: match.rugby_home_drop_goals ?? 0,
+    rugby_away_drop_goals: match.rugby_away_drop_goals ?? 0,
+    rugby_home_sin_bin_active: match.rugby_home_sin_bin_active ?? 0,
+    rugby_away_sin_bin_active: match.rugby_away_sin_bin_active ?? 0,
+
+    handball_home_2min_active: match.handball_home_2min_active ?? 0,
+    handball_away_2min_active: match.handball_away_2min_active ?? 0,
+    handball_home_warnings: match.handball_home_warnings ?? 0,
+    handball_away_warnings: match.handball_away_warnings ?? 0,
+    handball_home_disqualifications: match.handball_home_disqualifications ?? 0,
+    handball_away_disqualifications: match.handball_away_disqualifications ?? 0,
+
+    volleyball_home_set_points: match.volleyball_home_set_points ?? 0,
+    volleyball_away_set_points: match.volleyball_away_set_points ?? 0,
+    volleyball_home_serving: match.volleyball_home_serving ?? false,
+    volleyball_away_serving: match.volleyball_away_serving ?? false,
+    volleyball_current_set: match.volleyball_current_set ?? 1,
+    volleyball_is_tiebreak: match.volleyball_is_tiebreak ?? false,
+
+    football_home_penalty_shootout: match.football_home_penalty_shootout ?? 0,
+    football_away_penalty_shootout: match.football_away_penalty_shootout ?? 0,
+    football_added_time_first_half: match.football_added_time_first_half ?? 0,
+    football_added_time_second_half: match.football_added_time_second_half ?? 0,
+    football_added_time_extra_1: match.football_added_time_extra_1 ?? 0,
+    football_added_time_extra_2: match.football_added_time_extra_2 ?? 0,
+
+    home: match.home || {},
+    away: match.away || {},
+  } as any;
+}
+
+function buildPatchFromMatchRow(row: any): Partial<ScoreboardContext> {
+  if (!row || typeof row !== "object") return {};
+
+  return {
+    match_id: row.id,
+    match_name: row.name ?? undefined,
+    status: row.status ?? undefined,
+    home_name: row.home_name ?? undefined,
+    away_name: row.away_name ?? undefined,
+    home_score: row.home_score ?? undefined,
+    away_score: row.away_score ?? undefined,
+    clock_ms: row.clock_ms ?? undefined,
+    clock_running: row.clock_running ?? undefined,
+    period_label: row.period_label ?? undefined,
+
+    home_team_fouls: row.home_team_fouls ?? undefined,
+    away_team_fouls: row.away_team_fouls ?? undefined,
+    home_timeouts: row.home_timeouts ?? undefined,
+    away_timeouts: row.away_timeouts ?? undefined,
+    home_bonus: row.home_bonus ?? undefined,
+    away_bonus: row.away_bonus ?? undefined,
+    shot_clock_s: row.shot_clock_s ?? undefined,
+    possession_arrow: row.possession_arrow ?? undefined,
+
+    home_sets_won: row.home_sets_won ?? undefined,
+    away_sets_won: row.away_sets_won ?? undefined,
+
+    home_yellow_cards: row.home_yellow_cards ?? undefined,
+    away_yellow_cards: row.away_yellow_cards ?? undefined,
+    home_red_cards: row.home_red_cards ?? undefined,
+    away_red_cards: row.away_red_cards ?? undefined,
+
+    rugby_home_tries: row.rugby_home_tries ?? undefined,
+    rugby_away_tries: row.rugby_away_tries ?? undefined,
+    rugby_home_conversions: row.rugby_home_conversions ?? undefined,
+    rugby_away_conversions: row.rugby_away_conversions ?? undefined,
+    rugby_home_penalties: row.rugby_home_penalties ?? undefined,
+    rugby_away_penalties: row.rugby_away_penalties ?? undefined,
+    rugby_home_drop_goals: row.rugby_home_drop_goals ?? undefined,
+    rugby_away_drop_goals: row.rugby_away_drop_goals ?? undefined,
+    rugby_home_sin_bin_active: row.rugby_home_sin_bin_active ?? undefined,
+    rugby_away_sin_bin_active: row.rugby_away_sin_bin_active ?? undefined,
+
+    handball_home_2min_active: row.handball_home_2min_active ?? undefined,
+    handball_away_2min_active: row.handball_away_2min_active ?? undefined,
+    handball_home_warnings: row.handball_home_warnings ?? undefined,
+    handball_away_warnings: row.handball_away_warnings ?? undefined,
+    handball_home_disqualifications: row.handball_home_disqualifications ?? undefined,
+    handball_away_disqualifications: row.handball_away_disqualifications ?? undefined,
+
+    volleyball_home_set_points: row.volleyball_home_set_points ?? undefined,
+    volleyball_away_set_points: row.volleyball_away_set_points ?? undefined,
+    volleyball_home_serving: row.volleyball_home_serving ?? undefined,
+    volleyball_away_serving: row.volleyball_away_serving ?? undefined,
+    volleyball_current_set: row.volleyball_current_set ?? undefined,
+    volleyball_is_tiebreak: row.volleyball_is_tiebreak ?? undefined,
+
+    football_home_penalty_shootout: row.football_home_penalty_shootout ?? undefined,
+    football_away_penalty_shootout: row.football_away_penalty_shootout ?? undefined,
+    football_added_time_first_half: row.football_added_time_first_half ?? undefined,
+    football_added_time_second_half: row.football_added_time_second_half ?? undefined,
+    football_added_time_extra_1: row.football_added_time_extra_1 ?? undefined,
+    football_added_time_extra_2: row.football_added_time_extra_2 ?? undefined,
+  };
+}
+
 function App() {
   const token = getSearchParam("token");
   const matchIdFromUrl = getSearchParam("matchId");
@@ -44,11 +207,9 @@ function App() {
   const [resolvedMatchId, setResolvedMatchId] = useState("");
   const [err, setErr] = useState("");
 
-  const channelRef = useRef<RealtimeChannel | null>(null);
-
   const [localTick, setLocalTick] = useState(0);
-  const lastBaseClockRef = useRef<number | null>(null);
-  const lastBaseTsRef = useRef<number>(Date.now());
+  const lastBaseClockRef = React.useRef<number | null>(null);
+  const lastBaseTsRef = React.useRef<number>(Date.now());
 
   useEffect(() => {
     const t = setInterval(() => setLocalTick((v) => v + 1), 250);
@@ -124,51 +285,8 @@ function App() {
         const json = await fetchContext();
         if (cancelled) return;
 
-        const match = json?.match || {};
-        const org = json?.org || {};
-        const displaySettings = json?.display_settings || {};
-        const sportSettings = json?.sport_settings || {};
-
-        setResolvedMatchId(match?.id || matchIdFromUrl || "");
-
-        setCtx({
-          theme: displaySettings.theme ?? "dark",
-          dual_language: displaySettings.dual_language ?? false,
-          lang_primary: displaySettings.lang_primary ?? "FR",
-          lang_secondary: displaySettings.lang_secondary ?? "EN",
-          show_lower_third: displaySettings.show_lower_third ?? true,
-          show_logos: displaySettings.show_logos ?? true,
-          sponsor_rotate_s: displaySettings.sponsor_rotate_s ?? 10,
-          show_score: displaySettings.show_score ?? true,
-          show_clock: displaySettings.show_clock ?? true,
-          show_period: displaySettings.show_period ?? true,
-          show_status: displaySettings.show_status ?? true,
-          show_sponsors: displaySettings.show_sponsors ?? true,
-          layout_mode: displaySettings.layout_mode ?? "stadium",
-
-          show_team_fouls: sportSettings.show_team_fouls ?? false,
-          show_player_fouls: sportSettings.show_player_fouls ?? false,
-          show_timeouts: sportSettings.show_timeouts ?? false,
-          show_bonus: sportSettings.show_bonus ?? false,
-          show_sets: sportSettings.show_sets ?? false,
-          show_cards: sportSettings.show_cards ?? false,
-          show_shot_clock: sportSettings.show_shot_clock ?? false,
-
-          match_id: match.id,
-          match_name: match.name ?? "",
-          status: match.status ?? "scheduled",
-          sport: org.sport ?? sportSettings.sport ?? "football",
-          venue: org.name ?? "",
-          home_name: match.home_name ?? match.home?.name ?? "Domicile",
-          away_name: match.away_name ?? match.away?.name ?? "Extérieur",
-          home_score: match.home_score ?? 0,
-          away_score: match.away_score ?? 0,
-          clock_ms: 0,
-          clock_running: false,
-          period_label: "",
-          home: match.home || {},
-          away: match.away || {},
-        } as any);
+        setResolvedMatchId(json?.match?.id || matchIdFromUrl || "");
+        setCtx(buildContextFromResponse(json));
       } catch (e: any) {
         if (!cancelled) {
           setErr(e?.message || "Impossible de charger le contexte display.");
@@ -194,52 +312,13 @@ function App() {
         if (!nextMatchId) return;
 
         if (nextMatchId !== resolvedMatchId) {
-          const match = json?.match || {};
-          const org = json?.org || {};
-          const displaySettings = json?.display_settings || {};
-          const sportSettings = json?.sport_settings || {};
-
           setResolvedMatchId(nextMatchId);
-
-          setCtx({
-            theme: displaySettings.theme ?? "dark",
-            dual_language: displaySettings.dual_language ?? false,
-            lang_primary: displaySettings.lang_primary ?? "FR",
-            lang_secondary: displaySettings.lang_secondary ?? "EN",
-            show_lower_third: displaySettings.show_lower_third ?? true,
-            show_logos: displaySettings.show_logos ?? true,
-            sponsor_rotate_s: displaySettings.sponsor_rotate_s ?? 10,
-            show_score: displaySettings.show_score ?? true,
-            show_clock: displaySettings.show_clock ?? true,
-            show_period: displaySettings.show_period ?? true,
-            show_status: displaySettings.show_status ?? true,
-            show_sponsors: displaySettings.show_sponsors ?? true,
-            layout_mode: displaySettings.layout_mode ?? "stadium",
-
-            show_team_fouls: sportSettings.show_team_fouls ?? false,
-            show_player_fouls: sportSettings.show_player_fouls ?? false,
-            show_timeouts: sportSettings.show_timeouts ?? false,
-            show_bonus: sportSettings.show_bonus ?? false,
-            show_sets: sportSettings.show_sets ?? false,
-            show_cards: sportSettings.show_cards ?? false,
-            show_shot_clock: sportSettings.show_shot_clock ?? false,
-
-            match_id: match.id,
-            match_name: match.name ?? "",
-            status: match.status ?? "scheduled",
-            sport: org.sport ?? sportSettings.sport ?? "football",
-            venue: org.name ?? "",
-            home_name: match.home_name ?? match.home?.name ?? "Domicile",
-            away_name: match.away_name ?? match.away?.name ?? "Extérieur",
-            home_score: match.home_score ?? 0,
-            away_score: match.away_score ?? 0,
-            clock_ms: 0,
-            clock_running: false,
-            period_label: "",
-            home: match.home || {},
-            away: match.away || {},
-          } as any);
         }
+
+        setCtx((prev) => {
+          const nextCtx = buildContextFromResponse(json);
+          return prev ? mergeContext(prev, nextCtx) : nextCtx;
+        });
       } catch (e) {
         console.error("[display] stable team refresh failed", e);
       }
@@ -254,7 +333,6 @@ function App() {
 
     const topic = `match:${resolvedMatchId}`;
     const channel = supabase.channel(topic);
-    channelRef.current = channel;
 
     channel
       .on("broadcast", { event: "*" }, (message) => {
@@ -266,13 +344,30 @@ function App() {
           return mergeContext(prev, patch);
         });
       })
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "matches",
+          filter: `id=eq.${resolvedMatchId}`,
+        },
+        (payload: any) => {
+          const patch = buildPatchFromMatchRow(payload?.new);
+          if (!patch || Object.keys(patch).length === 0) return;
+
+          setCtx((prev) => {
+            if (!prev) return prev;
+            return mergeContext(prev, patch);
+          });
+        },
+      )
       .subscribe((status) => {
         console.log("[display] realtime status:", status, topic);
       });
 
     return () => {
       supabase.removeChannel(channel);
-      channelRef.current = null;
     };
   }, [resolvedMatchId]);
 
