@@ -196,12 +196,13 @@ function buildPatchFromMatchRow(row: any): Partial<ScoreboardContext> {
 }
 
 function App() {
-  const token = getSearchParam("token");
   const matchIdFromUrl = getSearchParam("matchId");
   const teamSlug = getSearchParam("teamSlug");
   const teamId = getSearchParam("teamId");
+  const legacyToken = getSearchParam("token");
 
   const isStableTeamMode = !!teamSlug || !!teamId;
+  const isLegacyTokenMode = !!legacyToken && !isStableTeamMode && !matchIdFromUrl;
 
   const [ctx, setCtx] = useState<ScoreboardContext | null>(null);
   const [resolvedMatchId, setResolvedMatchId] = useState("");
@@ -241,9 +242,7 @@ function App() {
   const computedContext = useMemo(() => {
     if (!ctx) return null;
 
-    if (!ctx.clock_running) {
-      return ctx;
-    }
+    if (!ctx.clock_running) return ctx;
 
     const elapsed = Date.now() - lastBaseTsRef.current;
     const baseClockMs = typeof lastBaseClockRef.current === "number" ? lastBaseClockRef.current : 0;
@@ -275,10 +274,9 @@ function App() {
     const base = EDGE_CONTEXT_URL.replace(/\/$/, "");
     const url = new URL(base);
 
-    if (token) url.searchParams.set("token", token);
-    if (matchIdFromUrl) url.searchParams.set("matchId", matchIdFromUrl);
     if (teamSlug) url.searchParams.set("teamSlug", teamSlug);
     if (teamId) url.searchParams.set("teamId", teamId);
+    if (matchIdFromUrl) url.searchParams.set("matchId", matchIdFromUrl);
 
     const headers: Record<string, string> = {
       apikey: SUPABASE_ANON_KEY,
@@ -304,6 +302,16 @@ function App() {
     async function loadInitialContext() {
       setErr("");
 
+      if (!isStableTeamMode && !matchIdFromUrl) {
+        setErr("URL publique invalide. Utilise une URL stable d’équipe du type ?teamSlug=...");
+        return;
+      }
+
+      if (isLegacyTokenMode) {
+        setErr("Le mode public par token match a été retiré. Utilise l’URL stable d’équipe.");
+        return;
+      }
+
       try {
         const json = await fetchContext();
         if (cancelled) return;
@@ -325,7 +333,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [token, matchIdFromUrl, teamSlug, teamId]);
+  }, [matchIdFromUrl, teamSlug, teamId, isStableTeamMode, isLegacyTokenMode]);
 
   useEffect(() => {
     if (!isStableTeamMode) return;
@@ -355,7 +363,7 @@ function App() {
     }, 3000);
 
     return () => window.clearInterval(interval);
-  }, [isStableTeamMode, resolvedMatchId, token, matchIdFromUrl, teamSlug, teamId]);
+  }, [isStableTeamMode, resolvedMatchId, matchIdFromUrl, teamSlug, teamId]);
 
   useEffect(() => {
     if (!resolvedMatchId) return;
@@ -413,7 +421,7 @@ function App() {
         }}
       >
         <h1 style={{ marginTop: 0 }}>scoreDisplay — Display</h1>
-        <div style={{ marginTop: 12, color: "crimson" }}>Erreur: {err}</div>
+        <div style={{ marginTop: 12, color: "crimson" }}>{err}</div>
       </div>
     );
   }
