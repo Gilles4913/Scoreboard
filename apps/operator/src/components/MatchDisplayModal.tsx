@@ -1,238 +1,259 @@
-import { useMemo, useState } from "react";
-import { QRCodeCanvas } from "qrcode.react";
-import { buildDisplayUrl, copyToClipboard } from "../utils/displayLink";
+import React from "react";
+import { QRCodeSVG } from "qrcode.react";
 
-type MatchLite = {
-  id: string;
+type TeamLike = {
+  id?: string | null;
+  slug?: string | null;
   name?: string | null;
-  display_token: string;
-  home_name?: string | null;
-  away_name?: string | null;
-  org_slug?: string | null;
 };
 
 type Props = {
   open: boolean;
   onClose: () => void;
-  match: MatchLite | null;
+  team?: TeamLike | null;
+  displayBaseUrl?: string;
+  title?: string;
 };
 
-export function MatchDisplayModal({ open, onClose, match }: Props) {
-  const [copied, setCopied] = useState<"" | "token" | "org">("");
+function buildStableDisplayUrl(displayBaseUrl: string, team?: TeamLike | null) {
+  const base = (displayBaseUrl || "").trim().replace(/\/$/, "");
+  if (!base || !team) return "";
 
-  const urls = useMemo(() => {
-    if (!match) return { tokenUrl: "", orgUrl: "" };
-    const tokenUrl = buildDisplayUrl({ token: match.display_token });
-    const orgUrl = match.org_slug ? buildDisplayUrl({ org: match.org_slug }) : "";
-    return { tokenUrl, orgUrl };
-  }, [match]);
-
-  if (!open || !match) return null;
-
-  const subtitle =
-    match.home_name && match.away_name ? `${match.home_name} vs ${match.away_name}` : "";
-
-  async function onCopy(kind: "token" | "org") {
-    const val = kind === "token" ? urls.tokenUrl : urls.orgUrl;
-    if (!val) return;
-    await copyToClipboard(val);
-    setCopied(kind);
-    setTimeout(() => setCopied(""), 1200);
+  if (team.slug) {
+    return `${base}/?teamSlug=${encodeURIComponent(team.slug)}`;
   }
 
+  if (team.id) {
+    return `${base}/?teamId=${encodeURIComponent(team.id)}`;
+  }
+
+  return "";
+}
+
+async function copyToClipboard(value: string) {
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export default function MatchDisplayModal({
+  open,
+  onClose,
+  team,
+  displayBaseUrl = ((import.meta as any).env?.VITE_DISPLAY_APP_URL ||
+    (import.meta as any).env?.VITE_DISPLAY_URL ||
+    "") as string,
+  title,
+}: Props) {
+  const stableUrl = buildStableDisplayUrl(displayBaseUrl, team);
+  const modalTitle = title || `Écran public stable${team?.name ? ` — ${team.name}` : ""}`;
+
+  if (!open) return null;
+
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.75)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 9999,
-        padding: 20,
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: "#0f1114",
-          border: "1px solid #2a2d33",
-          borderRadius: 16,
-          padding: 18,
-          width: "min(920px, 96vw)",
-          color: "#e5e7eb",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 14,
-            alignItems: "flex-start",
-            flexWrap: "wrap",
-          }}
-        >
-          <div style={{ flex: 1, minWidth: 320 }}>
-            <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 6 }}>📺 Display</div>
-
-            <div style={{ fontWeight: 700, marginBottom: 4 }}>{match.name ?? "Match"}</div>
-            {subtitle ? <div style={{ color: "#9aa0a6", marginBottom: 12 }}>{subtitle}</div> : null}
-
-            {/* TOKEN URL (recommandée) */}
-            <div style={{ fontWeight: 800, marginBottom: 6 }}>URL match (token)</div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <code
-                style={{
-                  padding: "10px 12px",
-                  background: "#111214",
-                  borderRadius: 10,
-                  userSelect: "all",
-                  overflowWrap: "anywhere",
-                  border: "1px solid #1b1c1f",
-                  flex: 1,
-                  minWidth: 280,
-                }}
-              >
-                {urls.tokenUrl}
-              </code>
-
-              <button
-                onClick={() => onCopy("token")}
-                style={{
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  border: "1px solid #2a2d33",
-                  background: "#14161a",
-                  color: "#e5e7eb",
-                  cursor: "pointer",
-                }}
-              >
-                {copied === "token" ? "✅ Copié" : "📋 Copier"}
-              </button>
-
-              <a
-                href={urls.tokenUrl}
-                target="_blank"
-                rel="noreferrer"
-                style={{
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  border: "1px solid #2a2d33",
-                  background: "#14161a",
-                  color: "#e5e7eb",
-                  textDecoration: "none",
-                }}
-              >
-                Ouvrir
-              </a>
-            </div>
-
-            <div style={{ marginTop: 10, fontSize: 12, color: "#9aa0a6" }}>
-              Recommandé : <code>?token=...</code> (affiche ce match précisément)
-            </div>
-
-            {/* ORG URL (optionnelle) */}
-            <div style={{ marginTop: 16, fontWeight: 800, marginBottom: 6 }}>URL organisation (live)</div>
-            {urls.orgUrl ? (
-              <>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                  <code
-                    style={{
-                      padding: "10px 12px",
-                      background: "#111214",
-                      borderRadius: 10,
-                      userSelect: "all",
-                      overflowWrap: "anywhere",
-                      border: "1px solid #1b1c1f",
-                      flex: 1,
-                      minWidth: 280,
-                    }}
-                  >
-                    {urls.orgUrl}
-                  </code>
-
-                  <button
-                    onClick={() => onCopy("org")}
-                    style={{
-                      padding: "10px 12px",
-                      borderRadius: 10,
-                      border: "1px solid #2a2d33",
-                      background: "#14161a",
-                      color: "#e5e7eb",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {copied === "org" ? "✅ Copié" : "📋 Copier"}
-                  </button>
-
-                  <a
-                    href={urls.orgUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{
-                      padding: "10px 12px",
-                      borderRadius: 10,
-                      border: "1px solid #2a2d33",
-                      background: "#14161a",
-                      color: "#e5e7eb",
-                      textDecoration: "none",
-                    }}
-                  >
-                    Ouvrir
-                  </a>
-                </div>
-
-                <div style={{ marginTop: 10, fontSize: 12, color: "#9aa0a6" }}>
-                  Optionnel : <code>?org=...</code> (affiche le match live de l’org via Edge Function)
-                </div>
-              </>
-            ) : (
-              <div style={{ fontSize: 12, color: "#6b7280" }}>
-                org_slug indisponible sur ce match. (Optionnel : expose <code>org_slug</code> dans ta vue <code>matches</code>.)
-              </div>
-            )}
-
-            <div style={{ marginTop: 12, fontSize: 12, color: "#6b7280" }}>
-              matchId: <code style={{ userSelect: "all" }}>{match.id}</code>
+    <div style={styles.backdrop} onClick={onClose}>
+      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+        <div style={styles.header}>
+          <div>
+            <div style={styles.title}>{modalTitle}</div>
+            <div style={styles.subtitle}>
+              Le mode public par token match a été supprimé. Le lien public officiel est désormais l’URL stable par équipe.
             </div>
           </div>
 
-          <div style={{ minWidth: 360, textAlign: "center" }}>
-            <div style={{ fontSize: 12, color: "#9aa0a6", marginBottom: 8 }}>QR Code (token)</div>
-
-            <div style={{ background: "white", padding: 16, borderRadius: 16, display: "inline-block" }}>
-              <QRCodeCanvas value={urls.tokenUrl} size={320} />
-            </div>
-
-            {urls.orgUrl ? (
-              <div style={{ marginTop: 14 }}>
-                <div style={{ fontSize: 12, color: "#9aa0a6", marginBottom: 8 }}>QR Code (org live)</div>
-                <div style={{ background: "white", padding: 12, borderRadius: 16, display: "inline-block" }}>
-                  <QRCodeCanvas value={urls.orgUrl} size={240} />
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </div>
-
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 14 }}>
-          <button
-            onClick={onClose}
-            style={{
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid #2a2d33",
-              background: "#14161a",
-              color: "#e5e7eb",
-              cursor: "pointer",
-            }}
-          >
+          <button onClick={onClose} style={styles.closeBtn}>
             Fermer
           </button>
         </div>
+
+        {!stableUrl ? (
+          <div style={styles.warningBox}>
+            Impossible de générer l’écran public stable. Cette équipe doit avoir au moins un <b>slug</b> ou un <b>id</b> exploitable.
+          </div>
+        ) : (
+          <>
+            <div style={styles.content}>
+              <div style={styles.qrCard}>
+                <div style={styles.blockTitle}>QR écran public stable</div>
+                <div style={styles.qrBox}>
+                  <QRCodeSVG value={stableUrl} size={220} />
+                </div>
+              </div>
+
+              <div style={styles.linkCard}>
+                <div style={styles.blockTitle}>URL stable équipe</div>
+                <div style={styles.urlBox}>{stableUrl}</div>
+
+                <div style={styles.helpText}>
+                  Cette URL est prévue pour un écran fixe, un panneau LED ou une TV affectée à cette équipe.
+                  Elle bascule automatiquement vers le bon match selon le fallback serveur.
+                </div>
+
+                <div style={styles.actions}>
+                  <button
+                    style={styles.primaryBtn}
+                    onClick={async () => {
+                      const ok = await copyToClipboard(stableUrl);
+                      window.alert(ok ? "Lien copié." : "Copie impossible.");
+                    }}
+                  >
+                    Copier le lien
+                  </button>
+
+                  <a
+                    href={stableUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={styles.linkBtn}
+                  >
+                    Ouvrir l’écran
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            <div style={styles.footerNote}>
+              Paramètre utilisé : <code>?teamSlug=...</code> ou <code>?teamId=...</code>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
 }
+
+const styles: Record<string, React.CSSProperties> = {
+  backdrop: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(0,0,0,.6)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+    zIndex: 1000,
+  },
+  modal: {
+    width: "min(920px, 100%)",
+    background: "#0b0f14",
+    color: "#e7eefc",
+    border: "1px solid rgba(255,255,255,.1)",
+    borderRadius: 20,
+    boxShadow: "0 20px 80px rgba(0,0,0,.45)",
+    padding: 20,
+    fontFamily:
+      "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 16,
+    alignItems: "flex-start",
+    marginBottom: 18,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 900,
+  },
+  subtitle: {
+    marginTop: 6,
+    fontSize: 14,
+    opacity: 0.8,
+    lineHeight: 1.55,
+    maxWidth: 680,
+  },
+  closeBtn: {
+    background: "transparent",
+    color: "#e7eefc",
+    border: "1px solid rgba(255,255,255,.16)",
+    borderRadius: 12,
+    padding: "10px 14px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  warningBox: {
+    padding: 16,
+    borderRadius: 14,
+    background: "rgba(217,119,6,.12)",
+    border: "1px solid rgba(217,119,6,.3)",
+    lineHeight: 1.6,
+  },
+  content: {
+    display: "grid",
+    gridTemplateColumns: "320px 1fr",
+    gap: 18,
+  },
+  qrCard: {
+    padding: 16,
+    borderRadius: 16,
+    background: "rgba(255,255,255,.03)",
+    border: "1px solid rgba(255,255,255,.08)",
+  },
+  qrBox: {
+    marginTop: 14,
+    background: "white",
+    borderRadius: 14,
+    padding: 12,
+    display: "inline-flex",
+  },
+  linkCard: {
+    padding: 16,
+    borderRadius: 16,
+    background: "rgba(255,255,255,.03)",
+    border: "1px solid rgba(255,255,255,.08)",
+  },
+  blockTitle: {
+    fontSize: 16,
+    fontWeight: 900,
+  },
+  urlBox: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 14,
+    background: "rgba(255,255,255,.03)",
+    border: "1px solid rgba(255,255,255,.08)",
+    wordBreak: "break-all",
+    lineHeight: 1.6,
+    fontSize: 14,
+  },
+  helpText: {
+    marginTop: 14,
+    opacity: 0.82,
+    lineHeight: 1.6,
+    fontSize: 14,
+  },
+  actions: {
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+    marginTop: 16,
+  },
+  primaryBtn: {
+    background: "#2563eb",
+    color: "white",
+    border: "1px solid rgba(255,255,255,.1)",
+    borderRadius: 12,
+    padding: "12px 16px",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+  linkBtn: {
+    textDecoration: "none",
+    background: "#1e3a8a",
+    color: "white",
+    border: "1px solid rgba(255,255,255,.1)",
+    borderRadius: 12,
+    padding: "12px 16px",
+    fontWeight: 800,
+    display: "inline-flex",
+    alignItems: "center",
+  },
+  footerNote: {
+    marginTop: 16,
+    fontSize: 13,
+    opacity: 0.72,
+  },
+};
