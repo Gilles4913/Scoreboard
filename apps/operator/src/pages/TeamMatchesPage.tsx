@@ -242,19 +242,8 @@ export default function TeamMatchesPage() {
             <button onClick={() => nav("/display-settings")} style={styles.ghostBtn}>Paramètres Display</button>
             {stableLink ? (
               <a href={stableLink} target="_blank" rel="noreferrer" style={styles.linkBtn}>
-                Écran stable équipe
+                Écran d'affichage
               </a>
-            ) : null}
-            {stableLink ? (
-              <button
-                onClick={() => {
-                  setSelectedQr(stableLink);
-                  setSelectedQrTitle(`QR écran stable — ${team?.name || "Équipe"}`);
-                }}
-                style={styles.ghostBtn}
-              >
-                QR écran stable
-              </button>
             ) : null}
           </div>
         </div>
@@ -294,15 +283,15 @@ export default function TeamMatchesPage() {
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
               {stableLink ? (
                 <>
-                  <button onClick={() => copyText(stableLink)} style={styles.primaryBtn}>Copier l’URL stable</button>
+                  <button onClick={() => copyText(stableLink)} style={styles.primaryBtn}>Copier l’URL de l’écran d’affichage</button>
                   <button
                     onClick={() => {
                       setSelectedQr(stableLink);
-                      setSelectedQrTitle(`QR écran stable — ${team?.name || "Équipe"}`);
+                      setSelectedQrTitle(`QR écran d’affichage — ${team?.name || "Équipe"}`);
                     }}
                     style={styles.ghostBtn}
                   >
-                    Afficher le QR stable
+                    Afficher le QR de l’écran d’affichage
                   </button>
                 </>
               ) : (
