@@ -6,6 +6,7 @@ function getEnv(name: string): string {
 }
 
 const TV_BROADCAST_URL = getEnv("VITE_TV_BROADCAST_URL");
+const SUPABASE_ANON_KEY = getEnv("VITE_SUPABASE_ANON_KEY");
 
 export type TvPatch = {
   match_id?: string;
@@ -140,6 +141,7 @@ export async function sendTvBroadcast(matchId: string, patch: TvPatch) {
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
+      ...(SUPABASE_ANON_KEY ? { apikey: SUPABASE_ANON_KEY } : {}),
     },
     body: JSON.stringify({
       match_id: matchId,
