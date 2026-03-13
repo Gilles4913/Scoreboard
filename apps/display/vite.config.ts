@@ -5,8 +5,9 @@ import { resolve } from 'path';
 export default defineConfig({
   plugins: [react()],
   server: { 
-    port: 5174,
-    host: true,
+    port: 5173,
+    host: "0.0.0.0",
+    allowedHosts: true,
     strictPort: true
   },
   envDir: resolve(__dirname, '../../'),

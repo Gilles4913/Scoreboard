@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@8.15.9",
   "scripts": {
-    "dev": "vite --port 5175",
+    "dev": "vite --port 5000 --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview"
   },
