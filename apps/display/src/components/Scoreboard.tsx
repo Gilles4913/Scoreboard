@@ -436,16 +436,16 @@ function CardBadge({ color, label, count }: { color: string; label: string; coun
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 8,
-        padding: "8px 18px",
-        borderRadius: 14,
+        gap: 16,
+        padding: "16px 36px",
+        borderRadius: 20,
         background: `${color}22`,
         border: `2px solid ${color}`,
       }}
     >
-      <span style={{ fontSize: "clamp(15px,2.2vw,26px)", fontWeight: 900, color }}>{label}</span>
+      <span style={{ fontSize: "clamp(28px,4.2vw,54px)", fontWeight: 900, color }}>{label}</span>
       {count > 1 && (
-        <span style={{ fontSize: "clamp(13px,1.8vw,22px)", fontWeight: 900, color }}>×{count}</span>
+        <span style={{ fontSize: "clamp(24px,3.6vw,44px)", fontWeight: 900, color }}>×{count}</span>
       )}
     </div>
   );
@@ -468,24 +468,24 @@ function BreakdownChip({
   return (
     <div
       style={{
-        padding: "6px 12px",
-        borderRadius: 10,
+        padding: "14px 24px",
+        borderRadius: 18,
         background: panel,
         border: `1px solid ${border}`,
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        minWidth: 56,
+        minWidth: 110,
       }}
     >
-      <div style={{ fontSize: 11, fontWeight: 800, opacity: 0.65, color: text }}>{label}</div>
+      <div style={{ fontSize: "clamp(16px,2vw,26px)", fontWeight: 800, opacity: 0.65, color: text }}>{label}</div>
       <div
         style={{
-          fontSize: "clamp(16px,2.4vw,28px)",
+          fontSize: "clamp(36px,6vw,80px)",
           fontWeight: 900,
           color,
           lineHeight: 1,
-          marginTop: 2,
+          marginTop: 4,
         }}
       >
         {value}
@@ -661,10 +661,10 @@ function RugbyStadeLayout({ context }: Props) {
             style={{
               fontFamily: "'Courier New','Lucida Console',monospace",
               fontWeight: 900,
-              fontSize: "clamp(80px,18vw,220px)",
+              fontSize: "clamp(140px,28vw,380px)",
               lineHeight: 1,
               color: accentHome,
-              textShadow: `0 0 10px ${accentHome}88, 0 0 28px ${accentHome}44`,
+              textShadow: `0 0 18px ${accentHome}88, 0 0 48px ${accentHome}44`,
               transform: homeBump ? "scale(1.07)" : "scale(1)",
               transition: "transform 180ms ease",
               userSelect: "none",
@@ -687,11 +687,11 @@ function RugbyStadeLayout({ context }: Props) {
             style={{
               fontFamily: "'Courier New','Lucida Console',monospace",
               fontWeight: 900,
-              fontSize: "clamp(44px,8vw,108px)",
+              fontSize: "clamp(80px,14vw,190px)",
               lineHeight: 1,
               color: isRunning ? "#22d3ee" : isPaused ? "#f59e0b" : text,
               letterSpacing: 4,
-              textShadow: isRunning ? "0 0 16px #22d3ee88" : "none",
+              textShadow: isRunning ? "0 0 28px #22d3ee88" : "none",
             }}
           >
             {clockText}
@@ -714,10 +714,10 @@ function RugbyStadeLayout({ context }: Props) {
             style={{
               fontFamily: "'Courier New','Lucida Console',monospace",
               fontWeight: 900,
-              fontSize: "clamp(80px,18vw,220px)",
+              fontSize: "clamp(140px,28vw,380px)",
               lineHeight: 1,
               color: accentAway,
-              textShadow: `0 0 10px ${accentAway}88, 0 0 28px ${accentAway}44`,
+              textShadow: `0 0 18px ${accentAway}88, 0 0 48px ${accentAway}44`,
               transform: awayBump ? "scale(1.07)" : "scale(1)",
               transition: "transform 180ms ease",
               userSelect: "none",
@@ -936,10 +936,10 @@ function RugbyExpertLayout({ context }: Props) {
             style={{
               fontFamily: "'Courier New',monospace",
               fontWeight: 900,
-              fontSize: "clamp(72px,16vw,210px)",
+              fontSize: "clamp(130px,26vw,360px)",
               lineHeight: 1,
               color: accentHome,
-              textShadow: `0 0 8px ${accentHome}88`,
+              textShadow: `0 0 16px ${accentHome}88`,
               transform: homeBump ? "scale(1.06)" : "scale(1)",
               transition: "transform 180ms ease",
               userSelect: "none",
@@ -962,11 +962,11 @@ function RugbyExpertLayout({ context }: Props) {
             style={{
               fontFamily: "'Courier New',monospace",
               fontWeight: 900,
-              fontSize: "clamp(40px,7vw,90px)",
+              fontSize: "clamp(72px,12vw,160px)",
               lineHeight: 1,
               color: isRunning ? "#22d3ee" : isPaused ? "#f59e0b" : text,
               letterSpacing: 4,
-              textShadow: isRunning ? "0 0 12px #22d3ee88" : "none",
+              textShadow: isRunning ? "0 0 20px #22d3ee88" : "none",
             }}
           >
             {clockText}
@@ -989,10 +989,10 @@ function RugbyExpertLayout({ context }: Props) {
             style={{
               fontFamily: "'Courier New',monospace",
               fontWeight: 900,
-              fontSize: "clamp(72px,16vw,210px)",
+              fontSize: "clamp(130px,26vw,360px)",
               lineHeight: 1,
               color: accentAway,
-              textShadow: `0 0 8px ${accentAway}88`,
+              textShadow: `0 0 16px ${accentAway}88`,
               transform: awayBump ? "scale(1.06)" : "scale(1)",
               transition: "transform 180ms ease",
               userSelect: "none",
@@ -1013,7 +1013,7 @@ function RugbyExpertLayout({ context }: Props) {
           alignItems: "flex-start",
         }}
       >
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
           <BreakdownChip
             label="Essais"
             value={safeNum(context.rugby_home_tries)}
@@ -1059,7 +1059,7 @@ function RugbyExpertLayout({ context }: Props) {
           }}
         />
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", justifyContent: "flex-end" }}>
           <BreakdownChip
             label="Essais"
             value={safeNum(context.rugby_away_tries)}
