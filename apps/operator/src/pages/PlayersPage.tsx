@@ -304,47 +304,55 @@ function PlayerCard({
   const [position, setPosition] = useState(player.position || "");
 
   return (
-    <div style={styles.card}>
-      <div style={styles.cardGrid}>
-        <Field label="Numéro">
-          <input value={number} onChange={(e) => setNumber(e.target.value)} style={styles.input} />
-        </Field>
-
-        <Field label="Nom">
-          <input value={name} onChange={(e) => setName(e.target.value)} style={styles.input} />
-        </Field>
-
-        <Field label="Poste">
-          <input value={position} onChange={(e) => setPosition(e.target.value)} style={styles.input} />
-        </Field>
-
-        <Field label="Statut">
-          <input readOnly value={player.is_active ? "Actif" : "Inactif"} style={{ ...styles.input, opacity: 0.82 }} />
-        </Field>
-      </div>
-
-      <div style={styles.actionRow}>
-        <button
-          onClick={() =>
-            onUpdate(player.id, {
-              number: number.trim(),
-              name: name.trim(),
-              position: position.trim() || null,
-            })
-          }
-          style={styles.primaryBtn}
-        >
-          Enregistrer
-        </button>
-
-        <button onClick={() => onToggleActive(player)} style={styles.ghostBtn}>
-          {player.is_active ? "Désactiver" : "Réactiver"}
-        </button>
-
-        <button onClick={() => onDelete(player.id)} style={styles.dangerBtn}>
-          Supprimer
-        </button>
-      </div>
+    <div style={styles.row}>
+      <input
+        value={number}
+        onChange={(e) => setNumber(e.target.value)}
+        style={styles.inputSm}
+        placeholder="#"
+        title="Numéro"
+      />
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        style={{ ...styles.inputSm, flex: 2 }}
+        placeholder="Nom"
+        title="Nom"
+      />
+      <input
+        value={position}
+        onChange={(e) => setPosition(e.target.value)}
+        style={styles.inputSm}
+        placeholder="Poste"
+        title="Poste"
+      />
+      <button
+        onClick={() =>
+          onUpdate(player.id, {
+            number: number.trim(),
+            name: name.trim(),
+            position: position.trim() || null,
+          })
+        }
+        style={styles.btnSm}
+        title="Enregistrer"
+      >
+        ✓
+      </button>
+      <button
+        onClick={() => onToggleActive(player)}
+        style={styles.btnSmGhost}
+        title={player.is_active ? "Désactiver" : "Réactiver"}
+      >
+        {player.is_active ? "Désactiver" : "Réactiver"}
+      </button>
+      <button
+        onClick={() => onDelete(player.id)}
+        style={styles.btnSmDanger}
+        title="Supprimer"
+      >
+        ✕
+      </button>
     </div>
   );
 }
@@ -420,12 +428,21 @@ const styles: Record<string, React.CSSProperties> = {
   },
   sectionTitle: { fontSize: 18, fontWeight: 900, marginBottom: 14 },
   formGrid: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 },
-  list: { display: "grid", gap: 14 },
+  list: { display: "flex", flexDirection: "column", gap: 4 },
   card: {
     padding: 16,
     borderRadius: 16,
     background: "rgba(255,255,255,.03)",
     border: "1px solid rgba(255,255,255,.08)",
+  },
+  row: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "6px 10px",
+    borderRadius: 10,
+    background: "rgba(255,255,255,.03)",
+    border: "1px solid rgba(255,255,255,.07)",
   },
   cardGrid: { display: "grid", gridTemplateColumns: "1fr 2fr 1fr 1fr", gap: 14 },
   actionRow: { display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14 },
@@ -439,6 +456,18 @@ const styles: Record<string, React.CSSProperties> = {
     outline: "none",
     boxSizing: "border-box",
   },
+  inputSm: {
+    flex: 1,
+    minWidth: 0,
+    background: "rgba(255,255,255,.05)",
+    color: "#e7eefc",
+    border: "1px solid rgba(255,255,255,.10)",
+    borderRadius: 8,
+    padding: "5px 9px",
+    fontSize: 13,
+    outline: "none",
+    boxSizing: "border-box",
+  } as React.CSSProperties,
   primaryBtn: {
     background: "#2563eb",
     color: "white",
@@ -465,6 +494,39 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "10px 14px",
     fontWeight: 800,
     cursor: "pointer",
+  },
+  btnSm: {
+    background: "#2563eb",
+    color: "white",
+    border: "none",
+    borderRadius: 8,
+    padding: "5px 10px",
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+  btnSmGhost: {
+    background: "transparent",
+    color: "#a0aec0",
+    border: "1px solid rgba(255,255,255,.12)",
+    borderRadius: 8,
+    padding: "4px 10px",
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+  btnSmDanger: {
+    background: "transparent",
+    color: "#f87171",
+    border: "1px solid rgba(220,38,38,.3)",
+    borderRadius: 8,
+    padding: "5px 10px",
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: "pointer",
+    flexShrink: 0,
   },
   emptyCard: {
     padding: 16,
