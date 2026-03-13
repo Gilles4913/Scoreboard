@@ -1,0 +1,304 @@
+Le vrai levier pour réduire la latence, ce n’est pas le rafraîchissement périodique du Display.
+C’est de faire du broadcast temps réel comme voie principale, et de garder la DB comme persistance + filet de sécurité.
+
+Aujourd’hui, tu as très probablement ce schéma :
+
+Operator écrit en base
+
+attend la réponse
+
+envoie le patch live
+
+Display reçoit plus tard
+
+C’est exactement ce qui crée 1 à 2 secondes de retard.
+
+Cible à atteindre
+
+Il faut passer à ce schéma :
+
+Operator met à jour son UI localement
+
+Operator broadcast immédiatement
+
+Operator persiste en base en parallèle
+
+Display applique le broadcast immédiatement
+
+Display garde postgres_changes comme rattrapage si besoin
+
+Autrement dit :
+
+temps réel = broadcast
+
+vérité durable = DB
+
+rattrapage = postgres_changes
+
+refresh teamSlug = uniquement pour changement de match / resync
+
+Ce qu’il faut changer
+1) Dans ControlPage.tsx
+
+Il faut arrêter d’attendre la DB avant d’envoyer au Display.
+
+Principe
+
+Aujourd’hui tu fais probablement un truc du genre :
+
+await persistLiveState(patch);
+await pushPatch(patch);
+
+Il faut faire :
+
+await pushPatch(patch);
+void persistLiveState(patch);
+
+ou mieux :
+
+const pushPromise = pushPatch(patch);
+const persistPromise = persistLiveState(patch);
+await pushPromise;
+void persistPromise;
+
+Comme ça :
+
+le Display réagit tout de suite
+
+la DB suit juste après
+
+2) Ajouter un numéro de séquence live
+
+Pour éviter qu’un vieux patch écrase un nouveau, il faut ajouter un live_seq.
+
+Côté Operator
+
+Garde un compteur local :
+
+const liveSeqRef = useRef(0);
+
+function nextLiveSeq() {
+  liveSeqRef.current += 1;
+  return liveSeqRef.current;
+}
+
+Puis dans chaque patch :
+
+const seq = nextLiveSeq();
+
+await pushPatch({
+  ...patch,
+  live_seq: seq,
+  emitted_at: Date.now(),
+});
+void persistLiveState({
+  ...patch,
+  last_event_seq: seq,
+});
+3) Côté Display main.tsx
+
+Le Display doit ignorer les vieux messages.
+
+Exemple logique
+const lastSeqRef = useRef(0);
+
+function applyLivePatch(patch: any) {
+  const seq = Number(patch?.live_seq || 0);
+  if (seq && seq < lastSeqRef.current) return;
+  if (seq) lastSeqRef.current = seq;
+
+  setCtx((prev) => (prev ? mergeContext(prev, patch) : prev));
+}
+
+Puis :
+
+broadcast → applyLivePatch(patch)
+
+postgres_changes → applyLivePatch(mappedPatch)
+
+4) Réduire le polling du mode équipe
+
+Le polling ne doit plus servir à faire vivre le score.
+Il doit juste :
+
+détecter un changement de match
+
+faire un resync périodique
+
+Donc :
+
+intervalle 2 ou 3 s maximum
+
+ne pas dépendre de lui pour la sensation live
+
+5) Horloge : ne pas la “streamer” en continu
+
+Il ne faut pas pousser clock_ms toutes les 250 ms.
+
+Le bon modèle :
+
+au clic Start : broadcast immédiat
+
+clock_running: true
+
+clock_ms: base
+
+emitted_at
+
+au clic Pause : broadcast immédiat
+
+clock_running: false
+
+clock_ms: valeur courante
+
+Display calcule localement entre les deux
+
+Ça donne une sensation instantanée sans saturer le backend.
+
+6) Pause doit être un patch prioritaire
+
+Le bouton Pause casse souvent quand :
+
+on calcule clock_ms trop tard
+
+on envoie un vieux clock_running
+
+un postgres_changes ancien réécrit l’état
+
+Il faut donc :
+
+calculer nextClockMs au moment du clic
+
+envoyer clock_running: false immédiatement
+
+inclure live_seq
+
+Exemple :
+
+async function pauseClock() {
+  const nextClockMs = clockMs;
+
+  setClockRunning(false);
+  setStatus("paused");
+
+  const seq = nextLiveSeq();
+  const patch = {
+    clock_running: false,
+    clock_ms: nextClockMs,
+    status: "paused",
+    live_seq: seq,
+    emitted_at: Date.now(),
+  };
+
+  await pushPatch(patch);
+  void persistLiveState({
+    clock_running: false,
+    clock_ms: nextClockMs,
+    status: "paused",
+    last_event_seq: seq,
+  });
+}
+7) Broadcast avant journalisation événementielle
+
+Si tu écris aussi dans match_events, fais-le après le broadcast, pas avant.
+
+Ordre recommandé :
+
+setState local
+
+pushPatch
+
+persistLiveState
+
+appendEvent
+
+8) Affichage Rugby : cartons plus compréhensibles
+
+Pour la démo, n’affiche pas juste un pictogramme jaune isolé.
+
+Affiche au minimum :
+
+J 1
+
+R 0
+
+ou :
+
+Jaunes 1
+
+Rouges 0
+
+Et si tu es sur un layout LED très lisible :
+
+J 1-0 R 0-0
+
+Ce que je te recommande d’implémenter maintenant
+
+Priorité absolue :
+
+Bloc 1
+
+pushPatch() avant persistLiveState()
+
+Bloc 2
+
+live_seq sur chaque patch
+
+Bloc 3
+
+Display ignore les patches plus anciens
+
+Bloc 4
+
+polling équipe réduit à 2–3 s, mais seulement pour resync / changement de match
+
+Résultat attendu
+
+Avec ça, tu dois passer de :
+
+1–2 s de latence
+à
+
+quasi instantané visuellement
+
+La DB restera parfois légèrement derrière, mais ce n’est pas grave si le Display est déjà à jour.
+
+Prompt Replit à utiliser
+
+Colle ceci dans Replit :
+
+Je veux améliorer drastiquement la synchronisation Operator -> Display pour obtenir la latence la plus faible possible.
+
+Objectif :
+- score quasi instantané sur le Display
+- chrono quasi instantané
+- pause fiable
+- la DB reste la persistance durable, mais ne doit plus ralentir l’affichage
+
+Architecture cible :
+1. Operator met à jour son UI localement
+2. Operator broadcast immédiatement le patch live
+3. Operator persiste en base en parallèle, sans bloquer l’affichage
+4. Display applique immédiatement le broadcast
+5. Display garde postgres_changes comme fallback / resync
+6. Le mode teamSlug garde seulement un refresh périodique pour changement de match / resync
+
+À implémenter :
+- dans ControlPage.tsx :
+  - pushPatch avant persistLiveState
+  - ajout d’un live_seq monotone
+  - ajout de emitted_at
+  - start/pause/reset/score utilisent cette logique
+- dans main.tsx :
+  - ignorer les vieux patchs avec live_seq
+  - appliquer broadcast immédiatement
+  - garder postgres_changes comme rattrapage
+  - conserver refresh teamSlug toutes les 2 ou 3 secondes max
+- ne pas streamer clock_ms en continu
+- le Display doit calculer localement l’horloge entre start et pause
+
+Je veux :
+- les fichiers complets à modifier
+- le code complet pour ControlPage.tsx et main.tsx
+- une courte explication des changements
+- un mini plan de test manuel

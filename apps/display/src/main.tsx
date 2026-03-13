@@ -221,6 +221,7 @@ function App() {
   const lastBaseTsRef = useRef<number>(Date.now());
   const lastRunningRef = useRef<boolean>(false);
   const lastMatchIdRef = useRef<string>("");
+  const lastSeqRef = useRef<number>(0);
 
   useEffect(() => {
     const t = window.setInterval(() => setLocalTick((v) => v + 1), 250);
@@ -370,6 +371,21 @@ function App() {
     return () => window.clearInterval(interval);
   }, [isStableTeamMode, resolvedMatchId, matchIdFromUrl, teamSlug, teamId]);
 
+  function applyLivePatch(patch: any) {
+    if (!patch || typeof patch !== "object") return;
+
+    const seq = Number(patch?.live_seq || 0);
+    if (seq > 0) {
+      if (seq < lastSeqRef.current) return;
+      lastSeqRef.current = seq;
+    }
+
+    setCtx((prev) => {
+      if (!prev) return prev;
+      return mergeContext(prev, patch);
+    });
+  }
+
   useEffect(() => {
     if (!resolvedMatchId) return;
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
@@ -380,12 +396,7 @@ function App() {
     channel
       .on("broadcast", { event: "*" }, (message) => {
         const patch = message?.payload?.patch || message?.payload || message;
-        if (!patch || typeof patch !== "object") return;
-
-        setCtx((prev) => {
-          if (!prev) return prev;
-          return mergeContext(prev, patch);
-        });
+        applyLivePatch(patch);
       })
       .on(
         "postgres_changes",
@@ -398,11 +409,7 @@ function App() {
         (payload: any) => {
           const patch = buildPatchFromMatchRow(payload?.new);
           if (!patch || Object.keys(patch).length === 0) return;
-
-          setCtx((prev) => {
-            if (!prev) return prev;
-            return mergeContext(prev, patch);
-          });
+          applyLivePatch(patch);
         },
       )
       .subscribe((status) => {

@@ -390,6 +390,7 @@ export default function ControlPage() {
   const [footballAddedEx2, setFootballAddedEx2] = useState(0);
 
   const timerRef = useRef<number | null>(null);
+  const liveSeqRef = useRef<number>(0);
 
   const sport = normalizeSport(org?.sport);
   const isBasket = sport === "basket";
@@ -663,6 +664,11 @@ export default function ControlPage() {
     window.setTimeout(() => setInfo(""), 2400);
   }
 
+  function nextLiveSeq(): number {
+    liveSeqRef.current += 1;
+    return liveSeqRef.current;
+  }
+
   async function persistLiveState(patch: Partial<MatchRow>) {
     if (!match) return;
 
@@ -825,6 +831,8 @@ export default function ControlPage() {
       football_added_time_extra_2: footballAddedEx2,
 
       ...extra,
+      live_seq: nextLiveSeq(),
+      emitted_at: Date.now(),
     };
 
     await sendTvBroadcast(match.id, payload);
@@ -909,8 +917,9 @@ export default function ControlPage() {
     };
 
     try {
+      const pushP = pushPatch(payload);
       await persistLiveState(payload);
-      await pushPatch(payload);
+      await pushP;
       flash("Match sauvegardé.");
     } catch {}
   }
@@ -933,40 +942,25 @@ export default function ControlPage() {
     setStatus("live");
 
     try {
-      await persistLiveState({
-        clock_ms: nextClockMs,
-        clock_running: true,
-        status: "live",
-      });
-
-      if (autoLive) {
-        await pushPatch({
-          clock_ms: nextClockMs,
-          clock_running: true,
-          status: "live",
-        });
-      }
+      const pushP = autoLive
+        ? pushPatch({ clock_ms: nextClockMs, clock_running: true, status: "live" })
+        : Promise.resolve(null);
+      void persistLiveState({ clock_ms: nextClockMs, clock_running: true, status: "live" });
+      await pushP;
     } catch {}
   }
 
   async function pauseClock() {
+    const capturedClockMs = clockMs;
     setClockRunning(false);
     setStatus("paused");
 
     try {
-      await persistLiveState({
-        clock_running: false,
-        status: "paused",
-        clock_ms: clockMs,
-      });
-
-      if (autoLive) {
-        await pushPatch({
-          clock_running: false,
-          status: "paused",
-          clock_ms: clockMs,
-        });
-      }
+      const pushP = autoLive
+        ? pushPatch({ clock_running: false, status: "paused", clock_ms: capturedClockMs })
+        : Promise.resolve(null);
+      void persistLiveState({ clock_running: false, status: "paused", clock_ms: capturedClockMs });
+      await pushP;
     } catch {}
   }
 
@@ -977,17 +971,11 @@ export default function ControlPage() {
     setClockRunning(false);
 
     try {
-      await persistLiveState({
-        clock_ms: next,
-        clock_running: false,
-      });
-
-      if (autoLive) {
-        await pushPatch({
-          clock_ms: next,
-          clock_running: false,
-        });
-      }
+      const pushP = autoLive
+        ? pushPatch({ clock_ms: next, clock_running: false })
+        : Promise.resolve(null);
+      void persistLiveState({ clock_ms: next, clock_running: false });
+      await pushP;
     } catch {}
   }
 
@@ -996,11 +984,9 @@ export default function ControlPage() {
     setClockMs(next);
 
     try {
-      await persistLiveState({ clock_ms: next });
-
-      if (autoLive) {
-        await pushPatch({ clock_ms: next });
-      }
+      const pushP = autoLive ? pushPatch({ clock_ms: next }) : Promise.resolve(null);
+      void persistLiveState({ clock_ms: next });
+      await pushP;
     } catch {}
   }
 
@@ -1012,9 +998,12 @@ export default function ControlPage() {
     setAwayScore(nextAway);
 
     try {
-      await persistLiveState({ home_score: nextHome, away_score: nextAway });
-      if (autoLive) await pushPatch({ home_score: nextHome, away_score: nextAway });
-      await appendEvent({
+      const pushP = autoLive
+        ? pushPatch({ home_score: nextHome, away_score: nextAway })
+        : Promise.resolve(null);
+      void persistLiveState({ home_score: nextHome, away_score: nextAway });
+      await pushP;
+      void appendEvent({
         event_type: `${sport}_score`,
         team_side: side,
         payload: { delta, home_score: nextHome, away_score: nextAway },
@@ -1030,17 +1019,12 @@ export default function ControlPage() {
     setAwayTeamFouls(nextAway);
 
     try {
-      await persistLiveState({
-        home_team_fouls: nextHome,
-        away_team_fouls: nextAway,
-      });
-      if (autoLive) {
-        await pushPatch({
-          home_team_fouls: nextHome,
-          away_team_fouls: nextAway,
-        });
-      }
-      await appendEvent({
+      const pushP = autoLive
+        ? pushPatch({ home_team_fouls: nextHome, away_team_fouls: nextAway })
+        : Promise.resolve(null);
+      void persistLiveState({ home_team_fouls: nextHome, away_team_fouls: nextAway });
+      await pushP;
+      void appendEvent({
         event_type: `${sport}_team_foul`,
         team_side: side,
         payload: { home_team_fouls: nextHome, away_team_fouls: nextAway, delta },
@@ -1056,17 +1040,12 @@ export default function ControlPage() {
     setAwaySetsWon(nextAway);
 
     try {
-      await persistLiveState({
-        home_sets_won: nextHome,
-        away_sets_won: nextAway,
-      });
-      if (autoLive) {
-        await pushPatch({
-          home_sets_won: nextHome,
-          away_sets_won: nextAway,
-        });
-      }
-      await appendEvent({
+      const pushP = autoLive
+        ? pushPatch({ home_sets_won: nextHome, away_sets_won: nextAway })
+        : Promise.resolve(null);
+      void persistLiveState({ home_sets_won: nextHome, away_sets_won: nextAway });
+      await pushP;
+      void appendEvent({
         event_type: `${sport}_sets`,
         team_side: side,
         payload: { home_sets_won: nextHome, away_sets_won: nextAway, delta },
@@ -1082,17 +1061,12 @@ export default function ControlPage() {
     setAwayBonus(nextAway);
 
     try {
-      await persistLiveState({
-        home_bonus: nextHome,
-        away_bonus: nextAway,
-      });
-      if (autoLive) {
-        await pushPatch({
-          home_bonus: nextHome,
-          away_bonus: nextAway,
-        });
-      }
-      await appendEvent({
+      const pushP = autoLive
+        ? pushPatch({ home_bonus: nextHome, away_bonus: nextAway })
+        : Promise.resolve(null);
+      void persistLiveState({ home_bonus: nextHome, away_bonus: nextAway });
+      await pushP;
+      void appendEvent({
         event_type: `${sport}_bonus`,
         team_side: side,
         payload: { home_bonus: nextHome, away_bonus: nextAway },
@@ -1170,7 +1144,7 @@ export default function ControlPage() {
     setAwayTeamFouls(0);
 
     try {
-      await persistLiveState({
+      const periodPatch = {
         current_period_index: nextIndex,
         is_overtime: ot,
         period_label: label,
@@ -1180,19 +1154,11 @@ export default function ControlPage() {
         team_fouls_period_away: 0,
         home_team_fouls: 0,
         away_team_fouls: 0,
-      });
-      if (autoLive) {
-        await pushPatch({
-          current_period_index: nextIndex,
-          is_overtime: ot,
-          period_label: label,
-          clock_ms: nextClock,
-          clock_running: false,
-          home_team_fouls: 0,
-          away_team_fouls: 0,
-        });
-      }
-      await appendEvent({
+      };
+      const pushP = autoLive ? pushPatch(periodPatch) : Promise.resolve(null);
+      void persistLiveState(periodPatch);
+      await pushP;
+      void appendEvent({
         event_type: "basket_period_change",
         payload: { current_period_index: nextIndex, period_label: label, is_overtime: ot },
       });
@@ -1203,9 +1169,10 @@ export default function ControlPage() {
     const next = possessionArrow === "home" ? "away" : "home";
     setPossessionArrow(next);
     try {
-      await persistLiveState({ possession_arrow: next });
-      if (autoLive) await pushPatch({ possession_arrow: next });
-      await appendEvent({ event_type: "basket_possession_arrow", team_side: next, payload: { possession_arrow: next } });
+      const pushP = autoLive ? pushPatch({ possession_arrow: next }) : Promise.resolve(null);
+      void persistLiveState({ possession_arrow: next });
+      await pushP;
+      void appendEvent({ event_type: "basket_possession_arrow", team_side: next, payload: { possession_arrow: next } });
     } catch {}
   }
 
@@ -1218,8 +1185,9 @@ export default function ControlPage() {
         : Math.max(0, shotClockS + (delta || 0));
     setShotClockS(next);
     try {
-      await persistLiveState({ shot_clock_s: next });
-      if (autoLive) await pushPatch({ shot_clock_s: next });
+      const pushP = autoLive ? pushPatch({ shot_clock_s: next }) : Promise.resolve(null);
+      void persistLiveState({ shot_clock_s: next });
+      await pushP;
     } catch {}
   }
 
@@ -1278,9 +1246,10 @@ export default function ControlPage() {
     };
 
     try {
-      await persistLiveState(patch);
-      if (autoLive) await pushPatch(patch);
-      await appendEvent({
+      const pushP = autoLive ? pushPatch(patch) : Promise.resolve(null);
+      void persistLiveState(patch);
+      await pushP;
+      void appendEvent({
         event_type: `rugby_${field}`,
         team_side: side,
         payload: { delta, home: nextHome, away: nextAway, home_score: nextHomeScore, away_score: nextAwayScore },
@@ -1307,7 +1276,8 @@ export default function ControlPage() {
     };
 
     try {
-      await persistLiveState(patch);
+      const pushP = autoLive ? pushPatch(patch) : Promise.resolve(null);
+      void persistLiveState(patch);
 
       const { data } = await supabase
         .from("match_sin_bins")
@@ -1328,9 +1298,8 @@ export default function ControlPage() {
 
       if (data) setRugbySuspensions((prev) => [data as SuspensionRow, ...prev]);
 
-      if (autoLive) await pushPatch(patch);
-
-      await appendEvent({
+      await pushP;
+      void appendEvent({
         event_type: "rugby_yellow_card",
         team_side: side,
         player_id: player?.id || null,
@@ -1359,17 +1328,14 @@ export default function ControlPage() {
     setRugbyAwaySinBinActive(nextAwayActive);
 
     try {
-      await persistLiveState({
+      const sinBinPatch = {
         rugby_home_sin_bin_active: nextHomeActive,
         rugby_away_sin_bin_active: nextAwayActive,
-      });
-      if (autoLive) {
-        await pushPatch({
-          rugby_home_sin_bin_active: nextHomeActive,
-          rugby_away_sin_bin_active: nextAwayActive,
-        });
-      }
-      await appendEvent({
+      };
+      const pushP = autoLive ? pushPatch(sinBinPatch) : Promise.resolve(null);
+      void persistLiveState(sinBinPatch);
+      await pushP;
+      void appendEvent({
         event_type: "rugby_sin_bin_end",
         team_side: row.team_side,
         player_id: row.player_id,
@@ -1385,9 +1351,12 @@ export default function ControlPage() {
     setAwayRedCards(nextAway);
 
     try {
-      await persistLiveState({ home_red_cards: nextHome, away_red_cards: nextAway });
-      if (autoLive) await pushPatch({ home_red_cards: nextHome, away_red_cards: nextAway });
-      await appendEvent({
+      const pushP = autoLive
+        ? pushPatch({ home_red_cards: nextHome, away_red_cards: nextAway })
+        : Promise.resolve(null);
+      void persistLiveState({ home_red_cards: nextHome, away_red_cards: nextAway });
+      await pushP;
+      void appendEvent({
         event_type: "rugby_red_card",
         team_side: side,
         player_id: player?.id || null,
@@ -1415,7 +1384,8 @@ export default function ControlPage() {
     };
 
     try {
-      await persistLiveState(patch);
+      const pushP = autoLive ? pushPatch(patch) : Promise.resolve(null);
+      void persistLiveState(patch);
 
       const { data } = await supabase
         .from("match_two_min_suspensions")
@@ -1436,9 +1406,8 @@ export default function ControlPage() {
 
       if (data) setHandballSuspensions((prev) => [data as SuspensionRow, ...prev]);
 
-      if (autoLive) await pushPatch(patch);
-
-      await appendEvent({
+      await pushP;
+      void appendEvent({
         event_type: "handball_2min",
         team_side: side,
         player_id: player?.id || null,
@@ -1467,17 +1436,14 @@ export default function ControlPage() {
     setHandballAway2MinActive(nextAwayActive);
 
     try {
-      await persistLiveState({
+      const h2mEndPatch = {
         handball_home_2min_active: nextHomeActive,
         handball_away_2min_active: nextAwayActive,
-      });
-      if (autoLive) {
-        await pushPatch({
-          handball_home_2min_active: nextHomeActive,
-          handball_away_2min_active: nextAwayActive,
-        });
-      }
-      await appendEvent({
+      };
+      const pushP = autoLive ? pushPatch(h2mEndPatch) : Promise.resolve(null);
+      void persistLiveState(h2mEndPatch);
+      await pushP;
+      void appendEvent({
         event_type: "handball_2min_end",
         team_side: row.team_side,
         player_id: row.player_id,
@@ -1493,17 +1459,11 @@ export default function ControlPage() {
     setHandballAwayWarnings(nextAway);
 
     try {
-      await persistLiveState({
-        handball_home_warnings: nextHome,
-        handball_away_warnings: nextAway,
-      });
-      if (autoLive) {
-        await pushPatch({
-          handball_home_warnings: nextHome,
-          handball_away_warnings: nextAway,
-        });
-      }
-      await appendEvent({
+      const warnPatch = { handball_home_warnings: nextHome, handball_away_warnings: nextAway };
+      const pushP = autoLive ? pushPatch(warnPatch) : Promise.resolve(null);
+      void persistLiveState(warnPatch);
+      await pushP;
+      void appendEvent({
         event_type: "handball_warning",
         team_side: side,
         player_id: player?.id || null,
@@ -1519,17 +1479,11 @@ export default function ControlPage() {
     setHandballAwayDisq(nextAway);
 
     try {
-      await persistLiveState({
-        handball_home_disqualifications: nextHome,
-        handball_away_disqualifications: nextAway,
-      });
-      if (autoLive) {
-        await pushPatch({
-          handball_home_disqualifications: nextHome,
-          handball_away_disqualifications: nextAway,
-        });
-      }
-      await appendEvent({
+      const disqPatch = { handball_home_disqualifications: nextHome, handball_away_disqualifications: nextAway };
+      const pushP = autoLive ? pushPatch(disqPatch) : Promise.resolve(null);
+      void persistLiveState(disqPatch);
+      await pushP;
+      void appendEvent({
         event_type: "handball_disqualification",
         team_side: side,
         player_id: player?.id || null,
@@ -1540,17 +1494,19 @@ export default function ControlPage() {
 
   async function updateVolleyPatch(patch: Partial<MatchRow>, eventType?: string, teamSide?: "home" | "away") {
     try {
-      await persistLiveState(patch);
-      if (autoLive) await pushPatch(patch as any);
-      if (eventType) await appendEvent({ event_type: eventType, team_side: teamSide || null, payload: patch as any });
+      const pushP = autoLive ? pushPatch(patch as any) : Promise.resolve(null);
+      void persistLiveState(patch);
+      await pushP;
+      if (eventType) void appendEvent({ event_type: eventType, team_side: teamSide || null, payload: patch as any });
     } catch {}
   }
 
   async function updateFootballPatch(patch: Partial<MatchRow>, eventType?: string, teamSide?: "home" | "away") {
     try {
-      await persistLiveState(patch);
-      if (autoLive) await pushPatch(patch as any);
-      if (eventType) await appendEvent({ event_type: eventType, team_side: teamSide || null, payload: patch as any });
+      const pushP = autoLive ? pushPatch(patch as any) : Promise.resolve(null);
+      void persistLiveState(patch);
+      await pushP;
+      if (eventType) void appendEvent({ event_type: eventType, team_side: teamSide || null, payload: patch as any });
     } catch {}
   }
 
@@ -1835,9 +1791,10 @@ export default function ControlPage() {
                         const next = homeTimeouts + 1;
                         setHomeTimeouts(next);
                         try {
-                          await persistLiveState({ home_timeouts: next });
-                          if (autoLive) await pushPatch({ home_timeouts: next });
-                          await appendEvent({ event_type: "basket_timeout", team_side: "home", payload: { value: next } });
+                          const pushP = autoLive ? pushPatch({ home_timeouts: next }) : Promise.resolve(null);
+                          void persistLiveState({ home_timeouts: next });
+                          await pushP;
+                          void appendEvent({ event_type: "basket_timeout", team_side: "home", payload: { value: next } });
                         } catch {}
                       }}
                       style={styles.ghostBtnSmall}
@@ -1849,9 +1806,10 @@ export default function ControlPage() {
                         const next = awayTimeouts + 1;
                         setAwayTimeouts(next);
                         try {
-                          await persistLiveState({ away_timeouts: next });
-                          if (autoLive) await pushPatch({ away_timeouts: next });
-                          await appendEvent({ event_type: "basket_timeout", team_side: "away", payload: { value: next } });
+                          const pushP = autoLive ? pushPatch({ away_timeouts: next }) : Promise.resolve(null);
+                          void persistLiveState({ away_timeouts: next });
+                          await pushP;
+                          void appendEvent({ event_type: "basket_timeout", team_side: "away", payload: { value: next } });
                         } catch {}
                       }}
                       style={styles.ghostBtnSmall}
@@ -1919,9 +1877,11 @@ export default function ControlPage() {
                         const next = handballHomeTimeouts + 1;
                         setHandballHomeTimeouts(next);
                         try {
-                          await persistLiveState({ handball_home_team_timeouts: next, home_timeouts: next });
-                          if (autoLive) await pushPatch({ handball_home_team_timeouts: next, home_timeouts: next });
-                          await appendEvent({ event_type: "handball_timeout", team_side: "home", payload: { value: next } });
+                          const tmPatch = { handball_home_team_timeouts: next, home_timeouts: next };
+                          const pushP = autoLive ? pushPatch(tmPatch) : Promise.resolve(null);
+                          void persistLiveState(tmPatch);
+                          await pushP;
+                          void appendEvent({ event_type: "handball_timeout", team_side: "home", payload: { value: next } });
                         } catch {}
                       }}
                       style={styles.ghostBtnSmall}
@@ -1933,9 +1893,11 @@ export default function ControlPage() {
                         const next = handballAwayTimeouts + 1;
                         setHandballAwayTimeouts(next);
                         try {
-                          await persistLiveState({ handball_away_team_timeouts: next, away_timeouts: next });
-                          if (autoLive) await pushPatch({ handball_away_team_timeouts: next, away_timeouts: next });
-                          await appendEvent({ event_type: "handball_timeout", team_side: "away", payload: { value: next } });
+                          const tmPatch = { handball_away_team_timeouts: next, away_timeouts: next };
+                          const pushP = autoLive ? pushPatch(tmPatch) : Promise.resolve(null);
+                          void persistLiveState(tmPatch);
+                          await pushP;
+                          void appendEvent({ event_type: "handball_timeout", team_side: "away", payload: { value: next } });
                         } catch {}
                       }}
                       style={styles.ghostBtnSmall}
@@ -1968,8 +1930,9 @@ export default function ControlPage() {
                           const next = e.target.checked;
                           setHandballExtraTime(next);
                           try {
-                            await persistLiveState({ handball_extra_time: next });
-                            if (autoLive) await pushPatch({ handball_extra_time: next });
+                            const pushP = autoLive ? pushPatch({ handball_extra_time: next }) : Promise.resolve(null);
+                            void persistLiveState({ handball_extra_time: next });
+                            await pushP;
                           } catch {}
                         }}
                       />
@@ -1981,8 +1944,10 @@ export default function ControlPage() {
                         onChange={(e) => setHandballShootoutMode(e.target.value)}
                         onBlur={async () => {
                           try {
-                            await persistLiveState({ handball_shootout_mode: handballShootoutMode || null });
-                            if (autoLive) await pushPatch({ handball_shootout_mode: handballShootoutMode || null });
+                            const smPatch = { handball_shootout_mode: handballShootoutMode || null };
+                            const pushP = autoLive ? pushPatch(smPatch) : Promise.resolve(null);
+                            void persistLiveState(smPatch);
+                            await pushP;
                           } catch {}
                         }}
                         style={styles.input}
