@@ -12,7 +12,6 @@ type MemberRow = {
     slug: string;
     name?: string | null;
     status?: OrgStatus | null;
-    org_sport?: string | null;
     sport?: string | null;
     is_master?: boolean | null;
   } | null;
@@ -69,7 +68,7 @@ export default function MembersPage() {
         org_id,
         user_id,
         role,
-        orgs:org_id(id,slug,name,status,org_sport,sport,is_master),
+        orgs:org_id(id,slug,name,status,sport,is_master),
         app_users:user_id(id,email)
       `
       )
@@ -95,7 +94,7 @@ export default function MembersPage() {
     for (const r of rows) {
       const o = r.orgs;
       if (!o) continue;
-      const s = (o.org_sport || o.sport || "").trim();
+      const s = (o.sport || "").trim();
       if (s) set.add(s);
     }
     return Array.from(set).sort();
@@ -118,7 +117,7 @@ export default function MembersPage() {
       if (statusFilter === "active+archived" && !(status === "active" || status === "archived")) return false;
 
       if (sportFilter !== "all") {
-        const s = (org?.org_sport || org?.sport || "").trim();
+        const s = (org?.sport || "").trim();
         if (s !== sportFilter) return false;
       }
 
@@ -303,7 +302,7 @@ export default function MembersPage() {
                 const email = r.app_users?.email || r.user_id;
                 const org = r.orgs;
                 const orgLabel = org?.name || org?.slug || r.org_id;
-                const sport = (org?.org_sport || org?.sport || "").trim();
+                const sport = (org?.sport || "").trim();
                 const status = (org?.status || "active") as OrgStatus;
 
                 return (

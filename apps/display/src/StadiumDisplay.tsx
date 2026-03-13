@@ -154,7 +154,7 @@ export default function StadiumDisplay({ snapshot }: { snapshot: Snapshot }) {
             <b>Nom</b><span>{snapshot?.name ?? "—"}</span>
           </div>
           <div className="kv">
-            <b>Sport</b><span>{snapshot?.org_sport ?? snapshot?.sport ?? "—"}</span>
+            <b>Sport</b><span>{snapshot?.sport ?? "—"}</span>
           </div>
           <div className="kv">
             <b>Statut</b><span>{snapshot?.status ?? "—"}</span>

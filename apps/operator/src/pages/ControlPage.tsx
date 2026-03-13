@@ -13,8 +13,6 @@ type MatchRow = {
   name: string | null;
   status: string | null;
   scheduled_at: string | null;
-  public_display: boolean | null;
-  display_token: string | null;
   home_name: string | null;
   away_name: string | null;
   home_score: number | null;

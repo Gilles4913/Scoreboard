@@ -430,7 +430,685 @@ function PlayerStatsMini({
   );
 }
 
+function CardBadge({ color, label, count }: { color: string; label: string; count: number }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "8px 18px",
+        borderRadius: 14,
+        background: `${color}22`,
+        border: `2px solid ${color}`,
+      }}
+    >
+      <span style={{ fontSize: "clamp(15px,2.2vw,26px)", fontWeight: 900, color }}>{label}</span>
+      {count > 1 && (
+        <span style={{ fontSize: "clamp(13px,1.8vw,22px)", fontWeight: 900, color }}>×{count}</span>
+      )}
+    </div>
+  );
+}
+
+function BreakdownChip({
+  label,
+  value,
+  color,
+  theme,
+}: {
+  label: string;
+  value: number;
+  color: string;
+  theme: ThemeMode;
+}) {
+  const panel = theme === "dark" ? "rgba(255,255,255,.06)" : "rgba(0,0,0,.04)";
+  const border = theme === "dark" ? "rgba(255,255,255,.14)" : "rgba(0,0,0,.10)";
+  const text = theme === "dark" ? "#edf2ff" : "#0f172a";
+  return (
+    <div
+      style={{
+        padding: "6px 12px",
+        borderRadius: 10,
+        background: panel,
+        border: `1px solid ${border}`,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        minWidth: 56,
+      }}
+    >
+      <div style={{ fontSize: 11, fontWeight: 800, opacity: 0.65, color: text }}>{label}</div>
+      <div
+        style={{
+          fontSize: "clamp(16px,2.4vw,28px)",
+          fontWeight: 900,
+          color,
+          lineHeight: 1,
+          marginTop: 2,
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function RugbyStadeLayout({ context }: Props) {
+  const theme: ThemeMode = context.theme === "light" ? "light" : "dark";
+  const bg = theme === "dark" ? "#04070a" : "#f7f8fb";
+  const text = theme === "dark" ? "#edf2ff" : "#0f172a";
+  const sub = theme === "dark" ? "rgba(237,242,255,.65)" : "rgba(15,23,42,.6)";
+  const panel = theme === "dark" ? "rgba(255,255,255,.05)" : "rgba(0,0,0,.04)";
+  const border = theme === "dark" ? "rgba(255,255,255,.12)" : "rgba(0,0,0,.10)";
+
+  const accentHome = (context.home?.primary_color || "").trim() || "#00d9ff";
+  const accentAway = (context.away?.primary_color || "").trim() || "#ff6b35";
+
+  const homeName =
+    context.home?.short_name || context.home?.name || context.home_name || "DOM";
+  const awayName =
+    context.away?.short_name || context.away?.name || context.away_name || "EXT";
+
+  const homeScore = safeScore(context.home_score);
+  const awayScore = safeScore(context.away_score);
+  const homeBump = useBumpOnChange(homeScore);
+  const awayBump = useBumpOnChange(awayScore);
+
+  const clockText = fmtClock(context.clock_ms);
+  const period = (context.period_label || "").trim();
+  const status = statusLabel(context.status);
+  const isRunning = !!context.clock_running;
+  const isPaused = context.status === "paused";
+
+  const homeYellow = safeNum(context.home_yellow_cards);
+  const awayYellow = safeNum(context.away_yellow_cards);
+  const homeRed = safeNum(context.home_red_cards);
+  const awayRed = safeNum(context.away_red_cards);
+  const homeSinBin = safeNum(context.rugby_home_sin_bin_active);
+  const awaySinBin = safeNum(context.rugby_away_sin_bin_active);
+
+  const hasCards =
+    homeYellow > 0 ||
+    awayYellow > 0 ||
+    homeRed > 0 ||
+    awayRed > 0 ||
+    homeSinBin > 0 ||
+    awaySinBin > 0;
+
+  const sponsor = useRotatingSponsor(context.sponsors || [], context.sponsor_rotate_s || 10);
+  const showSponsors = context.show_sponsors !== false;
+
+  return (
+    <div
+      style={{
+        width: "100vw",
+        height: "100vh",
+        background: bg,
+        color: text,
+        overflow: "hidden",
+        display: "grid",
+        gridTemplateRows: "auto 1fr auto",
+        fontFamily:
+          'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial',
+      }}
+    >
+      <div
+        style={{
+          padding: "28px 40px 0",
+          display: "grid",
+          gridTemplateColumns: "1fr auto 1fr",
+          alignItems: "center",
+          gap: 24,
+        }}
+      >
+        <div
+          style={{
+            fontWeight: 900,
+            fontSize: "clamp(26px,5vw,64px)",
+            textTransform: "uppercase",
+            letterSpacing: 2,
+            lineHeight: 1,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            color: accentHome,
+          }}
+        >
+          {homeName}
+        </div>
+
+        <div
+          style={{
+            textAlign: "center",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <div
+            style={{
+              padding: "8px 20px",
+              borderRadius: 999,
+              background: panel,
+              border: `1px solid ${border}`,
+              fontSize: "clamp(13px,1.8vw,22px)",
+              fontWeight: 900,
+              letterSpacing: 1.5,
+              textTransform: "uppercase",
+            }}
+          >
+            RUGBY{period ? ` • ${period}` : ""}
+            {isPaused ? " • PAUSE" : ""}
+          </div>
+          {showSponsors && sponsor ? (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "6px 16px",
+                borderRadius: 999,
+                background: panel,
+                border: `1px solid ${border}`,
+                fontSize: 13,
+                fontWeight: 700,
+                color: sub,
+              }}
+            >
+              {sponsor.logo_url ? (
+                <img
+                  src={sponsor.logo_url}
+                  alt=""
+                  style={{ width: 22, height: 22, objectFit: "contain" }}
+                />
+              ) : null}
+              {sponsor.name}
+            </div>
+          ) : null}
+        </div>
+
+        <div
+          style={{
+            fontWeight: 900,
+            fontSize: "clamp(26px,5vw,64px)",
+            textTransform: "uppercase",
+            letterSpacing: 2,
+            lineHeight: 1,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            textAlign: "right",
+            color: accentAway,
+          }}
+        >
+          {awayName}
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr auto 1fr",
+          alignItems: "center",
+          gap: 24,
+          padding: "0 40px",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          <div
+            style={{
+              fontFamily: "'Courier New','Lucida Console',monospace",
+              fontWeight: 900,
+              fontSize: "clamp(80px,18vw,220px)",
+              lineHeight: 1,
+              color: accentHome,
+              textShadow: `0 0 10px ${accentHome}88, 0 0 28px ${accentHome}44`,
+              transform: homeBump ? "scale(1.07)" : "scale(1)",
+              transition: "transform 180ms ease",
+              userSelect: "none",
+              letterSpacing: 8,
+            }}
+          >
+            {homeScore}
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          <div
+            style={{
+              fontFamily: "'Courier New','Lucida Console',monospace",
+              fontWeight: 900,
+              fontSize: "clamp(32px,5.5vw,72px)",
+              lineHeight: 1,
+              color: isRunning ? "#22d3ee" : isPaused ? "#f59e0b" : text,
+              letterSpacing: 4,
+              textShadow: isRunning ? "0 0 16px #22d3ee88" : "none",
+            }}
+          >
+            {clockText}
+          </div>
+          <div
+            style={{
+              fontSize: "clamp(11px,1.2vw,16px)",
+              fontWeight: 800,
+              opacity: 0.6,
+              letterSpacing: 2,
+              textTransform: "uppercase",
+            }}
+          >
+            {status}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          <div
+            style={{
+              fontFamily: "'Courier New','Lucida Console',monospace",
+              fontWeight: 900,
+              fontSize: "clamp(80px,18vw,220px)",
+              lineHeight: 1,
+              color: accentAway,
+              textShadow: `0 0 10px ${accentAway}88, 0 0 28px ${accentAway}44`,
+              transform: awayBump ? "scale(1.07)" : "scale(1)",
+              transition: "transform 180ms ease",
+              userSelect: "none",
+              letterSpacing: 8,
+            }}
+          >
+            {awayScore}
+          </div>
+        </div>
+      </div>
+
+      <div
+        style={{
+          padding: "0 40px 28px",
+          display: "flex",
+          justifyContent: hasCards ? "space-between" : "center",
+          alignItems: "center",
+          gap: 16,
+          minHeight: 56,
+        }}
+      >
+        {hasCards ? (
+          <>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              {homeSinBin > 0 && (
+                <CardBadge color="#f59e0b" label="SIN BIN" count={homeSinBin} />
+              )}
+              {homeYellow > 0 && <CardBadge color="#eab308" label="J" count={homeYellow} />}
+              {homeRed > 0 && <CardBadge color="#ef4444" label="R" count={homeRed} />}
+            </div>
+            <div
+              style={{
+                width: 2,
+                height: 36,
+                background: `${text}22`,
+                borderRadius: 2,
+              }}
+            />
+            <div
+              style={{
+                display: "flex",
+                gap: 10,
+                alignItems: "center",
+                flexDirection: "row-reverse",
+              }}
+            >
+              {awaySinBin > 0 && (
+                <CardBadge color="#f59e0b" label="SIN BIN" count={awaySinBin} />
+              )}
+              {awayYellow > 0 && <CardBadge color="#eab308" label="J" count={awayYellow} />}
+              {awayRed > 0 && <CardBadge color="#ef4444" label="R" count={awayRed} />}
+            </div>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function RugbyExpertLayout({ context }: Props) {
+  const theme: ThemeMode = context.theme === "light" ? "light" : "dark";
+  const bg = theme === "dark" ? "#04070a" : "#f7f8fb";
+  const text = theme === "dark" ? "#edf2ff" : "#0f172a";
+  const sub = theme === "dark" ? "rgba(237,242,255,.65)" : "rgba(15,23,42,.6)";
+  const panel = theme === "dark" ? "rgba(255,255,255,.05)" : "rgba(0,0,0,.04)";
+  const border = theme === "dark" ? "rgba(255,255,255,.12)" : "rgba(0,0,0,.10)";
+
+  const accentHome = (context.home?.primary_color || "").trim() || "#00d9ff";
+  const accentAway = (context.away?.primary_color || "").trim() || "#ff6b35";
+
+  const homeName =
+    context.home?.short_name || context.home?.name || context.home_name || "DOM";
+  const awayName =
+    context.away?.short_name || context.away?.name || context.away_name || "EXT";
+
+  const homeScore = safeScore(context.home_score);
+  const awayScore = safeScore(context.away_score);
+  const homeBump = useBumpOnChange(homeScore);
+  const awayBump = useBumpOnChange(awayScore);
+
+  const clockText = fmtClock(context.clock_ms);
+  const period = (context.period_label || "").trim();
+  const status = statusLabel(context.status);
+  const isRunning = !!context.clock_running;
+  const isPaused = context.status === "paused";
+
+  const homeYellow = safeNum(context.home_yellow_cards);
+  const awayYellow = safeNum(context.away_yellow_cards);
+  const homeRed = safeNum(context.home_red_cards);
+  const awayRed = safeNum(context.away_red_cards);
+  const homeSinBin = safeNum(context.rugby_home_sin_bin_active);
+  const awaySinBin = safeNum(context.rugby_away_sin_bin_active);
+
+  const sponsor = useRotatingSponsor(context.sponsors || [], context.sponsor_rotate_s || 10);
+  const showSponsors = context.show_sponsors !== false;
+
+  return (
+    <div
+      style={{
+        width: "100vw",
+        height: "100vh",
+        background: bg,
+        color: text,
+        overflow: "hidden",
+        display: "grid",
+        gridTemplateRows: "auto 1fr auto",
+        fontFamily:
+          'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial',
+      }}
+    >
+      <div
+        style={{
+          padding: "20px 40px 0",
+          display: "grid",
+          gridTemplateColumns: "1fr auto 1fr",
+          alignItems: "center",
+          gap: 24,
+        }}
+      >
+        <div
+          style={{
+            fontWeight: 900,
+            fontSize: "clamp(20px,4vw,52px)",
+            textTransform: "uppercase",
+            letterSpacing: 2,
+            lineHeight: 1,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            color: accentHome,
+          }}
+        >
+          {homeName}
+        </div>
+
+        <div
+          style={{
+            textAlign: "center",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <div
+            style={{
+              padding: "6px 18px",
+              borderRadius: 999,
+              background: panel,
+              border: `1px solid ${border}`,
+              fontSize: "clamp(12px,1.5vw,18px)",
+              fontWeight: 900,
+              letterSpacing: 1.5,
+              textTransform: "uppercase",
+            }}
+          >
+            RUGBY{period ? ` • ${period}` : ""}
+            {isPaused ? " • PAUSE" : ""}
+          </div>
+          {showSponsors && sponsor ? (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "4px 12px",
+                borderRadius: 999,
+                background: panel,
+                border: `1px solid ${border}`,
+                fontSize: 12,
+                fontWeight: 700,
+                color: sub,
+              }}
+            >
+              {sponsor.logo_url ? (
+                <img
+                  src={sponsor.logo_url}
+                  alt=""
+                  style={{ width: 18, height: 18, objectFit: "contain" }}
+                />
+              ) : null}
+              {sponsor.name}
+            </div>
+          ) : null}
+        </div>
+
+        <div
+          style={{
+            fontWeight: 900,
+            fontSize: "clamp(20px,4vw,52px)",
+            textTransform: "uppercase",
+            letterSpacing: 2,
+            lineHeight: 1,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            textAlign: "right",
+            color: accentAway,
+          }}
+        >
+          {awayName}
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr auto 1fr",
+          alignItems: "center",
+          gap: 24,
+          padding: "0 40px",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          <div
+            style={{
+              fontFamily: "'Courier New',monospace",
+              fontWeight: 900,
+              fontSize: "clamp(60px,14vw,180px)",
+              lineHeight: 1,
+              color: accentHome,
+              textShadow: `0 0 8px ${accentHome}88`,
+              transform: homeBump ? "scale(1.06)" : "scale(1)",
+              transition: "transform 180ms ease",
+              userSelect: "none",
+              letterSpacing: 6,
+            }}
+          >
+            {homeScore}
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <div
+            style={{
+              fontFamily: "'Courier New',monospace",
+              fontWeight: 900,
+              fontSize: "clamp(28px,4.5vw,60px)",
+              lineHeight: 1,
+              color: isRunning ? "#22d3ee" : isPaused ? "#f59e0b" : text,
+              letterSpacing: 4,
+              textShadow: isRunning ? "0 0 12px #22d3ee88" : "none",
+            }}
+          >
+            {clockText}
+          </div>
+          <div
+            style={{
+              fontSize: "clamp(10px,1vw,14px)",
+              fontWeight: 800,
+              opacity: 0.6,
+              letterSpacing: 2,
+              textTransform: "uppercase",
+            }}
+          >
+            {status}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          <div
+            style={{
+              fontFamily: "'Courier New',monospace",
+              fontWeight: 900,
+              fontSize: "clamp(60px,14vw,180px)",
+              lineHeight: 1,
+              color: accentAway,
+              textShadow: `0 0 8px ${accentAway}88`,
+              transform: awayBump ? "scale(1.06)" : "scale(1)",
+              transition: "transform 180ms ease",
+              userSelect: "none",
+              letterSpacing: 6,
+            }}
+          >
+            {awayScore}
+          </div>
+        </div>
+      </div>
+
+      <div
+        style={{
+          padding: "0 40px 20px",
+          display: "grid",
+          gridTemplateColumns: "1fr auto 1fr",
+          gap: 24,
+          alignItems: "flex-start",
+        }}
+      >
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <BreakdownChip
+            label="Essais"
+            value={safeNum(context.rugby_home_tries)}
+            color={accentHome}
+            theme={theme}
+          />
+          <BreakdownChip
+            label="Transfo"
+            value={safeNum(context.rugby_home_conversions)}
+            color={accentHome}
+            theme={theme}
+          />
+          <BreakdownChip
+            label="Pén"
+            value={safeNum(context.rugby_home_penalties)}
+            color={accentHome}
+            theme={theme}
+          />
+          <BreakdownChip
+            label="Drop"
+            value={safeNum(context.rugby_home_drop_goals)}
+            color={accentHome}
+            theme={theme}
+          />
+          {homeSinBin > 0 && (
+            <BreakdownChip label="Sin bin" value={homeSinBin} color="#f59e0b" theme={theme} />
+          )}
+          {homeYellow > 0 && (
+            <BreakdownChip label="J" value={homeYellow} color="#eab308" theme={theme} />
+          )}
+          {homeRed > 0 && (
+            <BreakdownChip label="R" value={homeRed} color="#ef4444" theme={theme} />
+          )}
+        </div>
+
+        <div
+          style={{
+            width: 2,
+            height: 48,
+            background: `${text}22`,
+            borderRadius: 2,
+            alignSelf: "center",
+          }}
+        />
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <BreakdownChip
+            label="Essais"
+            value={safeNum(context.rugby_away_tries)}
+            color={accentAway}
+            theme={theme}
+          />
+          <BreakdownChip
+            label="Transfo"
+            value={safeNum(context.rugby_away_conversions)}
+            color={accentAway}
+            theme={theme}
+          />
+          <BreakdownChip
+            label="Pén"
+            value={safeNum(context.rugby_away_penalties)}
+            color={accentAway}
+            theme={theme}
+          />
+          <BreakdownChip
+            label="Drop"
+            value={safeNum(context.rugby_away_drop_goals)}
+            color={accentAway}
+            theme={theme}
+          />
+          {awaySinBin > 0 && (
+            <BreakdownChip label="Sin bin" value={awaySinBin} color="#f59e0b" theme={theme} />
+          )}
+          {awayYellow > 0 && (
+            <BreakdownChip label="J" value={awayYellow} color="#eab308" theme={theme} />
+          )}
+          {awayRed > 0 && (
+            <BreakdownChip label="R" value={awayRed} color="#ef4444" theme={theme} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Scoreboard({ context }: Props) {
+  const layout = (context.layout_mode || "stadium").toLowerCase();
+  const rawSportCheck = (context.sport || "").toLowerCase();
+
+  if (rawSportCheck === "rugby" && layout === "rugby_stade") {
+    return <RugbyStadeLayout context={context} />;
+  }
+  if (rawSportCheck === "rugby" && layout === "rugby_expert") {
+    return <RugbyExpertLayout context={context} />;
+  }
   const theme: ThemeMode = context.theme === "light" ? "light" : "dark";
   const accent = context.home?.primary_color?.trim?.() || (context.accent || "#00d9ff").trim();
 
@@ -486,7 +1164,6 @@ export default function Scoreboard({ context }: Props) {
   const venue = (context.venue || "").trim();
   const matchName = (context.match_name || `${homeName} vs ${awayName}`).trim();
   const clockText = fmtClock(context.clock_ms);
-  const layout = (context.layout_mode || "stadium").toLowerCase();
 
   const homeStats: Array<{ label: string; value: string | number | boolean }> = [];
   const awayStats: Array<{ label: string; value: string | number | boolean }> = [];

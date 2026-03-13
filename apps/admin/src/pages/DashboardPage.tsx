@@ -7,9 +7,8 @@ type OrgRow = {
   id: string;
   slug: string;
   name: string;
-  status?: string | null; // active / suspended / archived (selon ton modèle)
+  status?: string | null;
   sport?: string | null;
-  org_sport?: string | null;
 };
 
 const OPERATOR_URL = (import.meta as any).env?.VITE_OPERATOR_URL || "https://scoreboard-operator.vercel.app";
@@ -51,10 +50,9 @@ export default function DashboardPage() {
       setErr("");
       setLoading(true);
 
-      // Query tolérante : on récupère sport ET org_sport, pour ne pas casser si l’un manque
-      const { data, error } = await supabase
+            const { data, error } = await supabase
         .from("orgs")
-        .select("id,slug,name,status,sport,org_sport")
+        .select("id,slug,name,status,sport")
         .order("created_at", { ascending: false });
 
       if (cancelled) return;
@@ -79,7 +77,7 @@ export default function DashboardPage() {
     return orgs.map((o) => ({
       ...o,
       status: (o.status || "active").toLowerCase(),
-      sport: (o.sport || o.org_sport || "").toLowerCase() || null,
+      sport: (o.sport || "").toLowerCase() || null,
     }));
   }, [orgs]);
 

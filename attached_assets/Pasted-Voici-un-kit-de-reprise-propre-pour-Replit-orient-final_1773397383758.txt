@@ -1,0 +1,622 @@
+Voici un kit de reprise propre pour Replit, orienté finalisation pragmatique de scoreDisplay V2.
+
+Le projet existe déjà, avec Supabase, un Operator multi-sport, un Display multi-sport, des équipes, joueurs, feuilles de match, réglages Display et réglages sport. La direction validée est le Display public stable par équipe via teamSlug, avec abandon progressif des anciens reliquats token match. Le projet est en phase de stabilisation / alignement code-DB / durcissement produit.
+
+1) Ce que tu dois dire à Replit au départ
+
+Colle ceci comme contexte initial dans Replit.
+
+Je finalise une application existante appelée scoreDisplay V2.
+
+Contexte produit :
+- logiciel SaaS de gestion de score sportif et d’affichage public pour écrans LED / écrans publics
+- 2 apps principales :
+  - Operator = console de pilotage live
+  - Display = écran public
+- sports couverts :
+  - basket
+  - rugby
+  - handball
+  - volley
+  - football
+
+Stack :
+- frontend TypeScript / React
+- backend Supabase
+- PostgreSQL
+- RLS
+- Edge Functions
+
+Architecture métier :
+- une organisation possède plusieurs équipes
+- une équipe possède plusieurs joueurs
+- une équipe possède plusieurs matchs
+- un match possède une feuille de match via match_players
+- l’Operator pilote le live
+- le Display affiche uniquement ce qui est activé dans les paramètres
+
+Règles très importantes :
+1. Toujours partir de l’existant, jamais refondre gratuitement.
+2. Travailler par étapes incrémentales.
+3. Pour chaque fichier structurant, fournir le fichier complet.
+4. Pour chaque correction DB, fournir le SQL complet.
+5. Ne jamais réintroduire ces anciens champs fantômes :
+   - orgs.org_sport
+   - orgs.display_settings
+6. Le champ valide pour le sport de l’organisation est :
+   - orgs.sport
+7. Les réglages valides sont :
+   - org_display_settings
+   - org_sport_settings
+8. L’enum public.match_status contient :
+   - scheduled
+   - live
+   - paused
+   - finished
+   - archived
+9. Le mode public officiel est désormais :
+   - 1 équipe = 1 URL publique stable
+   - paramètre principal = teamSlug
+10. Ne jamais réintroduire le mode public par token match.
+11. Les anciennes colonnes matches.display_token et matches.public_display ont été supprimées et ne doivent plus jamais être utilisées.
+12. Le Display doit rester compatible avec un écran LED et privilégier la lisibilité.
+
+Objectif actuel :
+- finir la stabilisation Operator → Display
+- fiabiliser le chrono et la synchro
+- améliorer fortement la lisibilité du Display Rugby pour une démo club
+- préparer une bibliothèque de modèles d’affichage par sport
+- permettre un modèle d’affichage par défaut au niveau équipe
+
+Contraintes UX / produit :
+- travail pragmatique terrain
+- lisibilité écran LED prioritaire
+- no over-engineering
+- réponses attendues :
+  - fichiers complets
+  - SQL complet
+  - plan d’implémentation court
+2) État technique à donner à Replit
+
+Colle ceci comme état réel du projet.
+
+État réel consolidé :
+
+Déjà en place :
+- backend Supabase opérationnel
+- organisations
+- équipes
+- matchs
+- joueurs
+- feuilles de match via match_players
+- paramètres Display via org_display_settings
+- paramètres sport via org_sport_settings
+- ControlPage multi-sport
+- Scoreboard multi-sport
+- mode Display stable par équipe
+- enum match_status avec paused
+
+Décisions techniques déjà prises :
+- abandon du tv-ws-relay custom comme socle principal
+- diffusion live via sendTvBroadcast côté Operator
+- fallback Display par lecture directe des updates matches
+- URL publique stable par équipe via teamSlug
+- le panneau LED ne doit pas nécessiter une nouvelle URL à chaque match
+
+Tables principales :
+- orgs
+- org_members
+- teams
+- players
+- matches
+- match_players
+- match_events
+- match_sin_bins
+- match_two_min_suspensions
+- org_display_settings
+- org_sport_settings
+
+Champs importants déjà utilisés :
+- teams.slug
+- matches.status
+- matches.clock_ms
+- matches.clock_running
+- matches.period_label
+- orgs.sport
+- org_display_settings.*
+- org_sport_settings.*
+
+Attention :
+- des documents historiques mentionnent encore display_token / public_display / token match, mais cette logique est supprimée
+- il faut aligner tout le code avec la nouvelle vérité technique
+
+Cet état est cohérent avec la base et les choix documentés : Supabase + multi-sport + mode stable équipe + paused dans match_status + séparation org_display_settings / org_sport_settings.
+
+3) Prompt principal pour Replit
+Audit d’abord le projet existant et dresse un plan court en 5 blocs maximum.
+
+Ensuite, travaille dans cet ordre :
+1. identifier tous les reliquats du mode public token match
+2. stabiliser complètement get-display-context pour le mode public teamSlug
+3. stabiliser complètement apps/display/src/main.tsx pour la synchro score + chrono + changement de match
+4. améliorer la lisibilité du Display Rugby pour écran LED paysage 3m x 2m
+5. préparer l’architecture d’une bibliothèque de modèles d’affichage par sport avec un modèle par défaut au niveau équipe
+
+Contraintes :
+- ne jamais réintroduire display_token, public_display, token
+- toujours fournir les fichiers complets quand un fichier structurant change
+- toujours fournir le SQL complet quand une migration est nécessaire
+- rester compatible avec Supabase et l’existant
+- ne pas casser les sports basket / handball / volley / football
+- la priorité immédiate est la démo rugby
+
+À la fin de chaque étape :
+- résumer ce qui a été changé
+- préciser les tests à lancer
+4) Prompt dédié à la stabilisation Display
+Stabilise entièrement le flux Operator -> Display.
+
+Objectifs précis :
+- score quasi instantané côté Display
+- chrono cohérent
+- bouton Pause fonctionnel
+- changement de match géré correctement en mode URL équipe stable
+- fallback robuste si le broadcast rate
+- affichage propre si aucun match n’est trouvé
+
+Contraintes techniques :
+- source publique = teamSlug / teamId
+- get-display-context doit utiliser SUPABASE_SERVICE_ROLE_KEY
+- le Display doit écouter :
+  - le contexte initial via edge function
+  - le broadcast live
+  - le fallback postgres_changes sur matches
+- le mode stable équipe doit rafraîchir plus souvent que 15 secondes
+- recalage de l’horloge quand clock_ms, clock_running ou match_id changent
+
+Je veux :
+- les fichiers complets à modifier
+- un mini plan de test
+
+Le besoin de stabiliser le Display, de fiabiliser get-display-context, de vérifier les updates matches et de rendre le Display exploitable sur un vrai écran fait partie des priorités documentées.
+
+5) Prompt dédié à la démo Rugby
+Concentre-toi sur le sport Rugby pour une démo club sur panneau LED paysage 3m x 2m.
+
+Objectif :
+- un affichage lisible en moins de 2 secondes par un spectateur
+- priorité à :
+  - équipes
+  - score
+  - chrono
+  - période
+  - cartons
+- les infos rugby détaillées (essais, transformations, pénalités, drops, sin bin) doivent être soit masquées, soit affichées dans un mode expert séparé
+
+Je veux que tu proposes et implémentes :
+1. un modèle rugby par défaut très lisible pour LED
+2. un second modèle rugby expert
+3. une structure de layout claire
+4. une logique de libellés compréhensible pour les cartons et sanctions
+5. une hiérarchie visuelle adaptée au LED
+
+Contraintes :
+- ne pas faire une UI de back-office
+- faire une UI de tableau de score terrain
+- très peu de texte
+- score géant
+- noms d’équipes courts
+- zones stables
+- pas de surcharge visuelle
+
+Je veux :
+- le composant complet mis à jour
+- les variantes de modèle clairement séparées
+- les conditions d’affichage selon org_display_settings et org_sport_settings
+
+Le rugby est explicitement dans le périmètre fonctionnel engagé, avec essais, transformations, pénalités, drops, cartons et sin bin, et la roadmap demande des modèles d’affichage selon sport ainsi qu’une meilleure lisibilité LED.
+
+6) Prompt dédié à la bibliothèque de modèles
+Conçois et implémente une bibliothèque de modèles d’affichage par sport.
+
+Objectif produit :
+- plusieurs modèles par sport
+- un modèle d’affichage par défaut au niveau équipe
+- possibilité d’override ponctuel au niveau match plus tard
+- architecture simple et maintenable
+
+Je veux une solution pragmatique.
+
+Livrables attendus :
+1. design DB
+2. migration SQL complète
+3. adaptation backend si nécessaire
+4. adaptation Operator pour choisir le modèle par équipe
+5. adaptation Display pour charger le modèle choisi
+6. fallback propre si aucun modèle n’est choisi
+
+Proposition attendue :
+- table display_templates
+- éventuelle table team_display_settings
+- code / slug unique par template
+- sport associé au template
+- config_json pour les variantes visuelles
+- default_display_template_id au niveau équipe ou table liée
+
+Contraintes :
+- ne pas casser l’existant
+- migration progressive
+- fournir SQL complet
+- fournir fichiers complets pour les zones structurantes
+
+Le projet vise déjà des “modèles d’affichage cohérents selon sport” et des réglages d’affichage plus riches ; cette extension est donc cohérente avec la trajectoire produit.
+
+7) Migrations SQL à donner à Replit
+Migration A — nettoyage définitif des reliquats token/public_display
+begin;
+
+drop view if exists public.matches_list;
+drop view if exists public.matches_canon;
+drop view if exists public.matches_v;
+
+drop index if exists public.matches_display_token_idx;
+drop index if exists public.idx_matches_display_token;
+drop index if exists public.matches_public_display_idx;
+drop index if exists public.idx_matches_public_display;
+
+alter table public.matches
+  drop constraint if exists matches_display_token_key;
+
+alter table public.matches
+  drop column if exists display_token,
+  drop column if exists public_display;
+
+create or replace view public.matches_v as
+select
+  m.id,
+  m.org_id,
+  m.team_id,
+  m.home_team_id,
+  m.away_team_id,
+  m.name,
+  m.status,
+  m.scheduled_at,
+  m.home_name,
+  m.away_name,
+  m.home_score,
+  m.away_score,
+  m.period_label,
+  m.clock_ms,
+  m.clock_running,
+  m.home_team_fouls,
+  m.away_team_fouls,
+  m.home_timeouts,
+  m.away_timeouts,
+  m.home_bonus,
+  m.away_bonus,
+  m.shot_clock_s,
+  m.home_sets_won,
+  m.away_sets_won,
+  m.home_yellow_cards,
+  m.away_yellow_cards,
+  m.home_red_cards,
+  m.away_red_cards,
+  m.current_period_index,
+  m.is_overtime,
+  m.possession_arrow,
+  m.team_fouls_period_home,
+  m.team_fouls_period_away,
+  m.timeouts_first_half_home,
+  m.timeouts_first_half_away,
+  m.timeouts_second_half_home,
+  m.timeouts_second_half_away,
+  m.timeouts_overtime_home,
+  m.timeouts_overtime_away,
+  m.last_event_seq,
+  m.rugby_home_tries,
+  m.rugby_away_tries,
+  m.rugby_home_conversions,
+  m.rugby_away_conversions,
+  m.rugby_home_penalties,
+  m.rugby_away_penalties,
+  m.rugby_home_drop_goals,
+  m.rugby_away_drop_goals,
+  m.rugby_home_yellow_sin_bin,
+  m.rugby_away_yellow_sin_bin,
+  m.rugby_home_sin_bin_active,
+  m.rugby_away_sin_bin_active,
+  m.rugby_extra_time,
+  m.rugby_tiebreak_mode,
+  m.handball_home_2min,
+  m.handball_away_2min,
+  m.handball_home_2min_active,
+  m.handball_away_2min_active,
+  m.handball_home_team_timeouts,
+  m.handball_away_team_timeouts,
+  m.handball_home_warnings,
+  m.handball_away_warnings,
+  m.handball_home_disqualifications,
+  m.handball_away_disqualifications,
+  m.handball_extra_time,
+  m.handball_shootout_mode,
+  m.volleyball_home_timeouts,
+  m.volleyball_away_timeouts,
+  m.volleyball_home_set_points,
+  m.volleyball_away_set_points,
+  m.volleyball_home_serving,
+  m.volleyball_away_serving,
+  m.volleyball_current_set,
+  m.volleyball_is_tiebreak,
+  m.football_home_yellow_cards,
+  m.football_away_yellow_cards,
+  m.football_home_red_cards,
+  m.football_away_red_cards,
+  m.football_home_penalty_shootout,
+  m.football_away_penalty_shootout,
+  m.football_extra_time,
+  m.football_added_time_first_half,
+  m.football_added_time_second_half,
+  m.football_added_time_extra_1,
+  m.football_added_time_extra_2,
+  m.created_at,
+  m.updated_at
+from public.matches m;
+
+create or replace view public.matches_canon as
+select *
+from public.matches_v;
+
+create or replace view public.matches_list as
+select
+  m.id,
+  m.org_id,
+  m.team_id,
+  m.home_team_id,
+  m.away_team_id,
+  m.name,
+  m.status,
+  m.scheduled_at,
+  m.home_name,
+  m.away_name,
+  m.home_score,
+  m.away_score,
+  m.period_label,
+  m.clock_ms,
+  m.clock_running,
+  m.created_at,
+  m.updated_at
+from public.matches_v m;
+
+commit;
+Migration B — bibliothèque de templates d’affichage
+begin;
+
+create table if not exists public.display_templates (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  name text not null,
+  sport text not null,
+  layout_mode text not null,
+  config_json jsonb not null default '{}'::jsonb,
+  is_default_system boolean not null default false,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.team_display_settings (
+  team_id uuid primary key references public.teams(id) on delete cascade,
+  default_display_template_id uuid references public.display_templates(id) on delete set null,
+  theme_override text null,
+  show_logos_override boolean null,
+  show_sponsors_override boolean null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_display_templates_sport on public.display_templates(sport);
+create index if not exists idx_display_templates_active on public.display_templates(is_active);
+create index if not exists idx_team_display_settings_template on public.team_display_settings(default_display_template_id);
+
+insert into public.display_templates (code, name, sport, layout_mode, config_json, is_default_system, is_active)
+values
+  ('rugby_stade', 'Rugby Stade', 'rugby', 'rugby_stade', '{"density":"low","show_breakdown":false}', true, true),
+  ('rugby_expert', 'Rugby Expert', 'rugby', 'rugby_expert', '{"density":"medium","show_breakdown":true}', false, true),
+  ('basket_arena', 'Basket Arena', 'basket', 'basket_arena', '{"density":"medium"}', true, true),
+  ('football_stade', 'Football Stade', 'football', 'football_stade', '{"density":"low"}', true, true),
+  ('handball_classic', 'Handball Classic', 'handball', 'handball_classic', '{"density":"medium"}', true, true),
+  ('volley_sets', 'Volley Sets', 'volleyball', 'volley_sets', '{"density":"medium"}', true, true)
+on conflict (code) do nothing;
+
+insert into public.team_display_settings (team_id, default_display_template_id)
+select
+  t.id,
+  dt.id
+from public.teams t
+join public.orgs o on o.id = t.org_id
+join public.display_templates dt
+  on dt.sport = o.sport
+ and dt.is_default_system = true
+where not exists (
+  select 1
+  from public.team_display_settings s
+  where s.team_id = t.id
+);
+
+commit;
+8) Edge Functions à prévoir
+A. get-display-context
+
+Doit être la fonction centrale du Display. Elle est déjà identifiée comme critique dans le projet.
+
+Demande à Replit de garantir :
+
+entrée : teamSlug, teamId, éventuellement matchId
+
+jamais token
+
+usage obligatoire de SUPABASE_SERVICE_ROLE_KEY
+
+lecture de :
+
+orgs
+
+teams
+
+matches
+
+org_display_settings
+
+org_sport_settings
+
+match_players
+
+fallback match :
+
+live
+
+paused
+
+scheduled
+
+dernier finished/archived
+
+payload complet pour le Display
+
+Prompt :
+
+Réécris entièrement get-display-context pour le mode public stable par équipe.
+
+Exigences :
+- aucune référence à token, display_token, public_display
+- lecture avec SUPABASE_SERVICE_ROLE_KEY
+- support de teamSlug, teamId et matchId
+- fallback match : live -> paused -> scheduled -> dernier finished/archived
+- payload complet pour le Scoreboard multi-sport
+- réponse propre 404 si équipe introuvable ou match introuvable
+- code complet de la fonction
+B. tv-broadcast
+
+À garder simple. Le projet a déjà acté l’abandon du vieux socle tv-ws-relay au profit d’une diffusion plus simple via sendTvBroadcast().
+
+Prompt :
+
+Audit tv-broadcast et simplifie-le si nécessaire.
+
+Objectifs :
+- broadcast fiable du patch live envoyé par Operator
+- compatibilité avec le Display actuel
+- pas de dépendance à tv-ws-relay
+- logging propre
+- erreurs explicites
+- fonction complète si modification nécessaire
+9) Ordre d’implémentation recommandé pour Replit
+Ordre de travail recommandé :
+
+1. Audit global des références legacy :
+   - token
+   - display_token
+   - public_display
+   - orgs.org_sport
+   - orgs.display_settings
+
+2. Stabiliser get-display-context
+
+3. Stabiliser apps/display/src/main.tsx
+   - score
+   - chrono
+   - pause
+   - changement de match
+   - fallback DB
+
+4. Stabiliser apps/operator/src/pages/ControlPage.tsx
+   - priorité des patchs live
+   - start / pause / reset
+   - persistance DB + diffusion Display
+
+5. Nettoyer toutes les pages Operator encore legacy :
+   - TeamMatchesPage
+   - MatchPage
+   - NewMatchPage
+   - MatchDisplayModal
+   - DisplayLinkCard
+   - utils/displayLink
+
+6. Implémenter la bibliothèque de templates
+   - migration SQL
+   - écran choix template au niveau équipe
+   - support Display
+
+7. Implémenter les modèles Rugby :
+   - rugby_stade
+   - rugby_expert
+10) Ce qu’il faut demander explicitement à Replit pour éviter les dérives
+Règles de sortie :
+- n’explique pas seulement, modifie réellement
+- donne les fichiers complets pour les fichiers structurants
+- donne le SQL complet pour les migrations
+- ne propose pas de refonte totale
+- ne réintroduis pas d’ancien contrat API
+- garde les noms de tables Supabase existants
+- garde le modèle multi-sport existant
+- privilégie la lisibilité LED
+- propose des tests manuels à la fin de chaque étape
+11) Checklist de test à donner à Replit
+Checklist de validation :
+
+A. Basket
+- score +1/+2/+3
+- chrono start/pause/reset
+- shot clock
+- quarts / OT
+- possession
+
+B. Rugby
+- score visible immédiatement
+- chrono visible immédiatement
+- pause fonctionne
+- cartons lisibles
+- modèle rugby_stade lisible sur LED
+- modèle rugby_expert fonctionnel
+
+C. Handball
+- 2 min
+- avertissements
+- disqualifications
+- temps morts
+
+D. Volley
+- sets
+- points du set
+- service
+- tie-break
+
+E. Football
+- cartons
+- prolongation
+- tirs au but
+- temps additionnel
+
+F. URL stable équipe
+- teamSlug ouvre le bon match
+- fallback live -> paused -> scheduled
+- changement de match pris en compte
+- pas de référence token
+12) Résumé stratégique à donner à Replit
+Résumé stratégique :
+
+scoreDisplay V2 n’est plus un prototype à redéfinir.
+C’est un produit existant à stabiliser et finaliser.
+
+Priorités :
+1. robustesse Operator -> Display
+2. lisibilité écran LED
+3. cohérence code / DB
+4. templates d’affichage par sport
+5. modèle d’affichage par défaut au niveau équipe
+
+Décision non négociable :
+- mode public officiel = URL stable par équipe
+- plus aucun mode public token match
+
+Cette ligne est parfaitement alignée avec le besoin métier déjà documenté : un panneau LED ne doit pas nécessiter une nouvelle URL à chaque match, et le Display stable par équipe via teamSlug est la direction retenue.

@@ -199,10 +199,8 @@ function App() {
   const matchIdFromUrl = getSearchParam("matchId");
   const teamSlug = getSearchParam("teamSlug");
   const teamId = getSearchParam("teamId");
-  const legacyToken = getSearchParam("token");
 
   const isStableTeamMode = !!teamSlug || !!teamId;
-  const isLegacyTokenMode = !!legacyToken && !isStableTeamMode && !matchIdFromUrl;
 
   const [ctx, setCtx] = useState<ScoreboardContext | null>(null);
   const [resolvedMatchId, setResolvedMatchId] = useState("");
@@ -307,11 +305,6 @@ function App() {
         return;
       }
 
-      if (isLegacyTokenMode) {
-        setErr("Le mode public par token match a été retiré. Utilise l’URL stable d’équipe.");
-        return;
-      }
-
       try {
         const json = await fetchContext();
         if (cancelled) return;
@@ -333,7 +326,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [matchIdFromUrl, teamSlug, teamId, isStableTeamMode, isLegacyTokenMode]);
+  }, [matchIdFromUrl, teamSlug, teamId, isStableTeamMode]);
 
   useEffect(() => {
     if (!isStableTeamMode) return;

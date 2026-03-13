@@ -1,0 +1,280 @@
+Prompt 1 — Audit global et plan d’attaque
+Tu reprends une application existante appelée scoreDisplay V2.
+
+Contexte produit :
+- application SaaS de gestion de score sportif et d’affichage public
+- 2 apps :
+  - Operator = console live
+  - Display = écran public
+- sports :
+  - basket
+  - rugby
+  - handball
+  - volleyball
+  - football
+- backend Supabase
+- frontend React + TypeScript
+- PostgreSQL + RLS + Edge Functions
+
+Règles techniques validées :
+1. orgs.sport est le champ valide pour le sport
+2. les réglages valides sont :
+   - org_display_settings
+   - org_sport_settings
+3. enum match_status :
+   - scheduled
+   - live
+   - paused
+   - finished
+   - archived
+4. le mode public officiel est :
+   - 1 équipe = 1 URL stable
+   - paramètre principal = teamSlug
+5. ne jamais réintroduire :
+   - token match
+   - display_token
+   - public_display
+   - orgs.org_sport
+   - orgs.display_settings
+
+Objectif :
+- auditer le projet existant
+- repérer tous les reliquats legacy
+- proposer un plan d’attaque incrémental sans refonte
+
+Je veux :
+1. un audit court des reliquats legacy
+2. la liste des fichiers critiques à corriger
+3. la liste des tables / edge functions critiques
+4. un plan en 5 étapes maximum
+5. aucune refonte gratuite
+
+Important :
+- pars de l’existant
+- ne propose pas d’architecture abstraite
+- reste pragmatique
+- dis précisément quels fichiers doivent être modifiés
+Prompt 2 — Stabilisation complète Display + Edge Function
+Stabilise complètement le flux Operator -> Display sur scoreDisplay V2.
+
+Contexte :
+- Display public officiel = URL stable par équipe
+- paramètre principal = teamSlug
+- plus aucun mode public par token
+- backend Supabase
+- edge function critique = get-display-context
+- source live = persist DB + broadcast + fallback postgres_changes
+
+Objectifs fonctionnels :
+- score quasi instantané côté Display
+- chrono cohérent
+- bouton Pause fonctionnel
+- reset chrono fonctionnel
+- changement de match correct en mode équipe stable
+- affichage propre si aucun match n’est trouvé
+
+Exigences techniques :
+1. get-display-context :
+   - supporte teamSlug, teamId, éventuellement matchId
+   - utilise SUPABASE_SERVICE_ROLE_KEY
+   - ne contient aucune occurrence de :
+     - token
+     - display_token
+     - public_display
+   - applique le fallback :
+     - live
+     - paused
+     - scheduled
+     - dernier finished/archived
+2. Display main.tsx :
+   - charge le contexte via get-display-context
+   - écoute les broadcasts
+   - écoute postgres_changes sur matches
+   - recale l’horloge si clock_ms, clock_running ou match_id changent
+   - refresh stable équipe plus fréquent que 15 secondes
+3. Operator ControlPage :
+   - start/pause/reset poussent les bonnes valeurs
+   - priorité correcte des patchs live
+   - DB + Display restent cohérents
+
+Je veux :
+- les fichiers complets modifiés
+- le code complet de get-display-context si nécessaire
+- les corrections exactes de main.tsx
+- les corrections exactes de ControlPage.tsx
+- un mini plan de test manuel
+
+Contraintes :
+- ne jamais casser basket / handball / volley / football
+- rester compatible avec l’existant
+- travailler par correction incrémentale
+Prompt 3 — Finalisation Rugby pour démo club LED
+Concentre-toi sur le sport Rugby pour une démo club sur panneau LED paysage 3m x 2m.
+
+Contexte :
+- l’affichage actuel n’est pas assez lisible
+- le score doit être compris immédiatement
+- le chrono doit être lisible
+- les cartons doivent être compréhensibles
+- l’UI doit ressembler à un tableau de score terrain, pas à un écran de back-office
+
+Objectif :
+implémenter 2 modèles Rugby efficaces :
+
+1. rugby_stade
+   - très lisible
+   - score dominant
+   - noms d’équipes courts
+   - chrono
+   - période
+   - cartons
+   - très peu de détails secondaires
+
+2. rugby_expert
+   - score
+   - chrono
+   - période
+   - essais
+   - transformations
+   - pénalités
+   - drops
+   - cartons
+
+Contraintes UX :
+- fond sombre
+- très forte hiérarchie visuelle
+- score géant
+- texte minimal
+- zones stables
+- pas de surcharge
+- adapté LED paysage
+
+Contraintes techniques :
+- partir du Scoreboard existant
+- ne pas casser les autres sports
+- prévoir une logique de layout par sport / template
+- garder la compatibilité avec org_display_settings et org_sport_settings
+
+Je veux :
+- le composant complet modifié
+- la logique de sélection du modèle rugby
+- les libellés exacts pour les cartons / sanctions
+- un affichage par défaut rugby_stade
+- un affichage rugby_expert activable
+- un mini plan de test visuel
+Prompt 4 — Bibliothèque de modèles d’affichage
+Implémente une bibliothèque de modèles d’affichage par sport dans scoreDisplay V2.
+
+Objectif produit :
+- plusieurs modèles d’affichage par sport
+- un modèle d’affichage par défaut au niveau équipe
+- plus tard, possibilité d’override au niveau match
+- solution pragmatique, simple à maintenir
+
+Je veux la conception + l’implémentation incrémentale.
+
+Proposition attendue :
+1. une table display_templates
+2. une table team_display_settings, ou une solution équivalente propre
+3. un lien entre équipe et modèle d’affichage par défaut
+4. chargement de ce modèle par le Display
+5. fallback propre si aucun modèle n’est configuré
+
+Je veux au minimum :
+- templates système initiaux :
+  - rugby_stade
+  - rugby_expert
+  - basket_arena
+  - football_stade
+  - handball_classic
+  - volley_sets
+- champ code unique par template
+- champ sport
+- champ layout_mode
+- config_json pour les variantes
+- support is_default_system / is_active
+
+Livrables :
+- migration SQL complète
+- éventuelles adaptations backend
+- fichiers frontend complets nécessaires
+- logique de chargement du modèle par défaut au niveau équipe
+- logique de fallback
+
+Contraintes :
+- ne pas casser l’existant
+- pas de refonte globale
+- pas de mode token
+- le Display public reste basé sur teamSlug
+- fournir SQL complet
+- fournir les fichiers complets structurants
+Prompt 5 — QA, tests et durcissement final
+Fais la phase finale de QA et durcissement de scoreDisplay V2.
+
+Objectif :
+- identifier les derniers points cassés
+- corriger les incohérences de code / DB / Edge Functions
+- produire une checklist de validation fiable avant démo
+
+Vérifications attendues :
+
+A. Audit de code
+- rechercher toutes les occurrences restantes de :
+  - token
+  - display_token
+  - public_display
+  - orgs.org_sport
+  - orgs.display_settings
+- corriger ou supprimer tous les reliquats
+
+B. Audit runtime
+- vérifier Operator -> Display
+- vérifier teamSlug
+- vérifier get-display-context
+- vérifier Pause / Reset chrono
+- vérifier changement de match en mode équipe stable
+
+C. Audit multi-sport
+- basket
+- rugby
+- handball
+- volleyball
+- football
+
+D. Audit affichage LED
+- lisibilité score
+- lisibilité chrono
+- lisibilité période
+- lisibilité sanctions
+
+Livrables :
+1. liste des bugs restants
+2. corrections exactes
+3. fichiers complets quand nécessaire
+4. SQL complet si nécessaire
+5. checklist finale manuelle de démo
+
+Je veux une sortie structurée comme ceci :
+- Problèmes trouvés
+- Correctifs appliqués
+- Fichiers modifiés
+- SQL modifié
+- Tests à lancer
+
+Contraintes :
+- pas de refonte
+- corrections ciblées
+- priorité à la démo rugby + stabilité globale
+Ordre d’utilisation recommandé
+
+Tu les lances dans cet ordre :
+
+Prompt 1 audit
+
+Prompt 2 stabilisation Display
+
+Prompt 3 rugby démo
+
+Prompt 4 bibliothèque de modèles
+
+Prompt 5 QA finale
