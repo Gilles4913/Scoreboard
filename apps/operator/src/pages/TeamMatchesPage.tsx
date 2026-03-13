@@ -239,7 +239,7 @@ export default function TeamMatchesPage() {
             <button onClick={() => nav(`/teams/${teamId}/matches/new`)} style={styles.primaryBtn}>Préparer un match</button>
             <button onClick={() => nav(`/teams/${teamId}/players`)} style={styles.ghostBtn}>Joueurs</button>
             <button onClick={() => nav(`/teams/${teamId}/branding`)} style={styles.ghostBtn}>Branding</button>
-            <button onClick={() => nav("/display-settings")} style={styles.ghostBtn}>Paramètres Display</button>
+            <button onClick={() => nav("/display-settings")} style={styles.ghostBtn}>Paramètres d'affichage</button>
             {stableLink ? (
               <a href={stableLink} target="_blank" rel="noreferrer" style={styles.linkBtn}>
                 Écran d'affichage
@@ -353,7 +353,7 @@ export default function TeamMatchesPage() {
                       </button>
                       {stableLink ? (
                         <button onClick={() => copyText(stableLink)} style={styles.ghostBtnSmall}>
-                          Copier lien écran stable
+                          Copier lien écran d'affichage
                         </button>
                       ) : null}
                       {status === "scheduled" ? (

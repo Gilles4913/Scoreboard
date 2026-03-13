@@ -1839,15 +1839,6 @@ export default function ControlPage() {
                     { label: "Drop -1", onClick: () => applyRugbyScoring("home", "drops", -1) },
                   ]}
                 />
-                <div style={styles.statCard}>
-                  <div style={styles.statCardTitle}>Cartons & sin bin</div>
-                  <div style={styles.scoreActions}>
-                    <button onClick={() => issueRugbyYellow("home")} style={styles.ghostBtnSmall}>Jaune dom.</button>
-                    <button onClick={() => issueRugbyYellow("away")} style={styles.ghostBtnSmall}>Jaune ext.</button>
-                    <button onClick={() => issueRugbyRed("home")} style={styles.ghostBtnSmall}>Rouge dom.</button>
-                    <button onClick={() => issueRugbyRed("away")} style={styles.ghostBtnSmall}>Rouge ext.</button>
-                  </div>
-                </div>
                 <StatCardScoreGroup
                   title="Marque extérieure"
                   buttons={[
@@ -1861,6 +1852,15 @@ export default function ControlPage() {
                     { label: "Drop -1", onClick: () => applyRugbyScoring("away", "drops", -1) },
                   ]}
                 />
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>Cartons & sin bin</div>
+                  <div style={styles.scoreActions}>
+                    <button onClick={() => issueRugbyYellow("home")} style={styles.ghostBtnSmall}>Jaune dom.</button>
+                    <button onClick={() => issueRugbyYellow("away")} style={styles.ghostBtnSmall}>Jaune ext.</button>
+                    <button onClick={() => issueRugbyRed("home")} style={styles.ghostBtnSmall}>Rouge dom.</button>
+                    <button onClick={() => issueRugbyRed("away")} style={styles.ghostBtnSmall}>Rouge ext.</button>
+                  </div>
+                </div>
               </div>
             </section>
           ) : null}
