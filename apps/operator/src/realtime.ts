@@ -122,9 +122,43 @@ export type TvPatch = {
   [key: string]: any;
 };
 
+let _bcChannel: ReturnType<typeof supabase.channel> | null = null;
+let _bcMatchId = "";
+let _bcReady = false;
+
+function getBroadcastChannel(matchId: string) {
+  if (_bcChannel && _bcMatchId === matchId && _bcReady) {
+    return _bcChannel;
+  }
+  if (_bcChannel) {
+    supabase.removeChannel(_bcChannel);
+  }
+  _bcMatchId = matchId;
+  _bcReady = false;
+  _bcChannel = supabase.channel(`match:${matchId}`, {
+    config: { broadcast: { ack: false } },
+  });
+  _bcChannel.subscribe((status: string) => {
+    if (status === "SUBSCRIBED") _bcReady = true;
+  });
+  return _bcChannel;
+}
+
+async function sendTvBroadcastDirect(matchId: string, patch: TvPatch): Promise<void> {
+  const ch = getBroadcastChannel(matchId);
+  if (!_bcReady) {
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  await ch.send({
+    type: "broadcast",
+    event: "patch",
+    payload: patch,
+  });
+}
+
 export async function sendTvBroadcast(matchId: string, patch: TvPatch) {
   if (!TV_BROADCAST_URL) {
-    throw new Error("VITE_TV_BROADCAST_URL manquante.");
+    return sendTvBroadcastDirect(matchId, patch);
   }
 
   const { data } = await supabase.auth.getSession();

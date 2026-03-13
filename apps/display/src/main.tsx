@@ -271,9 +271,89 @@ function App() {
     };
   }, [ctx, localTick]);
 
+  async function fetchContextDirect(): Promise<any> {
+    let resolvedTeamId = teamId;
+    let orgId = "";
+    let orgName = "";
+    let orgSport = "football";
+
+    if (teamSlug) {
+      const { data: teamRow } = await supabase
+        .from("teams")
+        .select("id, org_id, name, slug")
+        .eq("slug", teamSlug)
+        .maybeSingle();
+      if (teamRow) {
+        resolvedTeamId = teamRow.id;
+        orgId = teamRow.org_id;
+      }
+    } else if (teamId) {
+      const { data: teamRow } = await supabase
+        .from("teams")
+        .select("id, org_id, name, slug")
+        .eq("id", teamId)
+        .maybeSingle();
+      if (teamRow) orgId = teamRow.org_id;
+    }
+
+    if (orgId) {
+      const { data: orgRow } = await supabase
+        .from("orgs")
+        .select("id, name, sport")
+        .eq("id", orgId)
+        .maybeSingle();
+      if (orgRow) {
+        orgName = orgRow.name ?? "";
+        orgSport = orgRow.sport ?? "football";
+      }
+    }
+
+    let match: any = null;
+    if (matchIdFromUrl) {
+      const { data } = await supabase
+        .from("matches")
+        .select("*")
+        .eq("id", matchIdFromUrl)
+        .maybeSingle();
+      match = data;
+    } else if (orgId) {
+      const { data } = await supabase
+        .from("matches")
+        .select("*")
+        .eq("org_id", orgId)
+        .in("status", ["live", "paused"])
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      match = data;
+    }
+
+    let displaySettings: any = {};
+    let sportSettings: any = {};
+    if (orgId) {
+      const [dsResult, ssResult] = await Promise.all([
+        supabase.from("org_display_settings").select("*").eq("org_id", orgId).maybeSingle(),
+        supabase.from("org_sport_settings").select("*").eq("org_id", orgId).maybeSingle(),
+      ]);
+      displaySettings = dsResult.data ?? {};
+      sportSettings = ssResult.data ?? {};
+    }
+
+    return {
+      match: match ?? {},
+      org: { id: orgId, name: orgName, sport: orgSport },
+      display_settings: displaySettings,
+      sport_settings: sportSettings,
+      sponsors: [],
+    };
+  }
+
   async function fetchContext() {
     if (!EDGE_CONTEXT_URL) {
-      throw new Error("VITE_EDGE_CONTEXT_URL manquante.");
+      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+        throw new Error("VITE_SUPABASE_URL ou VITE_SUPABASE_ANON_KEY manquante.");
+      }
+      return fetchContextDirect();
     }
 
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {

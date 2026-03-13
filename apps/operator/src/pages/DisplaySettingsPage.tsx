@@ -273,7 +273,7 @@ const THEME_CARDS: ThemeCardDef[] = [
   {
     id: 'rugby_expert',
     title: 'Rugby Expert',
-    subtitle: 'Score + detail complet : essais, transformations, penalites, drops, sin bin.',
+    subtitle: 'Score + détail complet : essais, transformations, pénalités, drops, exclusions temporaires.',
     recommendedFor: ['rugby'],
     theme: 'dark',
     layout_mode: 'rugby_expert',

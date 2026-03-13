@@ -743,7 +743,7 @@ function RugbyStadeLayout({ context }: Props) {
           <>
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
               {homeSinBin > 0 && (
-                <CardBadge color="#f59e0b" label="SIN BIN" count={homeSinBin} />
+                <CardBadge color="#f59e0b" label="EXCL. TEMP." count={homeSinBin} />
               )}
               {homeYellow > 0 && <CardBadge color="#eab308" label="J" count={homeYellow} />}
               {homeRed > 0 && <CardBadge color="#ef4444" label="R" count={homeRed} />}
@@ -765,7 +765,7 @@ function RugbyStadeLayout({ context }: Props) {
               }}
             >
               {awaySinBin > 0 && (
-                <CardBadge color="#f59e0b" label="SIN BIN" count={awaySinBin} />
+                <CardBadge color="#f59e0b" label="EXCL. TEMP." count={awaySinBin} />
               )}
               {awayYellow > 0 && <CardBadge color="#eab308" label="J" count={awayYellow} />}
               {awayRed > 0 && <CardBadge color="#ef4444" label="R" count={awayRed} />}
@@ -1039,7 +1039,7 @@ function RugbyExpertLayout({ context }: Props) {
             theme={theme}
           />
           {homeSinBin > 0 && (
-            <BreakdownChip label="Sin bin" value={homeSinBin} color="#f59e0b" theme={theme} />
+            <BreakdownChip label="Excl. temp." value={homeSinBin} color="#f59e0b" theme={theme} />
           )}
           {homeYellow > 0 && (
             <BreakdownChip label="J" value={homeYellow} color="#eab308" theme={theme} />
@@ -1085,7 +1085,7 @@ function RugbyExpertLayout({ context }: Props) {
             theme={theme}
           />
           {awaySinBin > 0 && (
-            <BreakdownChip label="Sin bin" value={awaySinBin} color="#f59e0b" theme={theme} />
+            <BreakdownChip label="Excl. temp." value={awaySinBin} color="#f59e0b" theme={theme} />
           )}
           {awayYellow > 0 && (
             <BreakdownChip label="J" value={awayYellow} color="#eab308" theme={theme} />
@@ -1215,8 +1215,8 @@ export default function Scoreboard({ context }: Props) {
     awayStats.push({ label: "P", value: safeNum(context.rugby_away_penalties) });
     homeStats.push({ label: "D", value: safeNum(context.rugby_home_drop_goals) });
     awayStats.push({ label: "D", value: safeNum(context.rugby_away_drop_goals) });
-    homeStats.push({ label: "Sin bin", value: safeNum(context.rugby_home_sin_bin_active) });
-    awayStats.push({ label: "Sin bin", value: safeNum(context.rugby_away_sin_bin_active) });
+    homeStats.push({ label: "Excl. temp.", value: safeNum(context.rugby_home_sin_bin_active) });
+    awayStats.push({ label: "Excl. temp.", value: safeNum(context.rugby_away_sin_bin_active) });
   }
 
   if (isHandball) {

@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { sendTvBroadcast } from "../realtime";
 import { supabase } from "../supabase";
 import { useToast, ToastContainer } from "../components/Toast";
+import { useConfirm, ConfirmDialog } from "../components/ConfirmDialog";
 
 type MatchRow = {
   id: string;
@@ -297,6 +298,7 @@ export default function ControlPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const { toast, toasts, dismiss } = useToast();
+  const { confirm, dialogState, handleClose } = useConfirm();
 
   const [match, setMatch] = useState<MatchRow | null>(null);
   const [org, setOrg] = useState<OrgRow | null>(null);
@@ -987,6 +989,136 @@ export default function ControlPage() {
     } catch {}
   }
 
+  async function resetAll() {
+    const defaultClock = defaultClockMsBySport(sport, sportSettings?.period_duration_s);
+    const firstPeriod = periodOptions[0] || periodLabel;
+
+    clockMsRef.current = defaultClock;
+    clockRunningRef.current = false;
+    setClockMs(defaultClock);
+    setClockRunning(false);
+    setHomeScore(0);
+    setAwayScore(0);
+    setPeriodLabel(firstPeriod);
+    setCurrentPeriodIndex(0);
+    setIsOvertime(false);
+    setHomeTeamFouls(0);
+    setAwayTeamFouls(0);
+    setHomeYellowCards(0);
+    setAwayYellowCards(0);
+    setHomeRedCards(0);
+    setAwayRedCards(0);
+    setHomeSetsWon(0);
+    setAwaySetsWon(0);
+    setHomeBonus(false);
+    setAwayBonus(false);
+    setShotClockS(0);
+    setPossessionArrow("home");
+    setHomeTimeouts(0);
+    setAwayTimeouts(0);
+    setRugbyHomeTries(0);
+    setRugbyAwayTries(0);
+    setRugbyHomeConversions(0);
+    setRugbyAwayConversions(0);
+    setRugbyHomePenalties(0);
+    setRugbyAwayPenalties(0);
+    setRugbyHomeDrops(0);
+    setRugbyAwayDrops(0);
+    setRugbyHomeYellowSinBin(0);
+    setRugbyAwayYellowSinBin(0);
+    setRugbyHomeSinBinActive(0);
+    setRugbyAwaySinBinActive(0);
+    setHandballHome2Min(0);
+    setHandballAway2Min(0);
+    setHandballHome2MinActive(0);
+    setHandballAway2MinActive(0);
+    setHandballHomeTimeouts(0);
+    setHandballAwayTimeouts(0);
+    setHandballHomeWarnings(0);
+    setHandballAwayWarnings(0);
+    setHandballHomeDisq(0);
+    setHandballAwayDisq(0);
+    setVolleyHomeSetPoints(0);
+    setVolleyAwaySetPoints(0);
+    setVolleyCurrentSet(1);
+    setVolleyIsTiebreak(false);
+    setFootballHomeYellows(0);
+    setFootballAwayYellows(0);
+    setFootballHomeReds(0);
+    setFootballAwayReds(0);
+    setFootballHomePens(0);
+    setFootballAwayPens(0);
+    setFootballAdded1(0);
+    setFootballAdded2(0);
+    setFootballAddedEx1(0);
+    setFootballAddedEx2(0);
+
+    const resetPatch = {
+      home_score: 0,
+      away_score: 0,
+      clock_ms: defaultClock,
+      clock_running: false,
+      period_label: firstPeriod,
+      current_period_index: 0,
+      is_overtime: false,
+      home_team_fouls: 0,
+      away_team_fouls: 0,
+      home_yellow_cards: 0,
+      away_yellow_cards: 0,
+      home_red_cards: 0,
+      away_red_cards: 0,
+      home_sets_won: 0,
+      away_sets_won: 0,
+      home_bonus: false,
+      away_bonus: false,
+      shot_clock_s: 0,
+      possession_arrow: "home",
+      home_timeouts: 0,
+      away_timeouts: 0,
+      rugby_home_tries: 0,
+      rugby_away_tries: 0,
+      rugby_home_conversions: 0,
+      rugby_away_conversions: 0,
+      rugby_home_penalties: 0,
+      rugby_away_penalties: 0,
+      rugby_home_drop_goals: 0,
+      rugby_away_drop_goals: 0,
+      rugby_home_yellow_sin_bin: 0,
+      rugby_away_yellow_sin_bin: 0,
+      rugby_home_sin_bin_active: 0,
+      rugby_away_sin_bin_active: 0,
+      handball_home_2min: 0,
+      handball_away_2min: 0,
+      handball_home_2min_active: 0,
+      handball_away_2min_active: 0,
+      handball_home_team_timeouts: 0,
+      handball_away_team_timeouts: 0,
+      handball_home_warnings: 0,
+      handball_away_warnings: 0,
+      handball_home_disqualifications: 0,
+      handball_away_disqualifications: 0,
+      football_home_yellow_cards: 0,
+      football_away_yellow_cards: 0,
+      football_home_red_cards: 0,
+      football_away_red_cards: 0,
+      football_home_penalty_shootout: 0,
+      football_away_penalty_shootout: 0,
+      football_added_time_first_half: 0,
+      football_added_time_second_half: 0,
+      football_added_time_extra_1: 0,
+      football_added_time_extra_2: 0,
+    };
+
+    try {
+      const pushP = autoLive ? pushPatch(resetPatch) : Promise.resolve(null);
+      void persistLiveState(resetPatch as any);
+      await pushP;
+      toast("Régie réinitialisée.", "success");
+    } catch {
+      toast("Réinitialisation persistée, envoi à l'écran échoué.", "warning");
+    }
+  }
+
   async function adjustClock(deltaMs: number) {
     const next = Math.max(0, clockMsRef.current + deltaMs);
     clockMsRef.current = next;
@@ -1613,6 +1745,21 @@ export default function ControlPage() {
             <button onClick={syncNow} style={styles.ghostBtn}>
               Envoyer à l’écran public
             </button>
+            <button
+              onClick={async () => {
+                const ok = await confirm({
+                  title: "Réinitialiser toute la régie ?",
+                  message: "Scores, chrono, statistiques et tous les compteurs seront remis à zéro. L’écran d’affichage sera mis à jour immédiatement.",
+                  confirmLabel: "Réinitialiser",
+                  cancelLabel: "Annuler",
+                  variant: "danger",
+                });
+                if (ok) await resetAll();
+              }}
+              style={{ ...styles.ghostBtn, borderColor: "rgba(239,68,68,.5)", color: "#ef4444" }}
+            >
+              Réinitialiser tout
+            </button>
             {displayHref ? (
               <a href={displayHref} target="_blank" rel="noreferrer" style={styles.linkBtn}>
                 Ouvrir écran public
@@ -1718,7 +1865,7 @@ export default function ControlPage() {
                 <div style={styles.scoreActions}>
                   <button onClick={startClock} style={styles.primaryBtnSmall}>Start</button>
                   <button onClick={pauseClock} style={styles.ghostBtnSmall}>Pause</button>
-                  <button onClick={resetClock} style={styles.ghostBtnSmall}>Reset</button>
+                  <button onClick={resetClock} style={styles.ghostBtnSmall}>Réinit. horloge</button>
                 </div>
 
                 <div style={{ ...styles.scoreActions, marginTop: 12 }}>
@@ -1834,40 +1981,54 @@ export default function ControlPage() {
           {isRugby ? (
             <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
               <div style={styles.sectionTitle}>Mode rugby</div>
-              <div style={styles.modeGrid}>
-                <StatCardScoreGroup
-                  title="Marque domicile"
-                  buttons={[
-                    { label: "Essai +5", onClick: () => applyRugbyScoring("home", "tries", 1), primary: true },
-                    { label: "Transfo +2", onClick: () => applyRugbyScoring("home", "conversions", 1) },
-                    { label: "Pénalité +3", onClick: () => applyRugbyScoring("home", "penalties", 1) },
-                    { label: "Drop +3", onClick: () => applyRugbyScoring("home", "drops", 1) },
-                    { label: "Essai -1", onClick: () => applyRugbyScoring("home", "tries", -1) },
-                    { label: "Transfo -1", onClick: () => applyRugbyScoring("home", "conversions", -1) },
-                    { label: "Pénalité -1", onClick: () => applyRugbyScoring("home", "penalties", -1) },
-                    { label: "Drop -1", onClick: () => applyRugbyScoring("home", "drops", -1) },
-                  ]}
-                />
-                <StatCardScoreGroup
-                  title="Marque extérieure"
-                  buttons={[
-                    { label: "Essai +5", onClick: () => applyRugbyScoring("away", "tries", 1), primary: true },
-                    { label: "Transfo +2", onClick: () => applyRugbyScoring("away", "conversions", 1) },
-                    { label: "Pénalité +3", onClick: () => applyRugbyScoring("away", "penalties", 1) },
-                    { label: "Drop +3", onClick: () => applyRugbyScoring("away", "drops", 1) },
-                    { label: "Essai -1", onClick: () => applyRugbyScoring("away", "tries", -1) },
-                    { label: "Transfo -1", onClick: () => applyRugbyScoring("away", "conversions", -1) },
-                    { label: "Pénalité -1", onClick: () => applyRugbyScoring("away", "penalties", -1) },
-                    { label: "Drop -1", onClick: () => applyRugbyScoring("away", "drops", -1) },
-                  ]}
-                />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 200px 1fr", gap: 14 }}>
                 <div style={styles.statCard}>
-                  <div style={styles.statCardTitle}>Cartons & sin bin</div>
-                  <div style={styles.scoreActions}>
-                    <button onClick={() => issueRugbyYellow("home")} style={styles.ghostBtnSmall}>Jaune dom.</button>
-                    <button onClick={() => issueRugbyYellow("away")} style={styles.ghostBtnSmall}>Jaune ext.</button>
-                    <button onClick={() => issueRugbyRed("home")} style={styles.ghostBtnSmall}>Rouge dom.</button>
-                    <button onClick={() => issueRugbyRed("away")} style={styles.ghostBtnSmall}>Rouge ext.</button>
+                  <div style={styles.statCardTitle}>Marque domicile — {homeName}</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+                    {[
+                      { label: "Essai +5", minus: "Essai -1", field: "tries" as const, primary: true },
+                      { label: "Transfo +2", minus: "Transfo -1", field: "conversions" as const },
+                      { label: "Pénalité +3", minus: "Pénalité -1", field: "penalties" as const },
+                      { label: "Drop +3", minus: "Drop -1", field: "drops" as const },
+                    ].map(({ label, minus, field, primary }) => (
+                      <div key={field} style={{ display: "flex", gap: 6 }}>
+                        <button onClick={() => applyRugbyScoring("home", field, 1)} style={primary ? { ...styles.primaryBtnSmall, flex: 1 } : { ...styles.ghostBtnSmall, flex: 1 }}>{label}</button>
+                        <button onClick={() => applyRugbyScoring("home", field, -1)} style={{ ...styles.ghostBtnSmall, flex: 1, opacity: 0.7 }}>{minus}</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ ...styles.statCard, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                  <div style={styles.statCardTitle}>Cartons & exclusions</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10, width: "100%" }}>
+                    <div style={{ fontSize: 11, opacity: 0.55, textAlign: "center", textTransform: "uppercase", letterSpacing: 1 }}>Carton jaune</div>
+                    <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
+                      <button onClick={() => issueRugbyYellow("home")} style={styles.ghostBtnSmall}>Dom.</button>
+                      <button onClick={() => issueRugbyYellow("away")} style={styles.ghostBtnSmall}>Ext.</button>
+                    </div>
+                    <div style={{ fontSize: 11, opacity: 0.55, textAlign: "center", textTransform: "uppercase", letterSpacing: 1 }}>Carton rouge</div>
+                    <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
+                      <button onClick={() => issueRugbyRed("home")} style={{ ...styles.ghostBtnSmall, borderColor: "rgba(239,68,68,.4)", color: "#ef4444" }}>Dom.</button>
+                      <button onClick={() => issueRugbyRed("away")} style={{ ...styles.ghostBtnSmall, borderColor: "rgba(239,68,68,.4)", color: "#ef4444" }}>Ext.</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>Marque extérieure — {awayName}</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+                    {[
+                      { label: "Essai +5", minus: "Essai -1", field: "tries" as const, primary: true },
+                      { label: "Transfo +2", minus: "Transfo -1", field: "conversions" as const },
+                      { label: "Pénalité +3", minus: "Pénalité -1", field: "penalties" as const },
+                      { label: "Drop +3", minus: "Drop -1", field: "drops" as const },
+                    ].map(({ label, minus, field, primary }) => (
+                      <div key={field} style={{ display: "flex", gap: 6 }}>
+                        <button onClick={() => applyRugbyScoring("away", field, 1)} style={primary ? { ...styles.primaryBtnSmall, flex: 1 } : { ...styles.ghostBtnSmall, flex: 1 }}>{label}</button>
+                        <button onClick={() => applyRugbyScoring("away", field, -1)} style={{ ...styles.ghostBtnSmall, flex: 1, opacity: 0.7 }}>{minus}</button>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -2439,6 +2600,7 @@ export default function ControlPage() {
         </div>
       </div>
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
+      <ConfirmDialog state={dialogState} onClose={handleClose} />
     </div>
   );
 }
