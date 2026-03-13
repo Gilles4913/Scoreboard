@@ -6,6 +6,10 @@ dist/
 node_modules/
 **/node_modules/
 
+# npm lockfile — project uses pnpm; ignore npm lockfiles so they never reach Vercel
+package-lock.json
+**/package-lock.json
+
 # vercel
 .vercel/
 
