@@ -3,6 +3,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { useNavigate, useParams } from "react-router-dom";
 import { sendTvBroadcast } from "../realtime";
 import { supabase } from "../supabase";
+import { useToast, ToastContainer } from "../components/Toast";
 
 type MatchRow = {
   id: string;
@@ -295,7 +296,7 @@ export default function ControlPage() {
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
-  const [info, setInfo] = useState("");
+  const { toast, toasts, dismiss } = useToast();
 
   const [match, setMatch] = useState<MatchRow | null>(null);
   const [org, setOrg] = useState<OrgRow | null>(null);
@@ -666,11 +667,6 @@ export default function ControlPage() {
     return window.location.href;
   }
 
-  function flash(message: string) {
-    setInfo(message);
-    window.setTimeout(() => setInfo(""), 2400);
-  }
-
   function nextLiveSeq(): number {
     liveSeqRef.current += 1;
     return liveSeqRef.current;
@@ -685,7 +681,7 @@ export default function ControlPage() {
       .eq("id", match.id);
 
     if (error) {
-      flash(`Erreur persistance match : ${error.message}`);
+      toast(`Erreur persistance match : ${error.message}`, "error");
       throw error;
     }
 
@@ -720,7 +716,7 @@ export default function ControlPage() {
       .maybeSingle();
 
     if (error) {
-      flash(`Erreur journal événement : ${error.message}`);
+      toast(`Erreur journal événement : ${error.message}`, "error");
       return;
     }
 
@@ -927,16 +923,16 @@ export default function ControlPage() {
       const pushP = pushPatch(payload);
       await persistLiveState(payload);
       await pushP;
-      flash("Match sauvegardé.");
+      toast("Match sauvegardé.", "success");
     } catch {}
   }
 
   async function syncNow() {
     try {
       await pushPatch({});
-      flash("État envoyé à l’écran public.");
+      toast("État envoyé à l'écran public.", "success");
     } catch (e: any) {
-      flash(e?.message || "Erreur broadcast.");
+      toast(e?.message || "Erreur broadcast.", "error");
     }
   }
 
@@ -1125,7 +1121,7 @@ export default function ControlPage() {
       .eq("player_id", playerId);
 
     if (error) {
-      flash(`Erreur statistique joueur : ${error.message}`);
+      toast(`Erreur statistique joueur : ${error.message}`, "error");
       return;
     }
 
@@ -1330,7 +1326,7 @@ export default function ControlPage() {
       .eq("id", row.id);
 
     if (error) {
-      flash(error.message);
+      toast(error.message, "error");
       return;
     }
 
@@ -1438,7 +1434,7 @@ export default function ControlPage() {
       .eq("id", row.id);
 
     if (error) {
-      flash(error.message);
+      toast(error.message, "error");
       return;
     }
 
@@ -1592,8 +1588,6 @@ export default function ControlPage() {
             </button>
           </div>
         </div>
-
-        {info ? <div style={styles.infoBox}>{info}</div> : null}
 
         <div style={styles.hero}>
           <div>
@@ -2444,6 +2438,7 @@ export default function ControlPage() {
           </section>
         </div>
       </div>
+      <ToastContainer toasts={toasts} onDismiss={dismiss} />
     </div>
   );
 }

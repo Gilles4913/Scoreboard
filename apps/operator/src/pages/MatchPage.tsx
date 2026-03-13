@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../supabase";
+import { useToast, ToastContainer } from "../components/Toast";
+import { useToast, ToastContainer } from "../components/Toast";import { useConfirm, ConfirmDialog } from "../components/ConfirmDialog";
 
 type MatchRow = {
   id: string;
@@ -89,7 +91,6 @@ export default function MatchPage() {
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
-  const [info, setInfo] = useState("");
 
   const [match, setMatch] = useState<MatchRow | null>(null);
   const [org, setOrg] = useState<OrgRow | null>(null);
@@ -180,17 +181,15 @@ export default function MatchPage() {
     };
   }, [matchId]);
 
-  function flash(message: string) {
-    setInfo(message);
-    window.setTimeout(() => setInfo(""), 2400);
-  }
+  const { toast, toasts, dismiss } = useToast();
+  const { confirm, dialogState, handleClose } = useConfirm();
 
   async function copyText(value: string) {
     try {
       await navigator.clipboard.writeText(value);
-      flash("Lien copié.");
+      toast("Lien copié.", "success");
     } catch {
-      flash("Copie impossible.");
+      toast("Copie impossible.", "error");
     }
   }
 
@@ -219,17 +218,23 @@ export default function MatchPage() {
       .eq("id", match.id);
 
     if (error) {
-      flash(`Erreur mise à jour statut : ${error.message}`);
+      toast(`Erreur mise à jour statut : ${error.message}`, "error");
       return;
     }
 
     setMatch((prev) => (prev ? { ...prev, status: nextStatus } : prev));
-    flash("Statut mis à jour.");
+    toast("Statut mis à jour.", "success");
   }
 
   async function archiveMatch() {
     if (!match) return;
-    const ok = window.confirm("Archiver ce match ?");
+    const ok = await confirm({
+      title: "Archiver ce match ?",
+      message: "Le match sera marqué comme archivé. Il restera consultable mais ne pourra plus être facilement modifié.",
+      confirmLabel: "Archiver",
+      cancelLabel: "Annuler",
+      variant: "warning",
+    });
     if (!ok) return;
     await updateStatus("archived");
   }
@@ -239,11 +244,17 @@ export default function MatchPage() {
 
     const safeStatus = normalizeStatus(match.status);
     if (safeStatus !== "scheduled") {
-      flash("Suppression autorisée uniquement sur un match à préparer.");
+      toast("Suppression autorisée uniquement sur un match à préparer.", "warning");
       return;
     }
 
-    const ok = window.confirm("Supprimer définitivement ce match ?");
+    const ok = await confirm({
+      title: "Supprimer ce match ?",
+      message: "Cette action est irréversible. Toutes les données du match seront définitivement perdues.",
+      confirmLabel: "Supprimer",
+      cancelLabel: "Annuler",
+      variant: "danger",
+    });
     if (!ok) return;
 
     const { error } = await supabase
@@ -252,7 +263,7 @@ export default function MatchPage() {
       .eq("id", match.id);
 
     if (error) {
-      flash(`Erreur suppression : ${error.message}`);
+      toast(`Erreur suppression : ${error.message}`, "error");
       return;
     }
 
@@ -323,8 +334,6 @@ export default function MatchPage() {
             ) : null}
           </div>
         </div>
-
-        {info ? <div style={styles.infoBox}>{info}</div> : null}
 
         {selectedQr ? (
           <div style={styles.qrPanel}>
@@ -459,6 +468,8 @@ export default function MatchPage() {
           </section>
         </div>
       </div>
+      <ToastContainer toasts={toasts} onDismiss={dismiss} />
+      <ConfirmDialog state={dialogState} onClose={handleClose} />
     </div>
   );
 }

@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../supabase";
+import { useToast, ToastContainer } from "../components/Toast";
+import { useConfirm, ConfirmDialog } from "../components/ConfirmDialog";
 
 const LS_ACTIVE_ORG_ID = "scoreDisplay.activeOrgId";
 const LS_ACTIVE_ORG_SLUG = "scoreDisplay.activeOrgSlug";
@@ -78,8 +80,9 @@ export default function TeamMatchesPage() {
   const [team, setTeam] = useState<TeamRow | null>(null);
   const [matches, setMatches] = useState<MatchRow[]>([]);
   const [err, setErr] = useState("");
-  const [info, setInfo] = useState("");
   const [selectedQr, setSelectedQr] = useState("");
+  const { toast, toasts, dismiss } = useToast();
+  const { confirm, dialogState, handleClose } = useConfirm();
   const [selectedQrTitle, setSelectedQrTitle] = useState("");
 
   const activeOrgId = useMemo(() => (localStorage.getItem(LS_ACTIVE_ORG_ID) || "").trim(), []);
@@ -142,11 +145,6 @@ export default function TeamMatchesPage() {
     };
   }, [activeOrgId, activeOrgSlug, teamId]);
 
-  function flash(message: string) {
-    setInfo(message);
-    window.setTimeout(() => setInfo(""), 2600);
-  }
-
   function controlLink(m: MatchRow) {
     return `${window.location.origin}/matches/${encodeURIComponent(m.id)}/control`;
   }
@@ -162,29 +160,41 @@ export default function TeamMatchesPage() {
   async function copyText(value: string) {
     try {
       await navigator.clipboard.writeText(value);
-      flash("Lien copié.");
+      toast("Lien copié.", "success");
     } catch {
-      flash("Copie impossible.");
+      toast("Copie impossible.", "error");
     }
   }
 
   async function deleteMatch(matchId: string) {
-    const ok = window.confirm("Supprimer ce match ? Cette action est réservée aux matchs non joués.");
+    const ok = await confirm({
+      title: "Supprimer ce match ?",
+      message: "Cette action est irréversible et réservée aux matchs non joués. Les données seront définitivement perdues.",
+      confirmLabel: "Supprimer",
+      cancelLabel: "Annuler",
+      variant: "danger",
+    });
     if (!ok) return;
 
     const { error } = await supabase.from("matches").delete().eq("id", matchId);
 
     if (error) {
-      flash(`Erreur suppression : ${error.message}`);
+      toast(`Erreur suppression : ${error.message}`, "error");
       return;
     }
 
     setMatches((prev) => prev.filter((m) => m.id !== matchId));
-    flash("Match supprimé.");
+    toast("Match supprimé.", "success");
   }
 
   async function archiveMatch(matchId: string) {
-    const ok = window.confirm("Archiver ce match ?");
+    const ok = await confirm({
+      title: "Archiver ce match ?",
+      message: "Le match sera marqué comme archivé. Il restera consultable mais ne pourra plus être modifié facilement.",
+      confirmLabel: "Archiver",
+      cancelLabel: "Annuler",
+      variant: "warning",
+    });
     if (!ok) return;
 
     const { error } = await supabase
@@ -193,14 +203,14 @@ export default function TeamMatchesPage() {
       .eq("id", matchId);
 
     if (error) {
-      flash(`Erreur archivage : ${error.message}`);
+      toast(`Erreur archivage : ${error.message}`, "error");
       return;
     }
 
     setMatches((prev) =>
       prev.map((m) => (m.id === matchId ? { ...m, status: "archived" } : m)),
     );
-    flash("Match archivé.");
+    toast("Match archivé.", "success");
   }
 
   const activeMatches = matches.filter((m) => ["scheduled", "live", "paused"].includes(normalizeStatus(m.status)));
@@ -247,8 +257,6 @@ export default function TeamMatchesPage() {
             ) : null}
           </div>
         </div>
-
-        {info ? <div style={styles.infoBox}>{info}</div> : null}
 
         {selectedQr ? (
           <div style={styles.qrPanel}>
@@ -417,6 +425,8 @@ export default function TeamMatchesPage() {
           )}
         </Section>
       </div>
+      <ToastContainer toasts={toasts} onDismiss={dismiss} />
+      <ConfirmDialog state={dialogState} onClose={handleClose} />
     </div>
   );
 }
