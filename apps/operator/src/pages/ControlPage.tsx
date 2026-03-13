@@ -394,6 +394,7 @@ export default function ControlPage() {
 
   const timerRef = useRef<number | null>(null);
   const liveSeqRef = useRef<number>(0);
+  const eventSeqRef = useRef<number>(0);
   const clockMsRef = useRef<number>(0);
   const clockRunningRef = useRef<boolean>(false);
   const clockAnchorRef = useRef<{ epoch: number; ms: number }>({ epoch: Date.now(), ms: 0 });
@@ -488,9 +489,11 @@ export default function ControlPage() {
       setTeam((teamRow as TeamRow) || null);
       setDisplaySettings((dsRow as DisplaySettings) || null);
       setSportSettings((ssRow as SportSettings) || null);
-      setEvents((eventsRows as MatchEventRow[]) || []);
+      const loadedEvents = (eventsRows as MatchEventRow[]) || [];
+      setEvents(loadedEvents);
       setRugbySuspensions((rugbyRows as SuspensionRow[]) || []);
       setHandballSuspensions((handballRows as SuspensionRow[]) || []);
+      eventSeqRef.current = loadedEvents.length > 0 ? Math.max(...loadedEvents.map((e) => e.seq || 0)) : Number(currentMatch.last_event_seq || 0);
 
       const sportValue = normalizeSport((orgRow as OrgRow | null)?.sport);
       const ss = (ssRow as SportSettings | null) || null;
@@ -704,7 +707,8 @@ export default function ControlPage() {
   }) {
     if (!match) return;
 
-    const nextSeq = Number(match.last_event_seq || 0) + 1;
+    eventSeqRef.current += 1;
+    const nextSeq = eventSeqRef.current;
 
     const { data, error } = await supabase
       .from("match_events")
@@ -730,7 +734,7 @@ export default function ControlPage() {
 
     if (data) {
       setEvents((prev) => [data as MatchEventRow, ...prev].slice(0, 50));
-      setMatch((prev) => (prev ? { ...prev, last_event_seq: nextSeq } : prev));
+
     }
   }
 
@@ -1120,9 +1124,30 @@ export default function ControlPage() {
       football_added_time_extra_2: 0,
     };
 
+    // Reset local UI state for sin bins, events, player stats
+    setEvents([]);
+    setRugbySuspensions([]);
+    setHandballSuspensions([]);
+    eventSeqRef.current = 0;
+    const resetPlayers = (rows: PlayerStatRow[]) =>
+      rows.map((p) => ({ ...p, fouls: 0, points: 0, yellow_cards: 0, red_cards: 0 }));
+    setHomePlayers((prev) => resetPlayers(prev));
+    setAwayPlayers((prev) => resetPlayers(prev));
+
     try {
       const pushP = autoLive ? pushPatch(resetPatch) : Promise.resolve(null);
       void persistLiveState(resetPatch as any);
+
+      if (match) {
+        const mid = match.id;
+        await Promise.allSettled([
+          supabase.from("match_events").delete().eq("match_id", mid),
+          supabase.from("match_sin_bins").delete().eq("match_id", mid),
+          supabase.from("match_two_min_suspensions").delete().eq("match_id", mid),
+          supabase.from("match_players").update({ fouls: 0, points: 0, yellow_cards: 0, red_cards: 0 }).eq("match_id", mid),
+        ]);
+      }
+
       await pushP;
       toast("Régie réinitialisée.", "success");
     } catch {
