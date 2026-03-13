@@ -321,14 +321,23 @@ async function resolveTeam(
   }
 
   if (teamSlug) {
-    const { data, error } = await supabase
+    const exact = await supabase
       .from("teams")
       .select("id, org_id, slug, name, category, code")
       .eq("slug", teamSlug)
       .maybeSingle();
 
-    if (error) throw error;
-    return data;
+    if (exact.error) throw exact.error;
+    if (exact.data) return exact.data;
+
+    const insensitive = await supabase
+      .from("teams")
+      .select("id, org_id, slug, name, category, code")
+      .ilike("slug", teamSlug)
+      .maybeSingle();
+
+    if (insensitive.error) throw insensitive.error;
+    if (insensitive.data) return insensitive.data;
   }
 
   return null;
@@ -379,28 +388,19 @@ serve(async (req) => {
 
   try {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-    const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
-    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-      return json({ error: "Missing Supabase env." }, 500);
-    }
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
+  return json(
+    {
+      error: "Missing Supabase env. SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY are required.",
+    },
+    500,
+  );
+}
 
-    const authHeader = req.headers.get("Authorization");
-    const apiKeyHeader = req.headers.get("apikey");
-
-    const supabase = createClient(
-      SUPABASE_URL,
-      SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY,
-      {
-        global: {
-          headers: {
-            Authorization: authHeader || "",
-            apikey: apiKeyHeader || SUPABASE_ANON_KEY,
-          },
-        },
-      },
-    );
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     const url = new URL(req.url);
     const matchId = url.searchParams.get("matchId");
