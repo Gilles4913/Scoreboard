@@ -256,6 +256,80 @@ function scoreStepOptionsBySport(sport: string) {
   return [1];
 }
 
+
+function fmtEventType(event_type: string): string {
+  const map: Record<string, string> = {
+    rugby_yellow_card: "Carton jaune (excl. temp.)",
+    rugby_red_card: "Carton rouge",
+    rugby_sin_bin_end: "Fin exclusion temporaire",
+    rugby_tries: "Essai",
+    rugby_conversions: "Transformation",
+    rugby_penalties: "Pénalité",
+    rugby_drops: "Drop",
+    rugby_score: "Score modifié",
+    rugby_player_yellow_cards: "Carton jaune (joueur)",
+    rugby_player_red_cards: "Carton rouge (joueur)",
+    rugby_player_fouls: "Faute joueur",
+    rugby_player_points: "Points joueur",
+    handball_2min: "Exclusion 2 min",
+    handball_2min_end: "Fin excl. 2 min",
+    handball_warning: "Avertissement",
+    handball_disqualification: "Disqualification",
+    handball_score: "But",
+    football_score: "But / score",
+    football_yellow_card: "Carton jaune",
+    football_red_card: "Carton rouge",
+    basket_period_change: "Changement de période",
+    basket_possession_arrow: "Flèche possession",
+    basket_score: "Score",
+    basket_foul: "Faute",
+    volleyball_score: "Point volleyball",
+    volleyball_set_end: "Fin de set",
+  };
+  if (map[event_type]) return map[event_type];
+  // Generic fallback: replace underscores with spaces
+  return event_type.replace(/_/g, " ").replace(/w/g, (l) => l.toUpperCase());
+}
+
+function fmtEventPayload(event_type: string, payload: Record<string, any>): string {
+  if (!payload || Object.keys(payload).length === 0) return "";
+  const p = payload;
+  // Player identification
+  const playerTag = p.player_name
+    ? (p.shirt_number ? `#${p.shirt_number} ${p.player_name}` : p.player_name)
+    : p.shirt_number
+    ? `#${p.shirt_number}`
+    : null;
+  // Rugby scoring events
+  if (["rugby_tries","rugby_conversions","rugby_penalties","rugby_drops"].includes(event_type)) {
+    const side = p.delta > 0 ? (p.home_score !== undefined ? "Dom." : "") : "";
+    const delta = p.delta > 0 ? `+${p.delta}` : p.delta;
+    const score = p.home_score !== undefined && p.away_score !== undefined
+      ? ` → ${p.home_score}-${p.away_score}`
+      : "";
+    return `${delta}${score}`;
+  }
+  // Card events with player
+  if (["rugby_yellow_card","rugby_red_card","rugby_sin_bin_end","handball_2min","handball_2min_end","handball_warning","handball_disqualification"].includes(event_type)) {
+    return playerTag || "Joueur non renseigné";
+  }
+  // Player stat events
+  if (event_type.includes("player_")) {
+    const fieldMap: Record<string, string> = { fouls: "Fautes", points: "Points", yellow_cards: "Jaunes", red_cards: "Rouges" };
+    const fieldLabel = fieldMap[p.field] || p.field || "";
+    const delta = p.delta > 0 ? `+${p.delta}` : p.delta;
+    const val = p.value !== undefined ? ` = ${p.value}` : "";
+    return `${playerTag ? playerTag + " • " : ""}${fieldLabel} ${delta}${val}`;
+  }
+  // Period change
+  if (event_type === "basket_period_change") return `Période : ${p.period_label || p.label || ""}`;
+  // Score events
+  if (event_type.includes("score") && p.home_score !== undefined) return `${p.home_score}-${p.away_score}`;
+  // Possession
+  if (event_type === "basket_possession_arrow") return p.possession_arrow === "home" ? "Dom." : "Ext.";
+  return "";
+}
+
 function fmtClock(ms: number) {
   const total = Math.max(0, Math.floor(ms / 1000));
   const mm = String(Math.floor(total / 60)).padStart(2, "0");
@@ -1283,6 +1357,13 @@ export default function ControlPage() {
     if (side === "home") setHomePlayers(next);
     else setAwayPlayers(next);
 
+    // For rugby, yellow/red card → also issue a sin bin entry with player name
+    const isRugbyCard = sport === "rugby" && (field === "yellow_cards" || field === "red_cards") && delta === 1;
+    if (isRugbyCard) {
+      if (field === "yellow_cards") issueRugbyYellow(side, player);
+      else issueRugbyRed(side, player);
+    }
+
     const { error } = await supabase
       .from("match_players")
       .update({ [field]: nextValue })
@@ -1881,6 +1962,7 @@ export default function ControlPage() {
               <div style={styles.teamCard}>
                 <div style={styles.teamName}>{homeName}</div>
                 <div style={styles.scoreValue}>{homeScore}</div>
+                {!isRugby ? (
                 <div style={styles.scoreActions}>
                   {scoreSteps.map((step) => (
                     <React.Fragment key={`home-${step}`}>
@@ -1893,6 +1975,7 @@ export default function ControlPage() {
                     </React.Fragment>
                   ))}
                 </div>
+                ) : null}
               </div>
 
               <div style={styles.clockCard}>
@@ -1930,6 +2013,7 @@ export default function ControlPage() {
               <div style={styles.teamCard}>
                 <div style={styles.teamName}>{awayName}</div>
                 <div style={styles.scoreValue}>{awayScore}</div>
+                {!isRugby ? (
                 <div style={styles.scoreActions}>
                   {scoreSteps.map((step) => (
                     <React.Fragment key={`away-${step}`}>
@@ -1942,6 +2026,7 @@ export default function ControlPage() {
                     </React.Fragment>
                   ))}
                 </div>
+                ) : null}
               </div>
             </div>
           </section>
@@ -2463,15 +2548,15 @@ export default function ControlPage() {
                     <div style={styles.cardsGrid}>
                       <MiniStat
                         title={`${homeName} • Cartons jaunes`}
-                        value={isFootball ? footballHomeYellows : homeYellowCards}
+                        value={isRugby ? rugbyHomeYellowSinBin : isFootball ? footballHomeYellows : homeYellowCards}
                         onPlus={isRugby ? () => issueRugbyYellow("home") : isFootball ? async () => { const n = footballHomeYellows + 1; setFootballHomeYellows(n); try { const p = autoLive ? pushPatch({ football_home_yellow_cards: n, home_yellow_cards: n }) : null; void persistLiveState({ football_home_yellow_cards: n, home_yellow_cards: n }); await p; } catch {} } : async () => { const n = homeYellowCards + 1; setHomeYellowCards(n); try { const p = autoLive ? pushPatch({ home_yellow_cards: n }) : null; void persistLiveState({ home_yellow_cards: n }); await p; } catch {} }}
-                        onMinus={async () => { if (isFootball) { const n = Math.max(0, footballHomeYellows - 1); setFootballHomeYellows(n); try { const p = autoLive ? pushPatch({ football_home_yellow_cards: n, home_yellow_cards: n }) : null; void persistLiveState({ football_home_yellow_cards: n, home_yellow_cards: n }); await p; } catch {} } else { const n = Math.max(0, homeYellowCards - 1); setHomeYellowCards(n); try { const p = autoLive ? pushPatch({ home_yellow_cards: n }) : null; void persistLiveState({ home_yellow_cards: n }); await p; } catch {} } }}
+                        onMinus={async () => { if (isRugby) { const n = Math.max(0, rugbyHomeYellowSinBin - 1); const na = Math.max(0, rugbyHomeSinBinActive - 1); setRugbyHomeYellowSinBin(n); setRugbyHomeSinBinActive(na); try { const patch = { rugby_home_yellow_sin_bin: n, rugby_home_sin_bin_active: na }; const p = autoLive ? pushPatch(patch) : null; void persistLiveState(patch); await p; } catch {} } else if (isFootball) { const n = Math.max(0, footballHomeYellows - 1); setFootballHomeYellows(n); try { const p = autoLive ? pushPatch({ football_home_yellow_cards: n, home_yellow_cards: n }) : null; void persistLiveState({ football_home_yellow_cards: n, home_yellow_cards: n }); await p; } catch {} } else { const n = Math.max(0, homeYellowCards - 1); setHomeYellowCards(n); try { const p = autoLive ? pushPatch({ home_yellow_cards: n }) : null; void persistLiveState({ home_yellow_cards: n }); await p; } catch {} } }}
                       />
                       <MiniStat
                         title={`${awayName} • Cartons jaunes`}
-                        value={isFootball ? footballAwayYellows : awayYellowCards}
+                        value={isRugby ? rugbyAwayYellowSinBin : isFootball ? footballAwayYellows : awayYellowCards}
                         onPlus={isRugby ? () => issueRugbyYellow("away") : isFootball ? async () => { const n = footballAwayYellows + 1; setFootballAwayYellows(n); try { const p = autoLive ? pushPatch({ football_away_yellow_cards: n, away_yellow_cards: n }) : null; void persistLiveState({ football_away_yellow_cards: n, away_yellow_cards: n }); await p; } catch {} } : async () => { const n = awayYellowCards + 1; setAwayYellowCards(n); try { const p = autoLive ? pushPatch({ away_yellow_cards: n }) : null; void persistLiveState({ away_yellow_cards: n }); await p; } catch {} }}
-                        onMinus={async () => { if (isFootball) { const n = Math.max(0, footballAwayYellows - 1); setFootballAwayYellows(n); try { const p = autoLive ? pushPatch({ football_away_yellow_cards: n, away_yellow_cards: n }) : null; void persistLiveState({ football_away_yellow_cards: n, away_yellow_cards: n }); await p; } catch {} } else { const n = Math.max(0, awayYellowCards - 1); setAwayYellowCards(n); try { const p = autoLive ? pushPatch({ away_yellow_cards: n }) : null; void persistLiveState({ away_yellow_cards: n }); await p; } catch {} } }}
+                        onMinus={async () => { if (isRugby) { const n = Math.max(0, rugbyAwayYellowSinBin - 1); const na = Math.max(0, rugbyAwaySinBinActive - 1); setRugbyAwayYellowSinBin(n); setRugbyAwaySinBinActive(na); try { const patch = { rugby_away_yellow_sin_bin: n, rugby_away_sin_bin_active: na }; const p = autoLive ? pushPatch(patch) : null; void persistLiveState(patch); await p; } catch {} } else if (isFootball) { const n = Math.max(0, footballAwayYellows - 1); setFootballAwayYellows(n); try { const p = autoLive ? pushPatch({ football_away_yellow_cards: n, away_yellow_cards: n }) : null; void persistLiveState({ football_away_yellow_cards: n, away_yellow_cards: n }); await p; } catch {} } else { const n = Math.max(0, awayYellowCards - 1); setAwayYellowCards(n); try { const p = autoLive ? pushPatch({ away_yellow_cards: n }) : null; void persistLiveState({ away_yellow_cards: n }); await p; } catch {} } }}
                       />
                       <MiniStat
                         title={`${homeName} • Cartons rouges`}
@@ -2623,19 +2708,27 @@ export default function ControlPage() {
               <div style={styles.emptyCard}>Aucun événement enregistré.</div>
             ) : (
               <div style={styles.eventList}>
-                {events.map((ev) => (
+                {events.map((ev) => {
+                  const teamLabel = ev.team_side === "home" ? "Dom." : ev.team_side === "away" ? "Ext." : null;
+                  const payloadStr = fmtEventPayload(ev.event_type, ev.payload || {});
+                  return (
                   <div key={ev.id} style={styles.eventRow}>
                     <div style={styles.eventMain}>
-                      <div style={styles.eventType}>{ev.event_type}</div>
+                      <div style={styles.eventType}>{fmtEventType(ev.event_type)}</div>
                       <div style={styles.eventMeta}>
-                        Seq #{ev.seq} • {ev.team_side || "—"} • P{ev.period_index || "?"} • {fmtClock(ev.game_clock_ms || 0)}
+                        {teamLabel ? <span style={{ fontWeight: 700 }}>{teamLabel}</span> : null}
+                        {teamLabel ? " • " : null}
+                        {fmtClock(ev.game_clock_ms || 0)}
+                        {ev.period_index != null ? ` • P${ev.period_index + 1}` : ""}
+                        {` • #${ev.seq}`}
                       </div>
                     </div>
-                    <div style={styles.eventPayload}>
-                      {Object.keys(ev.payload || {}).length ? JSON.stringify(ev.payload) : "—"}
-                    </div>
+                    {payloadStr ? (
+                      <div style={{ ...styles.eventPayload, fontSize: 13, opacity: 0.85 }}>{payloadStr}</div>
+                    ) : null}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </section>
