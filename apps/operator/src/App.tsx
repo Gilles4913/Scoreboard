@@ -24,6 +24,33 @@ function useQuery() {
   return useMemo(() => new URLSearchParams(loc.search), [loc.search]);
 }
 
+function redirectToLogin(returnTo?: string) {
+  const rt = encodeURIComponent(returnTo || window.location.href);
+  window.location.href = `${HOME_URL.replace(/\/$/, "")}/?forceLogin=1&returnTo=${rt}`;
+}
+
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const [status, setStatus] = useState<"loading" | "ok" | "redirect">("loading");
+
+  useEffect(() => {
+    let alive = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!alive) return;
+      if (data.session?.user) {
+        setStatus("ok");
+      } else {
+        setStatus("redirect");
+        redirectToLogin(window.location.href);
+      }
+    });
+    return () => { alive = false; };
+  }, []);
+
+  if (status === "loading") return <div style={{ padding: 24, color: "#fff" }}>Vérification de la session…</div>;
+  if (status === "redirect") return null;
+  return <>{children}</>;
+}
+
 function Landing() {
   const nav = useNavigate();
   const q = useQuery();
@@ -48,15 +75,13 @@ function Landing() {
       setReady(true);
 
       if (!ok) {
-        const returnTo = encodeURIComponent(window.location.origin + "/");
-        window.location.href = `${HOME_URL.replace(/\/$/, "")}/?forceLogin=1&returnTo=${returnTo}`;
+        redirectToLogin(window.location.origin + "/");
         return;
       }
 
       const activeOrg = (localStorage.getItem(LS_ACTIVE_ORG_KEY) || "").trim();
       if (!activeOrg) {
-        const returnTo = encodeURIComponent(window.location.origin + "/");
-        window.location.href = `${HOME_URL.replace(/\/$/, "")}/?forceLogin=1&returnTo=${returnTo}`;
+        redirectToLogin(window.location.origin + "/");
         return;
       }
 
@@ -64,9 +89,7 @@ function Landing() {
     }
 
     run();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, [nav, orgParam]);
 
   if (!ready) return <div style={{ padding: 24 }}>Chargement…</div>;
@@ -79,19 +102,16 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
-      <Route path="/teams" element={<TeamsPage />} />
-      <Route path="/teams/:teamId/matches" element={<TeamMatchesPage />} />
-      <Route path="/teams/:teamId/matches/new" element={<NewMatchPage />} />
-      <Route path="/matches/:matchId/control" element={<ControlPage />} />
-      <Route path="/display-settings" element={<DisplaySettingsPage />} />
+      <Route path="/teams" element={<RequireAuth><TeamsPage /></RequireAuth>} />
+      <Route path="/teams/:teamId/matches" element={<RequireAuth><TeamMatchesPage /></RequireAuth>} />
+      <Route path="/teams/:teamId/matches/new" element={<RequireAuth><NewMatchPage /></RequireAuth>} />
+      <Route path="/matches/:matchId/control" element={<RequireAuth><ControlPage /></RequireAuth>} />
+      <Route path="/display-settings" element={<RequireAuth><DisplaySettingsPage /></RequireAuth>} />
       <Route path="/matches" element={<Navigate to="/teams" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
-      <Route path="/teams/:teamId/players" element={<PlayersPage />} />
-      <Route path="/teams/:teamId/branding" element={<TeamBrandingPage />} />
-      <Route path="/matches/:matchId/roster" element={<EditMatchRosterPage />} />
+      <Route path="/teams/:teamId/players" element={<RequireAuth><PlayersPage /></RequireAuth>} />
+      <Route path="/teams/:teamId/branding" element={<RequireAuth><TeamBrandingPage /></RequireAuth>} />
+      <Route path="/matches/:matchId/roster" element={<RequireAuth><EditMatchRosterPage /></RequireAuth>} />
     </Routes>
   );
 }
-
-
-
