@@ -391,6 +391,8 @@ export default function ControlPage() {
 
   const timerRef = useRef<number | null>(null);
   const liveSeqRef = useRef<number>(0);
+  const clockMsRef = useRef<number>(0);
+  const clockRunningRef = useRef<boolean>(false);
 
   const sport = normalizeSport(org?.sport);
   const isBasket = sport === "basket";
@@ -500,12 +502,15 @@ export default function ControlPage() {
 
       setHomeScore(Number(currentMatch.home_score || 0));
       setAwayScore(Number(currentMatch.away_score || 0));
-      setClockMs(
+      const initClockMs =
         typeof currentMatch.clock_ms === "number"
           ? currentMatch.clock_ms
-          : defaultClockMsBySport(sportValue, ss?.period_duration_s),
-      );
-      setClockRunning(!!currentMatch.clock_running);
+          : defaultClockMsBySport(sportValue, ss?.period_duration_s);
+      const initClockRunning = !!currentMatch.clock_running;
+      clockMsRef.current = initClockMs;
+      clockRunningRef.current = initClockRunning;
+      setClockMs(initClockMs);
+      setClockRunning(initClockRunning);
 
       setHomeTeamFouls(Number(currentMatch.home_team_fouls || 0));
       setAwayTeamFouls(Number(currentMatch.away_team_fouls || 0));
@@ -615,11 +620,13 @@ export default function ControlPage() {
 
     timerRef.current = window.setInterval(() => {
       setClockMs((prev) => {
-        if (prev <= 250) {
+        const next = prev <= 250 ? 0 : Math.max(0, prev - 250);
+        clockMsRef.current = next;
+        if (next === 0) {
+          clockRunningRef.current = false;
           setClockRunning(false);
-          return 0;
         }
-        return Math.max(0, prev - 250);
+        return next;
       });
     }, 250);
 
@@ -705,7 +712,7 @@ export default function ControlPage() {
         team_side: params.team_side || null,
         player_id: params.player_id || null,
         period_index: currentPeriodIndex,
-        game_clock_ms: clockMs,
+        game_clock_ms: clockMsRef.current,
         shot_clock_s: shotClockS,
         payload: params.payload || {},
       })
@@ -736,8 +743,8 @@ export default function ControlPage() {
       away_name: awayName,
       home_score: homeScore,
       away_score: awayScore,
-      clock_ms: clockMs,
-      clock_running: clockRunning,
+      clock_ms: clockMsRef.current,
+      clock_running: clockRunningRef.current,
       period_label: periodLabel,
 
       show_score: displaySettings?.show_score ?? true,
@@ -935,8 +942,10 @@ export default function ControlPage() {
 
   async function startClock() {
     const nextClockMs =
-      clockMs > 0 ? clockMs : defaultClockMsBySport(sport, sportSettings?.period_duration_s);
+      clockMsRef.current > 0 ? clockMsRef.current : defaultClockMsBySport(sport, sportSettings?.period_duration_s);
 
+    clockMsRef.current = nextClockMs;
+    clockRunningRef.current = true;
     setClockMs(nextClockMs);
     setClockRunning(true);
     setStatus("live");
@@ -951,7 +960,8 @@ export default function ControlPage() {
   }
 
   async function pauseClock() {
-    const capturedClockMs = clockMs;
+    const capturedClockMs = clockMsRef.current;
+    clockRunningRef.current = false;
     setClockRunning(false);
     setStatus("paused");
 
@@ -967,6 +977,8 @@ export default function ControlPage() {
   async function resetClock() {
     const next = defaultClockMsBySport(sport, sportSettings?.period_duration_s);
 
+    clockMsRef.current = next;
+    clockRunningRef.current = false;
     setClockMs(next);
     setClockRunning(false);
 
@@ -980,7 +992,8 @@ export default function ControlPage() {
   }
 
   async function adjustClock(deltaMs: number) {
-    const next = Math.max(0, clockMs + deltaMs);
+    const next = Math.max(0, clockMsRef.current + deltaMs);
+    clockMsRef.current = next;
     setClockMs(next);
 
     try {
@@ -1135,6 +1148,8 @@ export default function ControlPage() {
     const ot = nextIndex > 4;
     const nextClock = ot ? 5 * 60 * 1000 : defaultClockMsBySport("basket", sportSettings?.period_duration_s);
 
+    clockMsRef.current = nextClock;
+    clockRunningRef.current = false;
     setCurrentPeriodIndex(nextIndex);
     setIsOvertime(ot);
     setPeriodLabel(label);
@@ -1289,7 +1304,7 @@ export default function ControlPage() {
           player_id: player?.id || null,
           player_name_snapshot: player?.name || null,
           shirt_number_snapshot: player?.number || null,
-          started_game_clock_ms: clockMs,
+          started_game_clock_ms: clockMsRef.current,
           duration_s: 600,
           is_active: true,
         })
@@ -1311,7 +1326,7 @@ export default function ControlPage() {
   async function endRugbySinBin(row: SuspensionRow) {
     const { error } = await supabase
       .from("match_sin_bins")
-      .update({ is_active: false, ended_game_clock_ms: clockMs })
+      .update({ is_active: false, ended_game_clock_ms: clockMsRef.current })
       .eq("id", row.id);
 
     if (error) {
@@ -1319,7 +1334,7 @@ export default function ControlPage() {
       return;
     }
 
-    const nextRows = rugbySuspensions.map((r) => (r.id === row.id ? { ...r, is_active: false, ended_game_clock_ms: clockMs } : r));
+    const nextRows = rugbySuspensions.map((r) => (r.id === row.id ? { ...r, is_active: false, ended_game_clock_ms: clockMsRef.current } : r));
     setRugbySuspensions(nextRows);
 
     const nextHomeActive = nextRows.filter((r) => r.is_active && r.team_side === "home").length;
@@ -1397,7 +1412,7 @@ export default function ControlPage() {
           player_id: player?.id || null,
           player_name_snapshot: player?.name || null,
           shirt_number_snapshot: player?.number || null,
-          started_game_clock_ms: clockMs,
+          started_game_clock_ms: clockMsRef.current,
           duration_s: 120,
           is_active: true,
         })
@@ -1419,7 +1434,7 @@ export default function ControlPage() {
   async function endHandball2Min(row: SuspensionRow) {
     const { error } = await supabase
       .from("match_two_min_suspensions")
-      .update({ is_active: false, ended_game_clock_ms: clockMs })
+      .update({ is_active: false, ended_game_clock_ms: clockMsRef.current })
       .eq("id", row.id);
 
     if (error) {
@@ -1427,7 +1442,7 @@ export default function ControlPage() {
       return;
     }
 
-    const nextRows = handballSuspensions.map((r) => (r.id === row.id ? { ...r, is_active: false, ended_game_clock_ms: clockMs } : r));
+    const nextRows = handballSuspensions.map((r) => (r.id === row.id ? { ...r, is_active: false, ended_game_clock_ms: clockMsRef.current } : r));
     setHandballSuspensions(nextRows);
 
     const nextHomeActive = nextRows.filter((r) => r.is_active && r.team_side === "home").length;
