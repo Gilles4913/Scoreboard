@@ -837,7 +837,88 @@ function ThemePreview({
   const bg = dark ? "#0f172a" : "#e5eefb";
   const fg = dark ? "#eff6ff" : "#0f172a";
   const soft = dark ? "rgba(255,255,255,.08)" : "rgba(15,23,42,.10)";
-  const accent = layout === "volley" ? "#7c3aed" : layout === "arena" ? "#2563eb" : "#16a34a";
+  const softBorder = dark ? "rgba(255,255,255,.12)" : "rgba(0,0,0,.10)";
+
+  if (layout === "rugby_stade") {
+    const accentH = "#00d9ff";
+    const accentA = "#ff6b35";
+    return (
+      <div style={{ borderRadius: 16, padding: 14, background: bg, color: fg, border: `1px solid ${softBorder}`, minHeight: 150 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, opacity: 0.55, letterSpacing: 1 }}>RUGBY LED STADE</div>
+          <div style={{ fontSize: 10, fontWeight: 700, background: "rgba(234,179,8,.18)", color: "#fbbf24", borderRadius: 6, padding: "2px 7px" }}>1ère MT</div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 8, alignItems: "center" }}>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: accentH, textTransform: "uppercase", opacity: 0.85 }}>DOM</div>
+            <div style={{ fontSize: 34, fontWeight: 900, lineHeight: 1, color: accentH }}>14</div>
+            <div style={{ marginTop: 5, display: "flex", gap: 3, justifyContent: "center" }}>
+              <div style={{ width: 10, height: 14, borderRadius: 2, background: "#fbbf24", opacity: 0.9 }} title="Carton jaune" />
+              <div style={{ width: 10, height: 14, borderRadius: 2, background: "rgba(255,255,255,.15)" }} />
+            </div>
+          </div>
+          <div style={{ padding: "8px 10px", borderRadius: 10, background: "rgba(255,255,255,.06)", border: `1px solid ${softBorder}`, textAlign: "center", minWidth: 60 }}>
+            <div style={{ fontSize: 16, fontWeight: 900 }}>34:22</div>
+            <div style={{ fontSize: 9, opacity: 0.6, marginTop: 1 }}>EN JEU</div>
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: accentA, textTransform: "uppercase", opacity: 0.85 }}>EXT</div>
+            <div style={{ fontSize: 34, fontWeight: 900, lineHeight: 1, color: accentA }}>7</div>
+            <div style={{ marginTop: 5, display: "flex", gap: 3, justifyContent: "center" }}>
+              <div style={{ width: 10, height: 14, borderRadius: 2, background: "#ef4444", opacity: 0.9 }} title="Carton rouge" />
+              <div style={{ width: 10, height: 14, borderRadius: 2, background: "rgba(255,255,255,.15)" }} />
+            </div>
+          </div>
+        </div>
+        <div style={{ marginTop: 10, height: 18, borderRadius: 8, background: soft, display: "flex", alignItems: "center", padding: "0 8px", fontSize: 9, fontWeight: 700, opacity: 0.7 }}>
+          EXCL. TEMP. DOM • 02:15
+        </div>
+      </div>
+    );
+  }
+
+  if (layout === "rugby_expert") {
+    const accentH = "#00d9ff";
+    const accentA = "#ff6b35";
+    return (
+      <div style={{ borderRadius: 16, padding: 14, background: bg, color: fg, border: `1px solid ${softBorder}`, minHeight: 150 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, opacity: 0.55, letterSpacing: 1 }}>RUGBY EXPERT</div>
+          <div style={{ fontSize: 10, fontWeight: 700, background: "rgba(234,179,8,.18)", color: "#fbbf24", borderRadius: 6, padding: "2px 7px" }}>2ème MT</div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 6, alignItems: "start" }}>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: accentH, opacity: 0.85 }}>DOM</div>
+            <div style={{ fontSize: 28, fontWeight: 900, lineHeight: 1.1, color: accentH }}>21</div>
+            <div style={{ marginTop: 4, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+              {[["ESS","3"],["TRF","2"],["PÉN","1"],["DRP","0"]].map(([l,v]) => (
+                <div key={l} style={{ fontSize: 8, background: soft, borderRadius: 3, padding: "1px 3px", textAlign: "center", opacity: 0.85 }}><span style={{opacity:0.6}}>{l}</span> <b>{v}</b></div>
+              ))}
+            </div>
+          </div>
+          <div style={{ padding: "6px 8px", borderRadius: 8, background: "rgba(255,255,255,.06)", border: `1px solid ${softBorder}`, textAlign: "center", minWidth: 50 }}>
+            <div style={{ fontSize: 14, fontWeight: 900 }}>62:10</div>
+            <div style={{ fontSize: 8, opacity: 0.55, marginTop: 1 }}>EN JEU</div>
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: accentA, opacity: 0.85 }}>EXT</div>
+            <div style={{ fontSize: 28, fontWeight: 900, lineHeight: 1.1, color: accentA }}>14</div>
+            <div style={{ marginTop: 4, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+              {[["ESS","2"],["TRF","2"],["PÉN","0"],["DRP","0"]].map(([l,v]) => (
+                <div key={l} style={{ fontSize: 8, background: soft, borderRadius: 3, padding: "1px 3px", textAlign: "center", opacity: 0.85 }}><span style={{opacity:0.6}}>{l}</span> <b>{v}</b></div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const accent = layout === "volley" ? "#7c3aed" : layout === "arena" ? "#2563eb" : layout === "stadium" ? "#16a34a" : layout === "compact" ? "#0ea5e9" : "#16a34a";
+  const homeScore = layout === "volley" ? "2" : layout === "compact" ? "3" : "72";
+  const awayScore = layout === "volley" ? "1" : layout === "compact" ? "1" : "68";
+  const clockDisplay = layout === "compact" ? "45+2" : "08:42";
+  const periodDisplay = layout === "volley" ? "SET 3" : layout === "compact" ? "2èMT" : "Q3";
 
   return (
     <div
@@ -846,7 +927,7 @@ function ThemePreview({
         padding: 14,
         background: bg,
         color: fg,
-        border: `1px solid ${soft}`,
+        border: `1px solid ${softBorder}`,
         minHeight: 150,
       }}
     >
@@ -869,7 +950,7 @@ function ThemePreview({
       >
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: 11, opacity: 0.72 }}>HOME</div>
-          <div style={{ fontSize: 28, fontWeight: 900 }}>72</div>
+          <div style={{ fontSize: 28, fontWeight: 900 }}>{homeScore}</div>
         </div>
 
         <div
@@ -882,13 +963,13 @@ function ThemePreview({
             textAlign: "center",
           }}
         >
-          {showClock ? <div style={{ fontSize: 18, fontWeight: 900 }}>08:42</div> : <div style={{ fontSize: 18, fontWeight: 900 }}>VS</div>}
-          {showPeriod ? <div style={{ fontSize: 11, opacity: 0.9 }}>Q3</div> : null}
+          {showClock ? <div style={{ fontSize: 18, fontWeight: 900 }}>{clockDisplay}</div> : <div style={{ fontSize: 18, fontWeight: 900 }}>VS</div>}
+          {showPeriod ? <div style={{ fontSize: 11, opacity: 0.9 }}>{periodDisplay}</div> : null}
         </div>
 
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: 11, opacity: 0.72 }}>AWAY</div>
-          <div style={{ fontSize: 28, fontWeight: 900 }}>68</div>
+          <div style={{ fontSize: 28, fontWeight: 900 }}>{awayScore}</div>
         </div>
       </div>
 
