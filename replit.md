@@ -54,10 +54,23 @@ Scoreboard layouts supported in `apps/display/src/components/Scoreboard.tsx`:
 
 Templates configured in operator **Paramètres d'affichage** → template cards (ThemeCardDef).
 
+## Realtime Architecture
+- **Operator broadcast**: `sendTvBroadcast(matchId, patch)` → edge function `tv-broadcast` → Supabase Realtime topic `match:${matchId}`
+- **Display subscription**: `supabase.channel('match:${matchId}')` — topic must match exactly (no prefix)
+- **Fallback**: `postgres_changes` UPDATE on `matches` table + polling every 3s in stable team mode
+- **Chrono interpolation**: client-side in Display (counts down from `clock_ms` using `Date.now()`)
+
+## Template Hierarchy (display_settings)
+Merge order (lowest to highest priority):
+1. Hardcoded defaults in `get-display-context`
+2. `org_display_settings` (org-level)
+3. `team_display_settings` → `display_templates.config_json` + `layout_mode` (team-level override)
+
 ## Database Migrations
 Migrations are in `supabase/migrations/`. Recent additions:
 - `20260313000001_cleanup_legacy_token.sql` — Drops `public_display` and `display_token` columns from `matches`
 - `20260313000002_display_templates.sql` — Creates `display_templates` and `team_display_settings` tables with seed data
+- `20260313000003_fix_rls_public_display.sql` — Fixes RLS policies that depended on `public_display`; allows anon read on matches + teams; recreates clean `matches_v` view
 
 ## Key Files
 - `apps/home/src/App.tsx` — Home hub entry point (login + org selection)

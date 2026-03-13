@@ -23,12 +23,19 @@ function getSearchParam(name: string) {
   }
 }
 
-function mergeContext(prev: ScoreboardContext, patch: Partial<ScoreboardContext>): ScoreboardContext {
+function mergeContext(
+  prev: ScoreboardContext,
+  patch: Partial<ScoreboardContext>,
+): ScoreboardContext {
   return {
     ...prev,
     ...patch,
     home: { ...(prev.home || {}), ...(patch.home || {}) },
     away: { ...(prev.away || {}), ...(patch.away || {}) },
+    sponsors:
+      Array.isArray(patch.sponsors) && patch.sponsors.length > 0
+        ? patch.sponsors
+        : prev.sponsors ?? [],
   };
 }
 
@@ -60,6 +67,8 @@ function buildContextFromResponse(json: any): ScoreboardContext {
     show_sets: sportSettings.show_sets ?? false,
     show_cards: sportSettings.show_cards ?? false,
     show_shot_clock: sportSettings.show_shot_clock ?? false,
+
+    sponsors: Array.isArray(json.sponsors) ? json.sponsors : [],
 
     match_id: match.id,
     match_name: match.name ?? "",
@@ -243,7 +252,8 @@ function App() {
     if (!ctx.clock_running) return ctx;
 
     const elapsed = Date.now() - lastBaseTsRef.current;
-    const baseClockMs = typeof lastBaseClockRef.current === "number" ? lastBaseClockRef.current : 0;
+    const baseClockMs =
+      typeof lastBaseClockRef.current === "number" ? lastBaseClockRef.current : 0;
     const computedClockMs = Math.max(0, baseClockMs - elapsed);
 
     if (computedClockMs <= 0) {
@@ -301,7 +311,9 @@ function App() {
       setErr("");
 
       if (!isStableTeamMode && !matchIdFromUrl) {
-        setErr("URL publique invalide. Utilise une URL stable d’équipe du type ?teamSlug=...");
+        setErr(
+          "URL publique invalide. Utilise une URL stable d'équipe du type ?teamSlug=...",
+        );
         return;
       }
 
@@ -363,7 +375,7 @@ function App() {
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
 
     const topic = `match:${resolvedMatchId}`;
-    const channel = supabase.channel(`display:${topic}`);
+    const channel = supabase.channel(topic);
 
     channel
       .on("broadcast", { event: "*" }, (message) => {
@@ -430,7 +442,7 @@ function App() {
           fontFamily: "system-ui",
         }}
       >
-        Chargement display…
+        Chargement display...
       </div>
     );
   }

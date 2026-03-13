@@ -37,7 +37,9 @@ function firstNonEmptyString(...values: unknown[]): string | null {
 
 function isUuidLike(value: string | null): boolean {
   if (!value) return false;
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
+  );
 }
 
 const MATCH_SELECT = `
@@ -132,7 +134,10 @@ const MATCH_SELECT = `
   football_added_time_extra_2
 `;
 
-async function loadOrgSettings(supabase: ReturnType<typeof createClient>, orgId: string) {
+async function loadOrgSettings(
+  supabase: ReturnType<typeof createClient>,
+  orgId: string,
+) {
   const [orgRes, displayRes, sportRes] = await Promise.all([
     supabase
       .from("orgs")
@@ -162,12 +167,54 @@ async function loadOrgSettings(supabase: ReturnType<typeof createClient>, orgId:
   };
 }
 
+async function loadTeamDisplaySettings(
+  supabase: ReturnType<typeof createClient>,
+  teamId: string,
+): Promise<{ layout_mode: string | null; config_json: JsonRecord } | null> {
+  const { data, error } = await supabase
+    .from("team_display_settings")
+    .select(
+      `
+      template_id,
+      display_templates (
+        id,
+        code,
+        layout_mode,
+        config_json,
+        is_active
+      )
+    `,
+    )
+    .eq("team_id", teamId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[get-display-context] team_display_settings query failed:", error.message);
+    return null;
+  }
+
+  if (!data) return null;
+
+  const template = (data as any).display_templates;
+  if (!template || template.is_active === false) return null;
+
+  return {
+    layout_mode: typeof template.layout_mode === "string" ? template.layout_mode : null,
+    config_json:
+      template.config_json && typeof template.config_json === "object"
+        ? (template.config_json as JsonRecord)
+        : {},
+  };
+}
+
 async function loadTeamsForMatch(
   supabase: ReturnType<typeof createClient>,
   match: JsonRecord,
 ) {
-  const ids = [match.home_team_id, match.away_team_id]
-    .filter((v) => typeof v === "string" && v) as string[];
+  const ids = [match.home_team_id, match.away_team_id].filter(
+    (v) => typeof v === "string" && v,
+  ) as string[];
 
   if (ids.length === 0) {
     return {
@@ -178,7 +225,9 @@ async function loadTeamsForMatch(
 
   const { data, error } = await supabase
     .from("teams")
-    .select("id, name, short_name, logo_url, primary_color, secondary_color, slug, category, code")
+    .select(
+      "id, name, short_name, logo_url, primary_color, secondary_color, slug, category, code",
+    )
     .in("id", ids);
 
   if (error) throw error;
@@ -247,7 +296,8 @@ async function loadMatchPlayers(
 ) {
   const { data, error } = await supabase
     .from("match_players")
-    .select(`
+    .select(
+      `
       id,
       match_id,
       team_id,
@@ -263,7 +313,8 @@ async function loadMatchPlayers(
         name,
         number
       )
-    `)
+    `,
+    )
     .eq("match_id", matchId)
     .eq("is_selected", true);
 
@@ -393,7 +444,8 @@ serve(async (req) => {
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
       return json(
         {
-          error: "Missing Supabase env. SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY are required.",
+          error:
+            "Missing Supabase env. SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY are required.",
         },
         500,
       );
@@ -450,15 +502,45 @@ serve(async (req) => {
       return json({ error: "Match org_id is missing." }, 500);
     }
 
-    const { org, display_settings, sport_settings } = await loadOrgSettings(supabase, orgId);
-    const teams = await loadTeamsForMatch(supabase, match);
-    const sponsors = await loadSponsors(supabase, orgId);
-    const players = await loadMatchPlayers(
-      supabase,
-      String(match.id),
-      typeof match.home_team_id === "string" ? match.home_team_id : null,
-      typeof match.away_team_id === "string" ? match.away_team_id : null,
-    );
+    const resolvedTeamId = team?.id ?? match.team_id ?? null;
+
+    const [orgSettings, teamTemplate, teamsData, sponsors, players] = await Promise.all([
+      loadOrgSettings(supabase, orgId),
+      resolvedTeamId ? loadTeamDisplaySettings(supabase, resolvedTeamId) : Promise.resolve(null),
+      loadTeamsForMatch(supabase, match),
+      loadSponsors(supabase, orgId),
+      loadMatchPlayers(
+        supabase,
+        String(match.id),
+        typeof match.home_team_id === "string" ? match.home_team_id : null,
+        typeof match.away_team_id === "string" ? match.away_team_id : null,
+      ),
+    ]);
+
+    const { org, display_settings: orgDisplaySettings, sport_settings } = orgSettings;
+
+    const baseDisplayDefaults = {
+      theme: "dark",
+      dual_language: false,
+      lang_primary: "FR",
+      lang_secondary: "EN",
+      show_lower_third: true,
+      show_logos: true,
+      sponsor_rotate_s: 10,
+      show_score: true,
+      show_clock: true,
+      show_period: true,
+      show_status: true,
+      show_sponsors: true,
+      layout_mode: "stadium",
+    };
+
+    const display_settings = {
+      ...baseDisplayDefaults,
+      ...(orgDisplaySettings ?? {}),
+      ...(teamTemplate?.config_json ?? {}),
+      ...(teamTemplate?.layout_mode ? { layout_mode: teamTemplate.layout_mode } : {}),
+    };
 
     const payload = {
       org: org
@@ -468,22 +550,7 @@ serve(async (req) => {
           }
         : null,
 
-      display_settings: {
-        theme: "dark",
-        dual_language: false,
-        lang_primary: "FR",
-        lang_secondary: "EN",
-        show_lower_third: true,
-        show_logos: true,
-        sponsor_rotate_s: 10,
-        show_score: true,
-        show_clock: true,
-        show_period: true,
-        show_status: true,
-        show_sponsors: true,
-        layout_mode: "stadium",
-        ...(display_settings ?? {}),
-      },
+      display_settings,
 
       sport_settings: {
         show_team_fouls: false,
@@ -499,8 +566,8 @@ serve(async (req) => {
       match: {
         ...match,
         status: normalizeStatus(match.status),
-        home_name: firstNonEmptyString(match.home_name, teams.home?.name, "Domicile"),
-        away_name: firstNonEmptyString(match.away_name, teams.away?.name, "Extérieur"),
+        home_name: firstNonEmptyString(match.home_name, teamsData.home?.name, "Domicile"),
+        away_name: firstNonEmptyString(match.away_name, teamsData.away?.name, "Extérieur"),
         home_score: match.home_score ?? 0,
         away_score: match.away_score ?? 0,
         clock_ms: match.clock_ms ?? 0,
@@ -555,8 +622,8 @@ serve(async (req) => {
         football_added_time_extra_1: match.football_added_time_extra_1 ?? 0,
         football_added_time_extra_2: match.football_added_time_extra_2 ?? 0,
 
-        home: teams.home,
-        away: teams.away,
+        home: teamsData.home,
+        away: teamsData.away,
       },
 
       team: team
