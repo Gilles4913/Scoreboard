@@ -396,6 +396,7 @@ export default function ControlPage() {
   const liveSeqRef = useRef<number>(0);
   const clockMsRef = useRef<number>(0);
   const clockRunningRef = useRef<boolean>(false);
+  const clockAnchorRef = useRef<{ epoch: number; ms: number }>({ epoch: Date.now(), ms: 0 });
 
   const sport = normalizeSport(org?.sport);
   const isBasket = sport === "basket";
@@ -512,6 +513,7 @@ export default function ControlPage() {
       const initClockRunning = !!currentMatch.clock_running;
       clockMsRef.current = initClockMs;
       clockRunningRef.current = initClockRunning;
+      clockAnchorRef.current = { epoch: Date.now(), ms: initClockMs };
       setClockMs(initClockMs);
       setClockRunning(initClockRunning);
 
@@ -622,16 +624,15 @@ export default function ControlPage() {
     if (!clockRunning) return;
 
     timerRef.current = window.setInterval(() => {
-      setClockMs((prev) => {
-        const next = prev <= 250 ? 0 : Math.max(0, prev - 250);
-        clockMsRef.current = next;
-        if (next === 0) {
-          clockRunningRef.current = false;
-          setClockRunning(false);
-        }
-        return next;
-      });
-    }, 250);
+      const { epoch, ms: anchorMs } = clockAnchorRef.current;
+      const computed = Math.max(0, anchorMs - (Date.now() - epoch));
+      clockMsRef.current = computed;
+      setClockMs(computed);
+      if (computed === 0) {
+        clockRunningRef.current = false;
+        setClockRunning(false);
+      }
+    }, 100);
 
     return () => {
       if (timerRef.current) {
@@ -842,6 +843,8 @@ export default function ControlPage() {
 
       ...extra,
       live_seq: nextLiveSeq(),
+      clock_anchor_epoch: clockAnchorRef.current.epoch,
+      clock_anchor_ms: clockAnchorRef.current.ms,
       emitted_at: Date.now(),
     };
 
@@ -949,6 +952,7 @@ export default function ControlPage() {
 
     clockMsRef.current = nextClockMs;
     clockRunningRef.current = true;
+    clockAnchorRef.current = { epoch: Date.now(), ms: nextClockMs };
     setClockMs(nextClockMs);
     setClockRunning(true);
     setStatus("live");
@@ -982,6 +986,7 @@ export default function ControlPage() {
 
     clockMsRef.current = next;
     clockRunningRef.current = false;
+    clockAnchorRef.current = { epoch: Date.now(), ms: next };
     setClockMs(next);
     setClockRunning(false);
 
@@ -1000,6 +1005,7 @@ export default function ControlPage() {
 
     clockMsRef.current = defaultClock;
     clockRunningRef.current = false;
+    clockAnchorRef.current = { epoch: Date.now(), ms: defaultClock };
     setClockMs(defaultClock);
     setClockRunning(false);
     setHomeScore(0);
@@ -1127,6 +1133,7 @@ export default function ControlPage() {
   async function adjustClock(deltaMs: number) {
     const next = Math.max(0, clockMsRef.current + deltaMs);
     clockMsRef.current = next;
+    clockAnchorRef.current = { epoch: Date.now(), ms: next };
     setClockMs(next);
 
     try {
@@ -1283,6 +1290,7 @@ export default function ControlPage() {
 
     clockMsRef.current = nextClock;
     clockRunningRef.current = false;
+    clockAnchorRef.current = { epoch: Date.now(), ms: nextClock };
     setCurrentPeriodIndex(nextIndex);
     setIsOvertime(ot);
     setPeriodLabel(label);

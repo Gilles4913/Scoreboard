@@ -240,7 +240,11 @@ function App() {
     const clockChanged = nextClockMs !== lastBaseClockRef.current;
 
     if (runningChanged || matchChanged || clockChanged) {
-      lastBaseClockRef.current = nextClockMs;
+      const receiveDelay =
+        typeof (ctx as any).emitted_at === "number"
+          ? Math.max(0, Date.now() - (ctx as any).emitted_at)
+          : 0;
+      lastBaseClockRef.current = Math.max(0, nextClockMs - receiveDelay);
       lastBaseTsRef.current = Date.now();
       lastRunningRef.current = nextRunning;
       lastMatchIdRef.current = nextMatchId;
@@ -252,10 +256,19 @@ function App() {
 
     if (!ctx.clock_running) return ctx;
 
-    const elapsed = Date.now() - lastBaseTsRef.current;
-    const baseClockMs =
-      typeof lastBaseClockRef.current === "number" ? lastBaseClockRef.current : 0;
-    const computedClockMs = Math.max(0, baseClockMs - elapsed);
+    let computedClockMs: number;
+
+    const anchorEpoch = (ctx as any).clock_anchor_epoch;
+    const anchorMs = (ctx as any).clock_anchor_ms;
+
+    if (typeof anchorEpoch === "number" && typeof anchorMs === "number") {
+      computedClockMs = Math.max(0, anchorMs - (Date.now() - anchorEpoch));
+    } else {
+      const elapsed = Date.now() - lastBaseTsRef.current;
+      const baseClockMs =
+        typeof lastBaseClockRef.current === "number" ? lastBaseClockRef.current : 0;
+      computedClockMs = Math.max(0, baseClockMs - elapsed);
+    }
 
     if (computedClockMs <= 0) {
       return {
