@@ -11,6 +11,12 @@ channel = "stable-25_05"
 VITE_SUPABASE_URL = "https://gygjtykgvpyguhiostpx.supabase.co"
 VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd5Z2p0eWtndnB5Z3VoaW9zdHB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0NjU0ODAsImV4cCI6MjA4ODA0MTQ4MH0.9M8QSnTUSeKs1Sb-BE6tbIPs63A6GCcp-qPNmxw9dYI"
 VITE_OPERATOR_URL = "https://scoreboard-operator.vercel.app/"
+VITE_ADMIN_URL = "https://scoreboard-admin-swart.vercel.app/"
+VITE_DISPLAY_URL = "https://scoreboard-display-pi.vercel.app/"
+VITE_DISPLAY_APP_URL = "https://scoreboard-display-pi.vercel.app/"
+VITE_HOME_URL = "https://scoreboard-home.vercel.app/"
+VITE_EDGE_CONTEXT_URL = "https://gygjtykgvpyguhiostpx.supabase.co/functions/v1/get-display-context"
+VITE_TV_BROADCAST_URL = "https://gygjtykgvpyguhiostpx.supabase.co/functions/v1/tv-broadcast"
 
 [workflows]
 runButton = "Project"
