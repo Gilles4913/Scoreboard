@@ -677,9 +677,14 @@ export default function ControlPage() {
   async function persistLiveState(patch: Partial<MatchRow>) {
     if (!match) return;
 
+    const dbPatch: Partial<MatchRow> = { ...patch };
+    if ((dbPatch as any).status === "paused") {
+      (dbPatch as any).status = "live";
+    }
+
     const { error } = await supabase
       .from("matches")
-      .update(patch)
+      .update(dbPatch)
       .eq("id", match.id);
 
     if (error) {
@@ -932,7 +937,7 @@ export default function ControlPage() {
   async function syncNow() {
     try {
       await pushPatch({});
-      toast("État envoyé à l'écran public.", "success");
+      toast("Écran d'affichage actualisé.", "success");
     } catch (e: any) {
       toast(e?.message || "Erreur broadcast.", "error");
     }
@@ -1743,7 +1748,7 @@ export default function ControlPage() {
               Sauvegarder
             </button>
             <button onClick={syncNow} style={styles.ghostBtn}>
-              Envoyer à l’écran public
+              Actualiser l’écran d’affichage
             </button>
             <button
               onClick={async () => {
@@ -1762,7 +1767,7 @@ export default function ControlPage() {
             </button>
             {displayHref ? (
               <a href={displayHref} target="_blank" rel="noreferrer" style={styles.linkBtn}>
-                Ouvrir écran public
+                Ouvrir l'écran d'affichage
               </a>
             ) : null}
           </div>

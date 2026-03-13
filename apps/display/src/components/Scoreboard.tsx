@@ -506,9 +506,9 @@ function RugbyStadeLayout({ context }: Props) {
   const accentAway = (context.away?.primary_color || "").trim() || "#ff6b35";
 
   const homeName =
-    context.home?.short_name || context.home?.name || context.home_name || "DOM";
+    context.home_name || context.home?.name || context.home?.short_name || "DOM";
   const awayName =
-    context.away?.short_name || context.away?.name || context.away_name || "EXT";
+    context.away_name || context.away?.name || context.away?.short_name || "EXT";
 
   const homeScore = safeScore(context.home_score);
   const awayScore = safeScore(context.away_score);
@@ -519,7 +519,7 @@ function RugbyStadeLayout({ context }: Props) {
   const period = (context.period_label || "").trim();
   const status = statusLabel(context.status);
   const isRunning = !!context.clock_running;
-  const isPaused = context.status === "paused";
+  const isPaused = context.status === "paused" || (!context.clock_running && context.status === "live");
 
   const homeYellow = safeNum(context.home_yellow_cards);
   const awayYellow = safeNum(context.away_yellow_cards);
@@ -687,7 +687,7 @@ function RugbyStadeLayout({ context }: Props) {
             style={{
               fontFamily: "'Courier New','Lucida Console',monospace",
               fontWeight: 900,
-              fontSize: "clamp(32px,5.5vw,72px)",
+              fontSize: "clamp(44px,8vw,108px)",
               lineHeight: 1,
               color: isRunning ? "#22d3ee" : isPaused ? "#f59e0b" : text,
               letterSpacing: 4,
@@ -789,9 +789,9 @@ function RugbyExpertLayout({ context }: Props) {
   const accentAway = (context.away?.primary_color || "").trim() || "#ff6b35";
 
   const homeName =
-    context.home?.short_name || context.home?.name || context.home_name || "DOM";
+    context.home_name || context.home?.name || context.home?.short_name || "DOM";
   const awayName =
-    context.away?.short_name || context.away?.name || context.away_name || "EXT";
+    context.away_name || context.away?.name || context.away?.short_name || "EXT";
 
   const homeScore = safeScore(context.home_score);
   const awayScore = safeScore(context.away_score);
@@ -802,7 +802,7 @@ function RugbyExpertLayout({ context }: Props) {
   const period = (context.period_label || "").trim();
   const status = statusLabel(context.status);
   const isRunning = !!context.clock_running;
-  const isPaused = context.status === "paused";
+  const isPaused = context.status === "paused" || (!context.clock_running && context.status === "live");
 
   const homeYellow = safeNum(context.home_yellow_cards);
   const awayYellow = safeNum(context.away_yellow_cards);
@@ -936,7 +936,7 @@ function RugbyExpertLayout({ context }: Props) {
             style={{
               fontFamily: "'Courier New',monospace",
               fontWeight: 900,
-              fontSize: "clamp(60px,14vw,180px)",
+              fontSize: "clamp(72px,16vw,210px)",
               lineHeight: 1,
               color: accentHome,
               textShadow: `0 0 8px ${accentHome}88`,
@@ -962,7 +962,7 @@ function RugbyExpertLayout({ context }: Props) {
             style={{
               fontFamily: "'Courier New',monospace",
               fontWeight: 900,
-              fontSize: "clamp(28px,4.5vw,60px)",
+              fontSize: "clamp(40px,7vw,90px)",
               lineHeight: 1,
               color: isRunning ? "#22d3ee" : isPaused ? "#f59e0b" : text,
               letterSpacing: 4,
@@ -989,7 +989,7 @@ function RugbyExpertLayout({ context }: Props) {
             style={{
               fontFamily: "'Courier New',monospace",
               fontWeight: 900,
-              fontSize: "clamp(60px,14vw,180px)",
+              fontSize: "clamp(72px,16vw,210px)",
               lineHeight: 1,
               color: accentAway,
               textShadow: `0 0 8px ${accentAway}88`,
