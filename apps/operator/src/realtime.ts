@@ -165,31 +165,43 @@ export async function sendTvBroadcast(matchId: string, patch: TvPatch) {
   const accessToken = data.session?.access_token;
 
   if (!accessToken) {
-    throw new Error("Pas de session Supabase active.");
+    console.warn("[realtime] no session token — falling back to direct channel");
+    return sendTvBroadcastDirect(matchId, patch);
   }
 
   const seq = patch.live_seq ?? Date.now();
 
-  const res = await fetch(TV_BROADCAST_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-      ...(SUPABASE_ANON_KEY ? { apikey: SUPABASE_ANON_KEY } : {}),
-    },
-    body: JSON.stringify({
-      match_id: matchId,
-      type: "patch",
-      payload: patch,
-      ts: patch.emitted_at ?? Date.now(),
-      seq,
-    }),
-  });
+  try {
+    const res = await fetch(TV_BROADCAST_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        ...(SUPABASE_ANON_KEY ? { apikey: SUPABASE_ANON_KEY } : {}),
+      },
+      body: JSON.stringify({
+        match_id: matchId,
+        type: "patch",
+        payload: patch,
+        ts: patch.emitted_at ?? Date.now(),
+        seq,
+      }),
+    });
 
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`tv-broadcast HTTP ${res.status} ${txt}`);
+    if (res.status === 401 || res.status === 403) {
+      console.warn(`[realtime] edge function returned ${res.status} — falling back to direct channel`);
+      return sendTvBroadcastDirect(matchId, patch);
+    }
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      console.warn(`[realtime] edge function error HTTP ${res.status} ${txt} — falling back to direct channel`);
+      return sendTvBroadcastDirect(matchId, patch);
+    }
+
+    return res.json().catch(() => null);
+  } catch (err) {
+    console.warn("[realtime] edge function fetch failed — falling back to direct channel", err);
+    return sendTvBroadcastDirect(matchId, patch);
   }
-
-  return res.json().catch(() => null);
 }
