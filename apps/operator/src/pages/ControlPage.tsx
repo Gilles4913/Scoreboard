@@ -1986,7 +1986,7 @@ export default function ControlPage() {
           {isRugby ? (
             <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
               <div style={styles.sectionTitle}>Mode rugby</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 200px 1fr", gap: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                 <div style={styles.statCard}>
                   <div style={styles.statCardTitle}>Marque domicile — {homeName}</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
@@ -2001,22 +2001,6 @@ export default function ControlPage() {
                         <button onClick={() => applyRugbyScoring("home", field, -1)} style={{ ...styles.ghostBtnSmall, flex: 1, opacity: 0.7 }}>{minus}</button>
                       </div>
                     ))}
-                  </div>
-                </div>
-
-                <div style={{ ...styles.statCard, display: "flex", flexDirection: "column", alignItems: "center" }}>
-                  <div style={styles.statCardTitle}>Cartons & exclusions</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10, width: "100%" }}>
-                    <div style={{ fontSize: 11, opacity: 0.55, textAlign: "center", textTransform: "uppercase", letterSpacing: 1 }}>Carton jaune</div>
-                    <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
-                      <button onClick={() => issueRugbyYellow("home")} style={styles.ghostBtnSmall}>Dom.</button>
-                      <button onClick={() => issueRugbyYellow("away")} style={styles.ghostBtnSmall}>Ext.</button>
-                    </div>
-                    <div style={{ fontSize: 11, opacity: 0.55, textAlign: "center", textTransform: "uppercase", letterSpacing: 1 }}>Carton rouge</div>
-                    <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
-                      <button onClick={() => issueRugbyRed("home")} style={{ ...styles.ghostBtnSmall, borderColor: "rgba(239,68,68,.4)", color: "#ef4444" }}>Dom.</button>
-                      <button onClick={() => issueRugbyRed("away")} style={{ ...styles.ghostBtnSmall, borderColor: "rgba(239,68,68,.4)", color: "#ef4444" }}>Ext.</button>
-                    </div>
                   </div>
                 </div>
 
@@ -2444,10 +2428,30 @@ export default function ControlPage() {
                   <div style={styles.statCard}>
                     <div style={styles.statCardTitle}>Cartons / sanctions</div>
                     <div style={styles.cardsGrid}>
-                      <MiniStat title={`${homeName} • Jaunes`} value={isFootball ? footballHomeYellows : homeYellowCards} onMinus={() => {}} onPlus={() => {}} />
-                      <MiniStat title={`${awayName} • Jaunes`} value={isFootball ? footballAwayYellows : awayYellowCards} onMinus={() => {}} onPlus={() => {}} />
-                      <MiniStat title={`${homeName} • Rouges`} value={isFootball ? footballHomeReds : homeRedCards} onMinus={() => {}} onPlus={() => {}} />
-                      <MiniStat title={`${awayName} • Rouges`} value={isFootball ? footballAwayReds : awayRedCards} onMinus={() => {}} onPlus={() => {}} />
+                      <MiniStat
+                        title={`${homeName} • Cartons jaunes`}
+                        value={isFootball ? footballHomeYellows : homeYellowCards}
+                        onPlus={isRugby ? () => issueRugbyYellow("home") : isFootball ? async () => { const n = footballHomeYellows + 1; setFootballHomeYellows(n); try { const p = autoLive ? pushPatch({ football_home_yellow_cards: n, home_yellow_cards: n }) : null; void persistLiveState({ football_home_yellow_cards: n, home_yellow_cards: n }); await p; } catch {} } : async () => { const n = homeYellowCards + 1; setHomeYellowCards(n); try { const p = autoLive ? pushPatch({ home_yellow_cards: n }) : null; void persistLiveState({ home_yellow_cards: n }); await p; } catch {} }}
+                        onMinus={async () => { if (isFootball) { const n = Math.max(0, footballHomeYellows - 1); setFootballHomeYellows(n); try { const p = autoLive ? pushPatch({ football_home_yellow_cards: n, home_yellow_cards: n }) : null; void persistLiveState({ football_home_yellow_cards: n, home_yellow_cards: n }); await p; } catch {} } else { const n = Math.max(0, homeYellowCards - 1); setHomeYellowCards(n); try { const p = autoLive ? pushPatch({ home_yellow_cards: n }) : null; void persistLiveState({ home_yellow_cards: n }); await p; } catch {} } }}
+                      />
+                      <MiniStat
+                        title={`${awayName} • Cartons jaunes`}
+                        value={isFootball ? footballAwayYellows : awayYellowCards}
+                        onPlus={isRugby ? () => issueRugbyYellow("away") : isFootball ? async () => { const n = footballAwayYellows + 1; setFootballAwayYellows(n); try { const p = autoLive ? pushPatch({ football_away_yellow_cards: n, away_yellow_cards: n }) : null; void persistLiveState({ football_away_yellow_cards: n, away_yellow_cards: n }); await p; } catch {} } : async () => { const n = awayYellowCards + 1; setAwayYellowCards(n); try { const p = autoLive ? pushPatch({ away_yellow_cards: n }) : null; void persistLiveState({ away_yellow_cards: n }); await p; } catch {} }}
+                        onMinus={async () => { if (isFootball) { const n = Math.max(0, footballAwayYellows - 1); setFootballAwayYellows(n); try { const p = autoLive ? pushPatch({ football_away_yellow_cards: n, away_yellow_cards: n }) : null; void persistLiveState({ football_away_yellow_cards: n, away_yellow_cards: n }); await p; } catch {} } else { const n = Math.max(0, awayYellowCards - 1); setAwayYellowCards(n); try { const p = autoLive ? pushPatch({ away_yellow_cards: n }) : null; void persistLiveState({ away_yellow_cards: n }); await p; } catch {} } }}
+                      />
+                      <MiniStat
+                        title={`${homeName} • Cartons rouges`}
+                        value={isFootball ? footballHomeReds : homeRedCards}
+                        onPlus={isRugby ? () => issueRugbyRed("home") : isFootball ? async () => { const n = footballHomeReds + 1; setFootballHomeReds(n); try { const p = autoLive ? pushPatch({ football_home_red_cards: n, home_red_cards: n }) : null; void persistLiveState({ football_home_red_cards: n, home_red_cards: n }); await p; } catch {} } : async () => { const n = homeRedCards + 1; setHomeRedCards(n); try { const p = autoLive ? pushPatch({ home_red_cards: n }) : null; void persistLiveState({ home_red_cards: n }); await p; } catch {} }}
+                        onMinus={async () => { if (isFootball) { const n = Math.max(0, footballHomeReds - 1); setFootballHomeReds(n); try { const p = autoLive ? pushPatch({ football_home_red_cards: n, home_red_cards: n }) : null; void persistLiveState({ football_home_red_cards: n, home_red_cards: n }); await p; } catch {} } else { const n = Math.max(0, homeRedCards - 1); setHomeRedCards(n); try { const p = autoLive ? pushPatch({ home_red_cards: n }) : null; void persistLiveState({ home_red_cards: n }); await p; } catch {} } }}
+                      />
+                      <MiniStat
+                        title={`${awayName} • Cartons rouges`}
+                        value={isFootball ? footballAwayReds : awayRedCards}
+                        onPlus={isRugby ? () => issueRugbyRed("away") : isFootball ? async () => { const n = footballAwayReds + 1; setFootballAwayReds(n); try { const p = autoLive ? pushPatch({ football_away_red_cards: n, away_red_cards: n }) : null; void persistLiveState({ football_away_red_cards: n, away_red_cards: n }); await p; } catch {} } : async () => { const n = awayRedCards + 1; setAwayRedCards(n); try { const p = autoLive ? pushPatch({ away_red_cards: n }) : null; void persistLiveState({ away_red_cards: n }); await p; } catch {} }}
+                        onMinus={async () => { if (isFootball) { const n = Math.max(0, footballAwayReds - 1); setFootballAwayReds(n); try { const p = autoLive ? pushPatch({ football_away_red_cards: n, away_red_cards: n }) : null; void persistLiveState({ football_away_red_cards: n, away_red_cards: n }); await p; } catch {} } else { const n = Math.max(0, awayRedCards - 1); setAwayRedCards(n); try { const p = autoLive ? pushPatch({ away_red_cards: n }) : null; void persistLiveState({ away_red_cards: n }); await p; } catch {} } }}
+                      />
                     </div>
                   </div>
                 ) : null}
@@ -2513,20 +2517,20 @@ export default function ControlPage() {
 
           {isRugby && (activeRugbyHome.length > 0 || activeRugbyAway.length > 0) ? (
             <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
-              <div style={styles.sectionTitle}>Sin bin rugby actifs</div>
+              <div style={styles.sectionTitle}>Exclusions temporaires en cours</div>
               <div style={{ display: "grid", gap: 8 }}>
                 {[...activeRugbyHome, ...activeRugbyAway].map((row) => (
                   <div key={row.id} style={styles.eventRow}>
                     <div style={styles.eventMain}>
                       <div style={styles.eventType}>
-                        {row.team_side === "home" ? homeName : awayName} • Sin bin actif
+                        {row.team_side === "home" ? homeName : awayName} • Excl. temporaire active
                       </div>
                       <div style={styles.eventMeta}>
                         {row.player_name_snapshot || "Joueur non renseigné"} {row.shirt_number_snapshot ? `• #${row.shirt_number_snapshot}` : ""}
                       </div>
                     </div>
                     <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                      <button onClick={() => endRugbySinBin(row)} style={styles.primaryBtnSmall}>Clôturer</button>
+                      <button onClick={() => endRugbySinBin(row)} style={styles.primaryBtnSmall}>Lever l’exclusion</button>
                     </div>
                   </div>
                 ))}
