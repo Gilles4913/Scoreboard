@@ -5,6 +5,7 @@ import { sendTvBroadcast } from "../realtime";
 import { supabase } from "../supabase";
 import { useToast, ToastContainer } from "../components/Toast";
 import { useConfirm, ConfirmDialog } from "../components/ConfirmDialog";
+import { usePlayerPicker, PlayerPickerDialog } from "../components/PlayerPickerDialog";
 
 type MatchRow = {
   id: string;
@@ -373,6 +374,7 @@ export default function ControlPage() {
   const [err, setErr] = useState("");
   const { toast, toasts, dismiss } = useToast();
   const { confirm, dialogState, handleClose } = useConfirm();
+  const { pick, pickerState, handlePickerClose } = usePlayerPicker();
 
   const [match, setMatch] = useState<MatchRow | null>(null);
   const [org, setOrg] = useState<OrgRow | null>(null);
@@ -2109,10 +2111,10 @@ export default function ControlPage() {
                   <div style={styles.statCardTitle}>Marque domicile — {homeName}</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
                     {[
-                      { label: "Essai +5", minus: "Essai -1", field: "tries" as const, primary: true },
-                      { label: "Transfo +2", minus: "Transfo -1", field: "conversions" as const },
-                      { label: "Pénalité +3", minus: "Pénalité -1", field: "penalties" as const },
-                      { label: "Drop +3", minus: "Drop -1", field: "drops" as const },
+                      { label: "Essai +5", minus: "Essai -5", field: "tries" as const, primary: true },
+                      { label: "Transfo +2", minus: "Transfo -2", field: "conversions" as const },
+                      { label: "Pénalité +3", minus: "Pénalité -3", field: "penalties" as const },
+                      { label: "Drop +3", minus: "Drop -3", field: "drops" as const },
                     ].map(({ label, minus, field, primary }) => (
                       <div key={field} style={{ display: "flex", gap: 6 }}>
                         <button onClick={() => applyRugbyScoring("home", field, 1)} style={primary ? { ...styles.primaryBtnSmall, flex: 1 } : { ...styles.ghostBtnSmall, flex: 1 }}>{label}</button>
@@ -2126,10 +2128,10 @@ export default function ControlPage() {
                   <div style={styles.statCardTitle}>Marque extérieure — {awayName}</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
                     {[
-                      { label: "Essai +5", minus: "Essai -1", field: "tries" as const, primary: true },
-                      { label: "Transfo +2", minus: "Transfo -1", field: "conversions" as const },
-                      { label: "Pénalité +3", minus: "Pénalité -1", field: "penalties" as const },
-                      { label: "Drop +3", minus: "Drop -1", field: "drops" as const },
+                      { label: "Essai +5", minus: "Essai -5", field: "tries" as const, primary: true },
+                      { label: "Transfo +2", minus: "Transfo -2", field: "conversions" as const },
+                      { label: "Pénalité +3", minus: "Pénalité -3", field: "penalties" as const },
+                      { label: "Drop +3", minus: "Drop -3", field: "drops" as const },
                     ].map(({ label, minus, field, primary }) => (
                       <div key={field} style={{ display: "flex", gap: 6 }}>
                         <button onClick={() => applyRugbyScoring("away", field, 1)} style={primary ? { ...styles.primaryBtnSmall, flex: 1 } : { ...styles.ghostBtnSmall, flex: 1 }}>{label}</button>
@@ -2549,25 +2551,25 @@ export default function ControlPage() {
                       <MiniStat
                         title={`${homeName} • Cartons jaunes`}
                         value={isRugby ? rugbyHomeYellowSinBin : isFootball ? footballHomeYellows : homeYellowCards}
-                        onPlus={isRugby ? () => issueRugbyYellow("home") : isFootball ? async () => { const n = footballHomeYellows + 1; setFootballHomeYellows(n); try { const p = autoLive ? pushPatch({ football_home_yellow_cards: n, home_yellow_cards: n }) : null; void persistLiveState({ football_home_yellow_cards: n, home_yellow_cards: n }); await p; } catch {} } : async () => { const n = homeYellowCards + 1; setHomeYellowCards(n); try { const p = autoLive ? pushPatch({ home_yellow_cards: n }) : null; void persistLiveState({ home_yellow_cards: n }); await p; } catch {} }}
+                        onPlus={isRugby ? async () => { const p = await pick({ title: `Carton jaune — ${homeName}`, players: homePlayers }); if (p !== undefined) issueRugbyYellow("home", p ? { id: p.id, team_id: "", name: p.name, number: p.number, fouls: 0 } : null); } : isFootball ? async () => { const n = footballHomeYellows + 1; setFootballHomeYellows(n); try { const p = autoLive ? pushPatch({ football_home_yellow_cards: n, home_yellow_cards: n }) : null; void persistLiveState({ football_home_yellow_cards: n, home_yellow_cards: n }); await p; } catch {} } : async () => { const n = homeYellowCards + 1; setHomeYellowCards(n); try { const p = autoLive ? pushPatch({ home_yellow_cards: n }) : null; void persistLiveState({ home_yellow_cards: n }); await p; } catch {} }}
                         onMinus={async () => { if (isRugby) { const n = Math.max(0, rugbyHomeYellowSinBin - 1); const na = Math.max(0, rugbyHomeSinBinActive - 1); setRugbyHomeYellowSinBin(n); setRugbyHomeSinBinActive(na); try { const patch = { rugby_home_yellow_sin_bin: n, rugby_home_sin_bin_active: na }; const p = autoLive ? pushPatch(patch) : null; void persistLiveState(patch); await p; } catch {} } else if (isFootball) { const n = Math.max(0, footballHomeYellows - 1); setFootballHomeYellows(n); try { const p = autoLive ? pushPatch({ football_home_yellow_cards: n, home_yellow_cards: n }) : null; void persistLiveState({ football_home_yellow_cards: n, home_yellow_cards: n }); await p; } catch {} } else { const n = Math.max(0, homeYellowCards - 1); setHomeYellowCards(n); try { const p = autoLive ? pushPatch({ home_yellow_cards: n }) : null; void persistLiveState({ home_yellow_cards: n }); await p; } catch {} } }}
                       />
                       <MiniStat
                         title={`${awayName} • Cartons jaunes`}
                         value={isRugby ? rugbyAwayYellowSinBin : isFootball ? footballAwayYellows : awayYellowCards}
-                        onPlus={isRugby ? () => issueRugbyYellow("away") : isFootball ? async () => { const n = footballAwayYellows + 1; setFootballAwayYellows(n); try { const p = autoLive ? pushPatch({ football_away_yellow_cards: n, away_yellow_cards: n }) : null; void persistLiveState({ football_away_yellow_cards: n, away_yellow_cards: n }); await p; } catch {} } : async () => { const n = awayYellowCards + 1; setAwayYellowCards(n); try { const p = autoLive ? pushPatch({ away_yellow_cards: n }) : null; void persistLiveState({ away_yellow_cards: n }); await p; } catch {} }}
+                        onPlus={isRugby ? async () => { const p = await pick({ title: `Carton jaune — ${awayName}`, players: awayPlayers }); if (p !== undefined) issueRugbyYellow("away", p ? { id: p.id, team_id: "", name: p.name, number: p.number, fouls: 0 } : null); } : isFootball ? async () => { const n = footballAwayYellows + 1; setFootballAwayYellows(n); try { const p = autoLive ? pushPatch({ football_away_yellow_cards: n, away_yellow_cards: n }) : null; void persistLiveState({ football_away_yellow_cards: n, away_yellow_cards: n }); await p; } catch {} } : async () => { const n = awayYellowCards + 1; setAwayYellowCards(n); try { const p = autoLive ? pushPatch({ away_yellow_cards: n }) : null; void persistLiveState({ away_yellow_cards: n }); await p; } catch {} }}
                         onMinus={async () => { if (isRugby) { const n = Math.max(0, rugbyAwayYellowSinBin - 1); const na = Math.max(0, rugbyAwaySinBinActive - 1); setRugbyAwayYellowSinBin(n); setRugbyAwaySinBinActive(na); try { const patch = { rugby_away_yellow_sin_bin: n, rugby_away_sin_bin_active: na }; const p = autoLive ? pushPatch(patch) : null; void persistLiveState(patch); await p; } catch {} } else if (isFootball) { const n = Math.max(0, footballAwayYellows - 1); setFootballAwayYellows(n); try { const p = autoLive ? pushPatch({ football_away_yellow_cards: n, away_yellow_cards: n }) : null; void persistLiveState({ football_away_yellow_cards: n, away_yellow_cards: n }); await p; } catch {} } else { const n = Math.max(0, awayYellowCards - 1); setAwayYellowCards(n); try { const p = autoLive ? pushPatch({ away_yellow_cards: n }) : null; void persistLiveState({ away_yellow_cards: n }); await p; } catch {} } }}
                       />
                       <MiniStat
                         title={`${homeName} • Cartons rouges`}
                         value={isFootball ? footballHomeReds : homeRedCards}
-                        onPlus={isRugby ? () => issueRugbyRed("home") : isFootball ? async () => { const n = footballHomeReds + 1; setFootballHomeReds(n); try { const p = autoLive ? pushPatch({ football_home_red_cards: n, home_red_cards: n }) : null; void persistLiveState({ football_home_red_cards: n, home_red_cards: n }); await p; } catch {} } : async () => { const n = homeRedCards + 1; setHomeRedCards(n); try { const p = autoLive ? pushPatch({ home_red_cards: n }) : null; void persistLiveState({ home_red_cards: n }); await p; } catch {} }}
+                        onPlus={isRugby ? async () => { const p = await pick({ title: `Carton rouge — ${homeName}`, players: homePlayers }); if (p !== undefined) issueRugbyRed("home", p ? { id: p.id, team_id: "", name: p.name, number: p.number, fouls: 0 } : null); } : isFootball ? async () => { const n = footballHomeReds + 1; setFootballHomeReds(n); try { const p = autoLive ? pushPatch({ football_home_red_cards: n, home_red_cards: n }) : null; void persistLiveState({ football_home_red_cards: n, home_red_cards: n }); await p; } catch {} } : async () => { const n = homeRedCards + 1; setHomeRedCards(n); try { const p = autoLive ? pushPatch({ home_red_cards: n }) : null; void persistLiveState({ home_red_cards: n }); await p; } catch {} }}
                         onMinus={async () => { if (isFootball) { const n = Math.max(0, footballHomeReds - 1); setFootballHomeReds(n); try { const p = autoLive ? pushPatch({ football_home_red_cards: n, home_red_cards: n }) : null; void persistLiveState({ football_home_red_cards: n, home_red_cards: n }); await p; } catch {} } else { const n = Math.max(0, homeRedCards - 1); setHomeRedCards(n); try { const p = autoLive ? pushPatch({ home_red_cards: n }) : null; void persistLiveState({ home_red_cards: n }); await p; } catch {} } }}
                       />
                       <MiniStat
                         title={`${awayName} • Cartons rouges`}
                         value={isFootball ? footballAwayReds : awayRedCards}
-                        onPlus={isRugby ? () => issueRugbyRed("away") : isFootball ? async () => { const n = footballAwayReds + 1; setFootballAwayReds(n); try { const p = autoLive ? pushPatch({ football_away_red_cards: n, away_red_cards: n }) : null; void persistLiveState({ football_away_red_cards: n, away_red_cards: n }); await p; } catch {} } : async () => { const n = awayRedCards + 1; setAwayRedCards(n); try { const p = autoLive ? pushPatch({ away_red_cards: n }) : null; void persistLiveState({ away_red_cards: n }); await p; } catch {} }}
+                        onPlus={isRugby ? async () => { const p = await pick({ title: `Carton rouge — ${awayName}`, players: awayPlayers }); if (p !== undefined) issueRugbyRed("away", p ? { id: p.id, team_id: "", name: p.name, number: p.number, fouls: 0 } : null); } : isFootball ? async () => { const n = footballAwayReds + 1; setFootballAwayReds(n); try { const p = autoLive ? pushPatch({ football_away_red_cards: n, away_red_cards: n }) : null; void persistLiveState({ football_away_red_cards: n, away_red_cards: n }); await p; } catch {} } : async () => { const n = awayRedCards + 1; setAwayRedCards(n); try { const p = autoLive ? pushPatch({ away_red_cards: n }) : null; void persistLiveState({ away_red_cards: n }); await p; } catch {} }}
                         onMinus={async () => { if (isFootball) { const n = Math.max(0, footballAwayReds - 1); setFootballAwayReds(n); try { const p = autoLive ? pushPatch({ football_away_red_cards: n, away_red_cards: n }) : null; void persistLiveState({ football_away_red_cards: n, away_red_cards: n }); await p; } catch {} } else { const n = Math.max(0, awayRedCards - 1); setAwayRedCards(n); try { const p = autoLive ? pushPatch({ away_red_cards: n }) : null; void persistLiveState({ away_red_cards: n }); await p; } catch {} } }}
                       />
                     </div>
@@ -2736,6 +2738,7 @@ export default function ControlPage() {
       </div>
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
       <ConfirmDialog state={dialogState} onClose={handleClose} />
+      <PlayerPickerDialog state={pickerState} onClose={handlePickerClose} />
     </div>
   );
 }
@@ -3041,7 +3044,7 @@ const styles: Record<string, any> = {
     alignItems: "center",
     justifyContent: "center",
   },
-  scoreValue: { fontSize: 56, lineHeight: 1, fontWeight: 900, marginTop: 10, marginBottom: 14 },
+  scoreValue: { fontSize: 96, lineHeight: 1, fontWeight: 900, marginTop: 10, marginBottom: 14 },
   scoreActions: { display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" },
   clockCard: {
     padding: 16,
