@@ -762,7 +762,7 @@ export default function ControlPage() {
   }
 
   function controlLink() {
-    return window.location.href;
+    return `${window.location.origin}/matches/${matchId}/mobile`;
   }
 
   function nextLiveSeq(): number {

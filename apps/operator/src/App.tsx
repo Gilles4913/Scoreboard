@@ -9,6 +9,7 @@ import NewMatchPage from "./pages/NewMatchPage";
 import PlayersPage from "./pages/PlayersPage";
 import TeamBrandingPage from "./pages/TeamBrandingPage";
 import EditMatchRosterPage from "./pages/EditMatchRosterPage";
+import MobileControlPage from "./pages/MobileControlPage";
 
 const LS_ACTIVE_ORG_KEY = "scoreDisplay.activeOrgSlug";
 
@@ -112,6 +113,7 @@ export default function App() {
       <Route path="/teams/:teamId/players" element={<RequireAuth><PlayersPage /></RequireAuth>} />
       <Route path="/teams/:teamId/branding" element={<RequireAuth><TeamBrandingPage /></RequireAuth>} />
       <Route path="/matches/:matchId/roster" element={<RequireAuth><EditMatchRosterPage /></RequireAuth>} />
+      <Route path="/matches/:matchId/mobile" element={<RequireAuth><MobileControlPage /></RequireAuth>} />
     </Routes>
   );
 }
