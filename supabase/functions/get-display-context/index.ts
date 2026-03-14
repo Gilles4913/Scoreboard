@@ -138,7 +138,7 @@ async function loadOrgSettings(
   supabase: ReturnType<typeof createClient>,
   orgId: string,
 ) {
-  const [orgRes, displayRes, sportRes] = await Promise.all([
+  const [orgRes, displayRes, sportRes, profileRes] = await Promise.all([
     supabase
       .from("orgs")
       .select("id, slug, name, sport, is_master")
@@ -154,16 +154,30 @@ async function loadOrgSettings(
       .select("*")
       .eq("org_id", orgId)
       .maybeSingle(),
+    supabase
+      .from("org_display_sport_profiles")
+      .select(
+        `*, display_templates (
+          id, code, layout_mode, config_json, is_active
+        )`,
+      )
+      .eq("org_id", orgId)
+      .maybeSingle(),
   ]);
 
   if (orgRes.error) throw orgRes.error;
   if (displayRes.error) throw displayRes.error;
   if (sportRes.error) throw sportRes.error;
+  // profileRes errors are soft — table may not exist yet in all envs
+  if (profileRes.error) {
+    console.warn("[get-display-context] org_display_sport_profiles failed:", profileRes.error.message);
+  }
 
   return {
     org: orgRes.data ?? null,
     display_settings: displayRes.data ?? {},
     sport_settings: sportRes.data ?? {},
+    sport_profile: (profileRes.error ? null : profileRes.data) ?? null,
   };
 }
 
@@ -517,7 +531,13 @@ serve(async (req) => {
       ),
     ]);
 
-    const { org, display_settings: orgDisplaySettings, sport_settings } = orgSettings;
+    const { org, display_settings: orgDisplaySettings, sport_settings, sport_profile } = orgSettings;
+
+    // Resolve display template: team override > org sport profile default > none
+    const profileTemplate = (sport_profile as any)?.display_templates ?? null;
+    const profileTemplateActive = profileTemplate && profileTemplate.is_active !== false;
+    const resolvedTemplate: { layout_mode: string | null; config_json: JsonRecord } | null =
+      teamTemplate ?? (profileTemplateActive ? profileTemplate : null) ?? null;
 
     const baseDisplayDefaults = {
       theme: "dark",
@@ -532,15 +552,26 @@ serve(async (req) => {
       show_period: true,
       show_status: true,
       show_sponsors: true,
+      show_substitution_banner: true,
       layout_mode: "stadium",
     };
 
     const display_settings = {
       ...baseDisplayDefaults,
       ...(orgDisplaySettings ?? {}),
-      ...(teamTemplate?.config_json ?? {}),
-      ...(teamTemplate?.layout_mode ? { layout_mode: teamTemplate.layout_mode } : {}),
+      ...(resolvedTemplate?.config_json ?? {}),
+      ...(resolvedTemplate?.layout_mode ? { layout_mode: resolvedTemplate.layout_mode } : {}),
     };
+
+    // Build clean sport_profile for payload (remove nested display_templates object)
+    const { display_templates: _dt, ...sportProfileClean } = (sport_profile as any) ?? {};
+    const sportProfilePayload = sport_profile
+      ? {
+          ...sportProfileClean,
+          resolved_template_id: profileTemplate?.id ?? null,
+          resolved_template_code: profileTemplate?.code ?? null,
+        }
+      : null;
 
     const payload = {
       org: org
@@ -562,6 +593,8 @@ serve(async (req) => {
         show_shot_clock: false,
         ...(sport_settings ?? {}),
       },
+
+      sport_profile: sportProfilePayload,
 
       match: {
         ...match,

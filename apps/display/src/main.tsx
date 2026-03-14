@@ -45,6 +45,8 @@ function buildContextFromResponse(json: any): ScoreboardContext {
   const org = json?.org || {};
   const displaySettings = json?.display_settings || {};
   const sportSettings = json?.sport_settings || {};
+  // sport_profile is the new 3-level matrix data; falls back to sport_settings for backward compat
+  const sp = json?.sport_profile || {};
 
   return {
     theme: displaySettings.theme ?? "dark",
@@ -62,13 +64,35 @@ function buildContextFromResponse(json: any): ScoreboardContext {
     layout_mode: displaySettings.layout_mode ?? "stadium",
     show_substitution_banner: displaySettings.show_substitution_banner ?? true,
 
-    show_team_fouls: sportSettings.show_team_fouls ?? false,
-    show_player_fouls: sportSettings.show_player_fouls ?? false,
-    show_timeouts: sportSettings.show_timeouts ?? false,
-    show_bonus: sportSettings.show_bonus ?? false,
-    show_sets: sportSettings.show_sets ?? false,
-    show_cards: sportSettings.show_cards ?? false,
-    show_shot_clock: sportSettings.show_shot_clock ?? false,
+    // sport_profile matrix: merge with sport_settings for backward compat
+    show_team_fouls:   sp.show_team_fouls   ?? sportSettings.show_team_fouls   ?? false,
+    show_player_fouls: sp.show_player_fouls ?? sportSettings.show_player_fouls ?? false,
+    show_timeouts:     sp.show_timeouts     ?? sportSettings.show_timeouts     ?? false,
+    show_bonus:        sp.show_bonus        ?? sportSettings.show_bonus        ?? false,
+    show_sets:         sp.show_sets         ?? sportSettings.show_sets         ?? false,
+    show_cards:        sp.show_cards        ?? sportSettings.show_cards        ?? false,
+    show_shot_clock:   sp.show_shot_clock   ?? sportSettings.show_shot_clock   ?? false,
+
+    // sport profile: new display matrix fields
+    // Priority: template config_json (in displaySettings) > org sport_profile > default
+    show_live_overlays:          displaySettings.show_live_overlays          ?? sp.show_live_overlays          ?? true,
+    show_substitutions:          displaySettings.show_substitutions          ?? sp.show_substitutions          ?? false,
+    show_sin_bin:                displaySettings.show_sin_bin                ?? sp.show_sin_bin                ?? false,
+    show_rugby_score_breakdown:  displaySettings.show_rugby_score_breakdown  ?? sp.show_rugby_score_breakdown  ?? false,
+    show_rugby_tries:            displaySettings.show_rugby_tries            ?? sp.show_rugby_tries            ?? false,
+    show_rugby_conversions:      displaySettings.show_rugby_conversions      ?? sp.show_rugby_conversions      ?? false,
+    show_rugby_penalties:        displaySettings.show_rugby_penalties        ?? sp.show_rugby_penalties        ?? false,
+    show_rugby_drop_goals:       displaySettings.show_rugby_drop_goals       ?? sp.show_rugby_drop_goals       ?? false,
+    show_added_time:             displaySettings.show_added_time             ?? sp.show_added_time             ?? false,
+    show_penalty_shootout:       displaySettings.show_penalty_shootout       ?? sp.show_penalty_shootout       ?? false,
+    show_match_phase:            displaySettings.show_match_phase            ?? sp.show_match_phase            ?? false,
+    show_two_min_suspensions:    displaySettings.show_two_min_suspensions    ?? sp.show_two_min_suspensions    ?? false,
+    show_disqualifications:      displaySettings.show_disqualifications      ?? sp.show_disqualifications      ?? false,
+    show_warnings:               displaySettings.show_warnings               ?? sp.show_warnings               ?? false,
+    overlay_position:            displaySettings.overlay_position            ?? sp.overlay_position            ?? "bottom",
+    overlay_duration_ms:         displaySettings.overlay_duration_ms         ?? sp.overlay_duration_ms         ?? 5000,
+    density_mode:                displaySettings.density_mode                ?? sp.density_mode                ?? "medium",
+    team_name_mode:              displaySettings.team_name_mode              ?? sp.team_name_mode              ?? "short",
 
     sponsors: Array.isArray(json.sponsors) ? json.sponsors : [],
 

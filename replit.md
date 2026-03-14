@@ -60,11 +60,37 @@ Templates configured in operator **Paramètres d'affichage** → template cards 
 - **Fallback**: `postgres_changes` UPDATE on `matches` table + polling every 3s in stable team mode
 - **Chrono interpolation**: client-side in Display (counts down from `clock_ms` using `Date.now()`)
 
+## 3-Level Display Parameter Matrix (NEW)
+Architecture de la matrice d'affichage en 3 niveaux :
+
+### Tables
+- **`display_templates`** — Bibliothèque système de templates visuels (code, sport, layout_mode, config_json). Seeded : `rugby_stade`, `rugby_expert`, `rugby_club`, `football_stade`, `football_tv`, `basket_arena`, `handball_classic`, `volley_sets`
+- **`org_display_sport_profiles`** — Matrice par organisation + sport : blocs activés (show_cards, show_substitutions, show_sin_bin, show_rugby_score_breakdown...), overlay config (position, durée), lisibilité LED (density_mode, score_scale, team_name_mode), template par défaut
+- **`team_display_settings`** — Override par équipe : `template_id` FK vers `display_templates`
+
+### Résolution de template (priorité haute → basse)
+1. `team_display_settings.template_id` (team override)
+2. `org_display_sport_profiles.default_display_template_id` (org sport profile)
+3. Aucun (defaults hardcodés)
+
+### Résolution des flags display
+Dans `buildContextFromResponse` (Display main.tsx) — priorité :
+1. `display_settings.*` (inclut template.config_json fusionné)
+2. `sport_profile.*` (org_display_sport_profiles)
+3. Valeur par défaut
+
+### Edge function get-display-context
+Charge en parallèle : `org`, `org_display_settings`, `org_sport_settings`, `org_display_sport_profiles` (+ join display_templates). Construit `sport_profile` dans le payload.
+
+### ScoreboardContext : nouveaux champs
+`show_live_overlays`, `show_substitutions`, `show_sin_bin`, `show_rugby_score_breakdown`, `show_rugby_tries/conversions/penalties/drop_goals`, `show_added_time`, `show_penalty_shootout`, `show_match_phase`, `show_two_min_suspensions`, `show_disqualifications`, `show_warnings`, `overlay_position`, `overlay_duration_ms`, `density_mode`, `team_name_mode`
+
 ## Template Hierarchy (display_settings)
 Merge order (lowest to highest priority):
 1. Hardcoded defaults in `get-display-context`
 2. `org_display_settings` (org-level)
-3. `team_display_settings` → `display_templates.config_json` + `layout_mode` (team-level override)
+3. `org_display_sport_profiles.default_display_template_id` → `display_templates.config_json` (org sport default)
+4. `team_display_settings.template_id` → `display_templates.config_json` + `layout_mode` (team-level override)
 
 ## Substitutions (Rugby & Football)
 - **Dialog**: `apps/operator/src/components/SubstitutionDialog.tsx` — select player out / player in, reason, is_temporary, is_blood_substitution
@@ -97,6 +123,8 @@ Migrations are in `supabase/migrations/`. Recent additions:
 - `20260313000003_fix_rls_public_display.sql` — Fixes RLS policies that depended on `public_display`; allows anon read on matches + teams; recreates clean `matches_v` view
 - `20260314000001_substitutions.sql` — Adds `is_on_field/entered_at/left_at/minutes_played_s` to `match_players`; creates `match_substitutions` table with indexes
 - `20260314000002_team_stats_rpc.sql` — Creates 4 RPC functions for team statistics (match summary, discipline, player stats, substitution summary)
+- `20260314000003_substitution_banner_setting.sql` — Adds `show_substitution_banner BOOLEAN DEFAULT TRUE` to `org_display_settings`
+- `20260314000004_display_matrix.sql` — Creates `display_templates` + `org_display_sport_profiles` tables; seeds system templates (rugby_stade, rugby_expert, football_stade, etc.); pre-populates org profiles from orgs.sport; links team_display_settings to templates
 
 ## Key Files
 - `apps/home/src/App.tsx` — Home hub entry point (login + org selection)

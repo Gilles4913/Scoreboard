@@ -1,0 +1,399 @@
+Voici une matrice claire des paramètres d’affichage par sport pour scoreDisplay V2.
+
+Le but est de séparer :
+
+ce qui est commun à tous les sports
+
+ce qui est activable selon le sport
+
+ce qui est spécifique métier
+
+ce qui relève du template d’affichage
+
+1) Tronc commun — tous sports
+
+Ces paramètres doivent exister pour tous les sports.
+
+Identité / habillage
+
+theme
+
+layout_mode
+
+show_logos
+
+show_sponsors
+
+show_lower_third
+
+dual_language
+
+lang_primary
+
+lang_secondary
+
+sponsor_rotate_s
+
+Éléments principaux
+
+show_score
+
+show_clock
+
+show_period
+
+show_status
+
+Overlays live
+
+show_live_overlays
+
+overlay_position
+
+overlay_duration_ms
+
+Lisibilité LED
+
+density_mode (low, medium, high)
+
+score_scale
+
+clock_scale
+
+team_name_mode (full, short, code)
+
+use_short_team_names
+
+show_separator_score
+
+2) Basket — matrice
+Blocs métier
+
+show_team_fouls
+
+show_player_fouls
+
+show_timeouts
+
+show_bonus
+
+show_shot_clock
+
+show_possession_arrow
+
+show_period_number
+
+show_overtime
+
+Réglages utiles
+
+shot_clock_s
+
+max_team_fouls
+
+max_player_fouls
+
+max_timeouts
+
+period_count
+
+period_duration_s
+
+Templates conseillés
+
+basket_arena
+
+basket_compact
+
+basket_shotclock_focus
+
+3) Rugby — matrice
+Blocs métier principaux
+
+show_cards
+
+show_substitutions
+
+show_sin_bin
+
+show_rugby_score_breakdown
+
+show_rugby_tries
+
+show_rugby_conversions
+
+show_rugby_penalties
+
+show_rugby_drop_goals
+
+show_extra_time
+
+show_tiebreak_mode
+
+Réglages utiles
+
+rugby_overlay_substitution
+
+rugby_overlay_card
+
+rugby_sin_bin_duration_s
+
+rugby_show_team_name_abbrev
+
+rugby_score_breakdown_mode (hidden, compact, full)
+
+Templates conseillés
+
+rugby_stade
+
+rugby_score_central
+
+rugby_expert
+
+rugby_club
+
+Recommandation par défaut
+
+équipe standard : rugby_stade
+
+4) Football — matrice
+Blocs métier
+
+show_cards
+
+show_substitutions
+
+show_added_time
+
+show_penalty_shootout
+
+show_extra_time
+
+show_match_phase
+
+Réglages utiles
+
+football_added_time_mode (compact, full)
+
+football_show_penalty_score
+
+football_show_card_counts
+
+football_overlay_substitution
+
+football_overlay_card
+
+Templates conseillés
+
+football_stade
+
+football_tv
+
+football_penalties
+
+Recommandation par défaut
+
+équipe standard : football_stade
+
+5) Handball — matrice
+Blocs métier
+
+show_team_fouls
+
+show_timeouts
+
+show_cards
+
+show_two_min_suspensions
+
+show_disqualifications
+
+show_warnings
+
+show_extra_time
+
+show_shootout_mode
+
+Réglages utiles
+
+handball_two_min_overlay
+
+handball_warning_overlay
+
+handball_disqualification_overlay
+
+Templates conseillés
+
+handball_classic
+
+handball_sanctions
+
+6) Volleyball — matrice
+Blocs métier
+
+show_sets
+
+show_set_points
+
+show_service
+
+show_timeouts
+
+show_current_set
+
+show_tiebreak
+
+Réglages utiles
+
+volley_show_service_icon
+
+volley_show_set_detail
+
+volley_show_timeout_counts
+
+Templates conseillés
+
+volley_sets
+
+volley_compact
+
+7) Structure recommandée des paramètres
+
+Je te conseille de les organiser ainsi :
+
+A. org_display_settings
+
+Uniquement le tronc commun
+
+thème
+
+logos
+
+sponsors
+
+lower third
+
+overlays globaux
+
+densité
+
+langue
+
+B. org_sport_settings
+
+Uniquement les règles métier sport
+
+nombre de périodes
+
+durée période
+
+bonus
+
+shot clock
+
+sets
+
+cartes
+
+temps morts
+
+fautes
+
+etc.
+
+C. display_templates
+
+La forme visuelle
+
+code
+
+sport
+
+layout_mode
+
+config_json
+
+D. team_display_settings
+
+Le choix par équipe
+
+default_display_template_id
+
+overrides éventuels
+
+8) Matrice synthétique
+Paramètre                          Basket Rugby Football Handball Volley
+-----------------------------------------------------------------------
+show_score                         Oui    Oui    Oui      Oui      Oui
+show_clock                         Oui    Oui    Oui      Oui      Oui
+show_period                        Oui    Oui    Oui      Oui      Oui
+show_status                        Oui    Oui    Oui      Oui      Oui
+show_logos                         Oui    Oui    Oui      Oui      Oui
+show_sponsors                      Oui    Oui    Oui      Oui      Oui
+show_live_overlays                 Oui    Oui    Oui      Oui      Oui
+
+show_team_fouls                    Oui    Non    Non      Oui      Non
+show_player_fouls                  Oui    Non    Non      Non      Non
+show_timeouts                      Oui    Non    Non      Oui      Oui
+show_bonus                         Oui    Non    Non      Non      Non
+show_shot_clock                    Oui    Non    Non      Non      Non
+show_possession_arrow              Oui    Non    Non      Non      Non
+
+show_cards                         Non    Oui    Oui      Oui      Non
+show_substitutions                 Non    Oui    Oui      Non      Non
+show_sin_bin                       Non    Oui    Non      Non      Non
+show_rugby_score_breakdown         Non    Oui    Non      Non      Non
+
+show_added_time                    Non    Non    Oui      Non      Non
+show_penalty_shootout              Non    Non    Oui      Non      Non
+
+show_two_min_suspensions           Non    Non    Non      Oui      Non
+show_disqualifications             Non    Non    Non      Oui      Non
+show_warnings                      Non    Non    Non      Oui      Non
+
+show_sets                          Non    Non    Non      Non      Oui
+show_set_points                    Non    Non    Non      Non      Oui
+show_service                       Non    Non    Non      Non      Oui
+show_tiebreak                      Non    Non    Non      Non      Oui
+9) Décision produit recommandée
+
+Tu peux figer cette règle :
+
+chaque sport a ses paramètres métier
+
+chaque équipe a un modèle d’affichage par défaut
+
+le Display combine
+
+paramètres communs
+
+paramètres sport
+
+template visuel
+
+éventuel override match plus tard
+
+10) Prompt Replit pour implémenter la matrice
+Formalise et implémente une matrice de paramètres d’affichage par sport dans scoreDisplay V2.
+
+Objectif :
+- distinguer clairement :
+  1. paramètres communs
+  2. paramètres métier par sport
+  3. templates visuels par sport
+- ne pas mélanger les responsabilités
+
+Je veux :
+1. une proposition de structure finale
+2. les migrations SQL si nécessaire
+3. les adaptations frontend / backend
+4. les fichiers complets structurants
+5. la compatibilité avec l’existant
+
+Règles :
+- org_display_settings = tronc commun uniquement
+- org_sport_settings = logique métier sport
+- display_templates = forme visuelle
+- team_display_settings = choix du modèle par équipe
+
+Je veux aussi que tu appliques cette matrice au Rugby en priorité, puis aux autres sports.

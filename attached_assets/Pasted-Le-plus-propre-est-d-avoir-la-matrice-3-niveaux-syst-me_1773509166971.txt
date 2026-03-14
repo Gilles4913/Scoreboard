@@ -1,0 +1,404 @@
+Le plus propre est d’avoir la matrice à 3 niveaux :
+
+système : bibliothèque de templates (display_templates)
+
+organisation + sport : matrice d’affichage par sport pour cette organisation
+
+équipe : modèle par défaut choisi pour cette équipe
+
+Je te recommande donc d’ajouter une table org_display_sport_profiles pour porter la matrice au niveau organisation.
+
+Migration SQL complète
+begin;
+
+-- 1) Bibliothèque système des templates d'affichage
+create table if not exists public.display_templates (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  name text not null,
+  sport text not null,
+  layout_mode text not null,
+  config_json jsonb not null default '{}'::jsonb,
+  is_default_system boolean not null default false,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_display_templates_sport
+  on public.display_templates(sport);
+
+create index if not exists idx_display_templates_active
+  on public.display_templates(is_active);
+
+-- 2) Matrice d'affichage par sport au niveau organisation
+--    Cette table dit : pour telle organisation et tel sport,
+--    quels blocs sont autorisés/attendus, quel template par défaut utiliser,
+--    et quels overrides d'affichage appliquer.
+create table if not exists public.org_display_sport_profiles (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.orgs(id) on delete cascade,
+  sport text not null,
+  default_display_template_id uuid null references public.display_templates(id) on delete set null,
+
+  -- Visibilité des blocs principaux
+  show_score boolean not null default true,
+  show_clock boolean not null default true,
+  show_period boolean not null default true,
+  show_status boolean not null default true,
+  show_logos boolean not null default true,
+  show_sponsors boolean not null default true,
+  show_lower_third boolean not null default true,
+
+  -- Overlays live
+  show_live_overlays boolean not null default true,
+  overlay_position text not null default 'bottom',
+  overlay_duration_ms integer not null default 5000,
+
+  -- Lisibilité LED / densité
+  density_mode text not null default 'medium',
+  score_scale numeric(6,2) not null default 1.00,
+  clock_scale numeric(6,2) not null default 1.00,
+  team_name_mode text not null default 'short',   -- full / short / code
+  use_short_team_names boolean not null default true,
+  show_separator_score boolean not null default true,
+
+  -- Blocs métier sport
+  show_team_fouls boolean not null default false,
+  show_player_fouls boolean not null default false,
+  show_timeouts boolean not null default false,
+  show_bonus boolean not null default false,
+  show_shot_clock boolean not null default false,
+  show_possession_arrow boolean not null default false,
+
+  show_cards boolean not null default false,
+  show_substitutions boolean not null default false,
+  show_sin_bin boolean not null default false,
+  show_rugby_score_breakdown boolean not null default false,
+  show_rugby_tries boolean not null default false,
+  show_rugby_conversions boolean not null default false,
+  show_rugby_penalties boolean not null default false,
+  show_rugby_drop_goals boolean not null default false,
+
+  show_added_time boolean not null default false,
+  show_penalty_shootout boolean not null default false,
+  show_match_phase boolean not null default false,
+
+  show_two_min_suspensions boolean not null default false,
+  show_disqualifications boolean not null default false,
+  show_warnings boolean not null default false,
+
+  show_sets boolean not null default false,
+  show_set_points boolean not null default false,
+  show_service boolean not null default false,
+  show_current_set boolean not null default false,
+  show_tiebreak boolean not null default false,
+
+  -- Config flexible complémentaire
+  config_json jsonb not null default '{}'::jsonb,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint org_display_sport_profiles_org_sport_key unique (org_id, sport),
+  constraint org_display_sport_profiles_overlay_position_check
+    check (overlay_position in ('top', 'bottom')),
+  constraint org_display_sport_profiles_density_mode_check
+    check (density_mode in ('low', 'medium', 'high')),
+  constraint org_display_sport_profiles_team_name_mode_check
+    check (team_name_mode in ('full', 'short', 'code'))
+);
+
+create index if not exists idx_org_display_sport_profiles_org
+  on public.org_display_sport_profiles(org_id);
+
+create index if not exists idx_org_display_sport_profiles_sport
+  on public.org_display_sport_profiles(sport);
+
+-- 3) Paramètres d'affichage au niveau équipe
+create table if not exists public.team_display_settings (
+  team_id uuid primary key references public.teams(id) on delete cascade,
+  default_display_template_id uuid null references public.display_templates(id) on delete set null,
+  theme_override text null,
+  show_logos_override boolean null,
+  show_sponsors_override boolean null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_team_display_settings_template
+  on public.team_display_settings(default_display_template_id);
+
+-- 4) Templates système initiaux
+insert into public.display_templates (code, name, sport, layout_mode, config_json, is_default_system, is_active)
+values
+  ('rugby_stade', 'Rugby Stade', 'rugby', 'rugby_stade', '{"density":"low","show_breakdown":false,"show_live_overlays":true}', true, true),
+  ('rugby_expert', 'Rugby Expert', 'rugby', 'rugby_expert', '{"density":"medium","show_breakdown":true,"show_live_overlays":true}', false, true),
+  ('football_stade', 'Football Stade', 'football', 'football_stade', '{"density":"low","show_live_overlays":true}', true, true),
+  ('football_tv', 'Football TV', 'football', 'football_tv', '{"density":"medium","show_live_overlays":true}', false, true),
+  ('basket_arena', 'Basket Arena', 'basket', 'basket_arena', '{"density":"medium","show_live_overlays":true}', true, true),
+  ('handball_classic', 'Handball Classic', 'handball', 'handball_classic', '{"density":"medium","show_live_overlays":true}', true, true),
+  ('volley_sets', 'Volley Sets', 'volleyball', 'volley_sets', '{"density":"medium","show_live_overlays":true}', true, true)
+on conflict (code) do nothing;
+
+-- 5) Pré-remplissage de la matrice d'organisation par sport à partir de orgs.sport
+--    Une organisation reçoit un profil pour son sport principal.
+insert into public.org_display_sport_profiles (
+  org_id,
+  sport,
+  default_display_template_id,
+
+  show_score,
+  show_clock,
+  show_period,
+  show_status,
+  show_logos,
+  show_sponsors,
+  show_lower_third,
+
+  show_live_overlays,
+  overlay_position,
+  overlay_duration_ms,
+
+  density_mode,
+  score_scale,
+  clock_scale,
+  team_name_mode,
+  use_short_team_names,
+  show_separator_score,
+
+  show_team_fouls,
+  show_player_fouls,
+  show_timeouts,
+  show_bonus,
+  show_shot_clock,
+  show_possession_arrow,
+
+  show_cards,
+  show_substitutions,
+  show_sin_bin,
+  show_rugby_score_breakdown,
+  show_rugby_tries,
+  show_rugby_conversions,
+  show_rugby_penalties,
+  show_rugby_drop_goals,
+
+  show_added_time,
+  show_penalty_shootout,
+  show_match_phase,
+
+  show_two_min_suspensions,
+  show_disqualifications,
+  show_warnings,
+
+  show_sets,
+  show_set_points,
+  show_service,
+  show_current_set,
+  show_tiebreak,
+
+  config_json
+)
+select
+  o.id,
+  o.sport,
+  dt.id,
+
+  true,  -- show_score
+  true,  -- show_clock
+  true,  -- show_period
+  true,  -- show_status
+  true,  -- show_logos
+  true,  -- show_sponsors
+  true,  -- show_lower_third
+
+  true,      -- show_live_overlays
+  'bottom',  -- overlay_position
+  5000,      -- overlay_duration_ms
+
+  case
+    when o.sport in ('rugby', 'football') then 'low'
+    else 'medium'
+  end,
+  case
+    when o.sport in ('rugby', 'football') then 1.20
+    else 1.00
+  end,
+  1.00,
+  'short',
+  true,
+  true,
+
+  case when o.sport in ('basket', 'handball') then true else false end,
+  case when o.sport = 'basket' then true else false end,
+  case when o.sport in ('basket', 'handball', 'volleyball') then true else false end,
+  case when o.sport = 'basket' then true else false end,
+  case when o.sport = 'basket' then true else false end,
+  case when o.sport = 'basket' then true else false end,
+
+  case when o.sport in ('rugby', 'football', 'handball') then true else false end,
+  case when o.sport in ('rugby', 'football') then true else false end,
+  case when o.sport = 'rugby' then true else false end,
+  case when o.sport = 'rugby' then false else false end,
+  case when o.sport = 'rugby' then false else false end,
+  case when o.sport = 'rugby' then false else false end,
+  case when o.sport = 'rugby' then false else false end,
+  case when o.sport = 'rugby' then false else false end,
+
+  case when o.sport = 'football' then true else false end,
+  case when o.sport = 'football' then true else false end,
+  case when o.sport = 'football' then true else false end,
+
+  case when o.sport = 'handball' then true else false end,
+  case when o.sport = 'handball' then true else false end,
+  case when o.sport = 'handball' then true else false end,
+
+  case when o.sport = 'volleyball' then true else false end,
+  case when o.sport = 'volleyball' then true else false end,
+  case when o.sport = 'volleyball' then true else false end,
+  case when o.sport = 'volleyball' then true else false end,
+  case when o.sport = 'volleyball' then true else false end,
+
+  '{}'::jsonb
+from public.orgs o
+left join public.display_templates dt
+  on dt.sport = o.sport
+ and dt.is_default_system = true
+where o.sport is not null
+  and not exists (
+    select 1
+    from public.org_display_sport_profiles p
+    where p.org_id = o.id
+      and p.sport = o.sport
+  );
+
+-- 6) Pré-remplissage du choix par défaut au niveau équipe
+insert into public.team_display_settings (team_id, default_display_template_id)
+select
+  t.id,
+  p.default_display_template_id
+from public.teams t
+join public.org_display_sport_profiles p
+  on p.org_id = t.org_id
+where not exists (
+  select 1
+  from public.team_display_settings s
+  where s.team_id = t.id
+);
+
+commit;
+Ce que cette structure permet
+Niveau organisation
+
+org_display_sport_profiles
+
+définit la matrice d’affichage par sport pour l’organisation
+
+porte les blocs activés
+
+porte les choix de lisibilité LED
+
+porte le template par défaut d’organisation pour ce sport
+
+Niveau équipe
+
+team_display_settings
+
+permet de surcharger le modèle par défaut
+
+exemple : une équipe rugby peut utiliser rugby_expert au lieu de rugby_stade
+
+Niveau système
+
+display_templates
+
+contient la bibliothèque de layouts disponibles
+
+Requête utile pour charger la config finale Display
+
+Le Display devra à terme résoudre dans cet ordre :
+
+org principal
+
+sport de l’org
+
+org_display_sport_profiles
+
+team_display_settings
+
+display_templates
+
+Priorité recommandée
+
+template équipe si défini
+
+sinon template org_display_sport_profiles
+
+sinon template système par défaut
+
+Exemple de lecture SQL logique
+select
+  t.id as team_id,
+  o.id as org_id,
+  o.sport,
+  p.*,
+  coalesce(td.default_display_template_id, p.default_display_template_id) as resolved_template_id
+from public.teams t
+join public.orgs o
+  on o.id = t.org_id
+left join public.org_display_sport_profiles p
+  on p.org_id = o.id
+ and p.sport = o.sport
+left join public.team_display_settings td
+  on td.team_id = t.id
+where t.id = :team_id;
+Recommandation pratique
+
+Pour commencer :
+
+Rugby : active cette matrice en premier
+
+au niveau org :
+
+density_mode = low
+
+team_name_mode = short
+
+show_cards = true
+
+show_substitutions = true
+
+show_sin_bin = true
+
+show_rugby_score_breakdown = false
+
+template par défaut :
+
+rugby_stade
+
+Prompt Replit à utiliser pour brancher ça
+J’ai ajouté une structure SQL de matrice d’affichage :
+- display_templates
+- org_display_sport_profiles
+- team_display_settings
+
+Je veux maintenant que tu l’intègres dans le backend et le Display.
+
+Objectifs :
+1. get-display-context doit charger :
+   - org_display_settings
+   - org_sport_settings
+   - org_display_sport_profiles pour org + sport
+   - team_display_settings
+   - display_templates
+2. le backend doit résoudre le template final :
+   - team override
+   - sinon org_display_sport_profiles.default_display_template_id
+   - sinon template système par défaut
+3. le Display doit utiliser cette matrice pour savoir quels blocs afficher
+4. priorité Rugby en premier
+
+Je veux :
+- fichiers complets modifiés
+- logique de résolution claire
+- aucun retour au mode token
