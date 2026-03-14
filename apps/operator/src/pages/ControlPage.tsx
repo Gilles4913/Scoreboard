@@ -344,7 +344,6 @@ function clampMin(n: number, min = 0) {
 
 function toPlayerStatRows(matchPlayers: MatchPlayerRow[]) {
   return matchPlayers
-    .filter((p) => p.is_selected)
     .map((p) => ({
       id: p.player_id,
       team_id: p.team_id,

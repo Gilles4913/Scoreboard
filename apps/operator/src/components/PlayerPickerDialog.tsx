@@ -111,9 +111,9 @@ export function PlayerPickerDialog({
       <div style={box}>
         <div style={{ fontSize: 16, fontWeight: 700, color: "#f1f5f9" }}>{state.title}</div>
 
-        {state.players.length > 0 && (
-          <div>
-            <div style={sectionLabel}>Joueur de l&apos;équipe</div>
+        <div>
+          <div style={sectionLabel}>Joueur de l&apos;équipe</div>
+          {state.players.length > 0 ? (
             <div style={{ display: "grid", gap: 6, maxHeight: 240, overflowY: "auto" }}>
               {state.players.map((p) => (
                 <button
@@ -128,8 +128,12 @@ export function PlayerPickerDialog({
                 </button>
               ))}
             </div>
-          </div>
-        )}
+          ) : (
+            <div style={{ fontSize: 13, color: "#64748b", padding: "8px 0" }}>
+              Aucun joueur dans la feuille de match. Ajoutez des joueurs via la feuille de match ou saisissez manuellement ci-dessous.
+            </div>
+          )}
+        </div>
 
         <div>
           <div style={sectionLabel}>Saisie manuelle</div>
