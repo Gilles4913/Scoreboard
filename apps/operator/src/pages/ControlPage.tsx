@@ -476,6 +476,7 @@ export default function ControlPage() {
   const clockAnchorRef = useRef<{ epoch: number; ms: number }>({ epoch: Date.now(), ms: 0 });
 
   const sport = normalizeSport(org?.sport);
+  const canScore = status === "live";
   const isBasket = sport === "basket";
   const isRugby = sport === "rugby";
   const isHandball = sport === "handball";
@@ -1011,7 +1012,12 @@ export default function ControlPage() {
 
     try {
       const pushP = pushPatch(payload);
-      await persistLiveState(payload);
+      const persistP = persistLiveState(payload);
+      // Also persist org sport if it was changed
+      if (org?.id && org?.sport) {
+        void supabase.from("orgs").update({ sport: org.sport }).eq("id", org.id);
+      }
+      await persistP;
       await pushP;
       toast("Match sauvegardé.", "success");
     } catch {}
@@ -1019,6 +1025,22 @@ export default function ControlPage() {
 
   async function syncNow() {
     try {
+      // Build full payload and persist to DB so broadcast & DB are consistent
+      const payload: Partial<MatchRow> = {
+        name: matchName.trim() || `${homeName} vs ${awayName}`,
+        home_name: homeName,
+        away_name: awayName,
+        status,
+        period_label: periodLabel,
+        home_score: homeScore,
+        away_score: awayScore,
+        clock_ms: clockMsRef.current,
+        clock_running: clockRunningRef.current,
+      };
+      void persistLiveState(payload);
+      if (org?.id && org?.sport) {
+        void supabase.from("orgs").update({ sport: org.sport }).eq("id", org.id);
+      }
       await pushPatch({});
       toast("Écran d'affichage actualisé.", "success");
     } catch (e: any) {
@@ -1245,6 +1267,7 @@ export default function ControlPage() {
   }
 
   async function changeScore(side: "home" | "away", delta: number) {
+    if (!canScore) return;
     const nextHome = side === "home" ? Math.max(0, homeScore + delta) : homeScore;
     const nextAway = side === "away" ? Math.max(0, awayScore + delta) : awayScore;
 
@@ -1456,6 +1479,7 @@ export default function ControlPage() {
   }
 
   async function applyRugbyScoring(side: "home" | "away", field: "tries" | "conversions" | "penalties" | "drops", delta: number) {
+    if (!canScore) return;
     const currentHome = {
       tries: rugbyHomeTries,
       conversions: rugbyHomeConversions,
@@ -1562,6 +1586,15 @@ export default function ControlPage() {
 
       if (data) setRugbySuspensions((prev) => [data as SuspensionRow, ...prev]);
 
+      // Also update player.yellow_cards in local state + DB
+      if (player?.id) {
+        const updatePlayers = (rows: PlayerStatRow[]) =>
+          rows.map((p) => p.id === player.id ? { ...p, yellow_cards: (p.yellow_cards || 0) + 1 } : p);
+        if (side === "home") setHomePlayers(updatePlayers);
+        else setAwayPlayers(updatePlayers);
+        void supabase.from("match_players").update({ yellow_cards: (player.yellow_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", player.id);
+      }
+
       await pushP;
       void appendEvent({
         event_type: "rugby_yellow_card",
@@ -1620,7 +1653,16 @@ export default function ControlPage() {
         : Promise.resolve(null);
       void persistLiveState({ home_red_cards: nextHome, away_red_cards: nextAway });
       await pushP;
-      void appendEvent({
+      // Also update player.red_cards in local state + DB
+      if (player?.id) {
+        const updatePlayersR = (rows: PlayerStatRow[]) =>
+          rows.map((p) => p.id === player!.id ? { ...p, red_cards: (p.red_cards || 0) + 1 } : p);
+        if (side === "home") setHomePlayers(updatePlayersR);
+        else setAwayPlayers(updatePlayersR);
+        void supabase.from("match_players").update({ red_cards: (player!.red_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", player!.id);
+      }
+
+            void appendEvent({
         event_type: "rugby_red_card",
         team_side: side,
         player_id: player?.id || null,
@@ -1926,7 +1968,22 @@ export default function ControlPage() {
               </Field>
 
               <Field label="Sport">
-                <input readOnly value={sport} style={{ ...styles.input, opacity: 0.82 }} />
+                <select
+                  value={sport}
+                  onChange={(e) => {
+                    const newSport = e.target.value;
+                    setOrg((prev) => prev ? { ...prev, sport: newSport } : prev);
+                  }}
+                  style={styles.input}
+                >
+                  <option value="football">Football</option>
+                  <option value="rugby">Rugby</option>
+                  <option value="basketball">Basketball</option>
+                  <option value="handball">Handball</option>
+                  <option value="volleyball">Volleyball</option>
+                  <option value="hockey">Hockey</option>
+                  <option value="autres">Autres</option>
+                </select>
               </Field>
             </div>
           </section>
@@ -1968,10 +2025,10 @@ export default function ControlPage() {
                 <div style={styles.scoreActions}>
                   {scoreSteps.map((step) => (
                     <React.Fragment key={`home-${step}`}>
-                      <button onClick={() => changeScore("home", -step)} style={styles.ghostBtnSmall}>
+                      <button disabled={!canScore} onClick={() => changeScore("home", -step)} style={{ ...styles.ghostBtnSmall, opacity: canScore ? 1 : 0.35, cursor: canScore ? "pointer" : "not-allowed" }}>
                         -{step}
                       </button>
-                      <button onClick={() => changeScore("home", step)} style={styles.primaryBtnSmall}>
+                      <button disabled={!canScore} onClick={() => changeScore("home", step)} style={{ ...styles.primaryBtnSmall, opacity: canScore ? 1 : 0.35, cursor: canScore ? "pointer" : "not-allowed" }}>
                         +{step}
                       </button>
                     </React.Fragment>
@@ -2019,10 +2076,10 @@ export default function ControlPage() {
                 <div style={styles.scoreActions}>
                   {scoreSteps.map((step) => (
                     <React.Fragment key={`away-${step}`}>
-                      <button onClick={() => changeScore("away", -step)} style={styles.ghostBtnSmall}>
+                      <button disabled={!canScore} onClick={() => changeScore("away", -step)} style={{ ...styles.ghostBtnSmall, opacity: canScore ? 1 : 0.35, cursor: canScore ? "pointer" : "not-allowed" }}>
                         -{step}
                       </button>
-                      <button onClick={() => changeScore("away", step)} style={styles.primaryBtnSmall}>
+                      <button disabled={!canScore} onClick={() => changeScore("away", step)} style={{ ...styles.primaryBtnSmall, opacity: canScore ? 1 : 0.35, cursor: canScore ? "pointer" : "not-allowed" }}>
                         +{step}
                       </button>
                     </React.Fragment>
@@ -2117,8 +2174,8 @@ export default function ControlPage() {
                       { label: "Drop +3", minus: "Drop -3", field: "drops" as const },
                     ].map(({ label, minus, field, primary }) => (
                       <div key={field} style={{ display: "flex", gap: 6 }}>
-                        <button onClick={() => applyRugbyScoring("home", field, 1)} style={primary ? { ...styles.primaryBtnSmall, flex: 1 } : { ...styles.ghostBtnSmall, flex: 1 }}>{label}</button>
-                        <button onClick={() => applyRugbyScoring("home", field, -1)} style={{ ...styles.ghostBtnSmall, flex: 1, opacity: 0.7 }}>{minus}</button>
+                        <button disabled={!canScore} onClick={() => applyRugbyScoring("home", field, 1)} style={primary ? { ...styles.primaryBtnSmall, flex: 1, opacity: canScore ? 1 : 0.35, cursor: canScore ? "pointer" : "not-allowed" } : { ...styles.ghostBtnSmall, flex: 1, opacity: canScore ? 1 : 0.35, cursor: canScore ? "pointer" : "not-allowed" }}>{label}</button>
+                        <button disabled={!canScore} onClick={() => applyRugbyScoring("home", field, -1)} style={{ ...styles.ghostBtnSmall, flex: 1, opacity: canScore ? 0.7 : 0.25, cursor: canScore ? "pointer" : "not-allowed" }}>{minus}</button>
                       </div>
                     ))}
                   </div>
@@ -2134,8 +2191,8 @@ export default function ControlPage() {
                       { label: "Drop +3", minus: "Drop -3", field: "drops" as const },
                     ].map(({ label, minus, field, primary }) => (
                       <div key={field} style={{ display: "flex", gap: 6 }}>
-                        <button onClick={() => applyRugbyScoring("away", field, 1)} style={primary ? { ...styles.primaryBtnSmall, flex: 1 } : { ...styles.ghostBtnSmall, flex: 1 }}>{label}</button>
-                        <button onClick={() => applyRugbyScoring("away", field, -1)} style={{ ...styles.ghostBtnSmall, flex: 1, opacity: 0.7 }}>{minus}</button>
+                        <button disabled={!canScore} onClick={() => applyRugbyScoring("away", field, 1)} style={primary ? { ...styles.primaryBtnSmall, flex: 1, opacity: canScore ? 1 : 0.35, cursor: canScore ? "pointer" : "not-allowed" } : { ...styles.ghostBtnSmall, flex: 1, opacity: canScore ? 1 : 0.35, cursor: canScore ? "pointer" : "not-allowed" }}>{label}</button>
+                        <button disabled={!canScore} onClick={() => applyRugbyScoring("away", field, -1)} style={{ ...styles.ghostBtnSmall, flex: 1, opacity: canScore ? 0.7 : 0.25, cursor: canScore ? "pointer" : "not-allowed" }}>{minus}</button>
                       </div>
                     ))}
                   </div>
