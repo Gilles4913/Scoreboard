@@ -181,6 +181,16 @@ export default function TeamsPage() {
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button
+              onClick={() => {
+                localStorage.removeItem(LS_ACTIVE_ORG_ID);
+                localStorage.removeItem(LS_ACTIVE_ORG_SLUG);
+                window.location.href = HOME_URL;
+              }}
+              style={styles.ghostBtn}
+            >
+              Changer d'organisation
+            </button>
             <button onClick={() => nav("/display-settings")} style={styles.ghostBtn}>Paramètres Display</button>
             <button onClick={logout} style={styles.ghostBtn}>Déconnexion</button>
           </div>
