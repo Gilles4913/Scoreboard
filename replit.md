@@ -70,17 +70,41 @@ Architecture de la matrice d'affichage en 3 niveaux :
 
 ### Résolution de template (priorité haute → basse)
 1. `team_display_settings.template_id` (team override)
-2. `org_display_sport_profiles.default_display_template_id` (org sport profile)
-3. Aucun (defaults hardcodés)
+2. `org_display_sport_profiles.default_display_template_id` (org sport profile, filtrée par `.eq("sport", orgSport)`)
+3. `display_templates WHERE is_default_system=true AND sport=orgSport AND is_active=true` (fallback système)
+4. Defaults hardcodés
+
+### Payload Edge Function `get-display-context` — champs explicites
+- `display_settings` — config finale fusionnée (org defaults + template.config_json + layout_mode)
+- `config_display_resolved` — alias de `display_settings` pour clarté frontend
+- `display_template` — `{ id, code, name, layout_mode }` du template résolu (null si aucun)
+- `resolved_display_template_id` — UUID du template résolu (null si aucun)
+- `display_profile` — alias de `sport_profile` (row org_display_sport_profiles)
+
+### Sélecteur de template équipe
+`TeamBrandingPage.tsx` — section "Modèle d'affichage" :
+- Charge `display_templates` filtrés par sport org + `is_active=true`
+- Charge `team_display_settings.template_id` actuel pour l'équipe
+- Upsert sur `team_id` via `saveTemplate()` (onConflict: "team_id")
 
 ### Résolution des flags display
 Dans `buildContextFromResponse` (Display main.tsx) — priorité :
 1. `display_settings.*` (inclut template.config_json fusionné)
 2. `sport_profile.*` (org_display_sport_profiles)
-3. Valeur par défaut
+3. Valeur par défaut hardcodée
+
+### Labels sport-aware (Operator)
+`DisplaySettingsPage.tsx` — helper `sportUiConfig(sport)` :
+- **rugby** : "mi-temps", masque timeouts/fautes/shot clock, renomme bonus → "Points de bonus"
+- **basket** : affiche tout (timeouts, fautes, shot clock, bonus)
+- **volleyball** : affiche sets uniquement
+- **handball** : affiche timeouts, masque shot clock et bonus
 
 ### Edge function get-display-context
-Charge en parallèle : `org`, `org_display_settings`, `org_sport_settings`, `org_display_sport_profiles` (+ join display_templates). Construit `sport_profile` dans le payload.
+- **Étape 1** : charge `org` seul → extrait `orgSport`
+- **Étape 2** : charge en parallèle `org_display_settings`, `org_sport_settings`, `org_display_sport_profiles` filtrée par `.eq("sport", orgSport)` + join `display_templates`
+- Fallback système : si `resolvedTemplate = null`, requête `display_templates WHERE is_default_system=true AND sport=orgSport AND is_active=true`
+- Payload : `display_settings`, `config_display_resolved` (alias), `display_template` (metadata), `resolved_display_template_id`, `display_profile` (alias sport_profile)
 
 ### ScoreboardContext : nouveaux champs
 `show_live_overlays`, `show_substitutions`, `show_sin_bin`, `show_rugby_score_breakdown`, `show_rugby_tries/conversions/penalties/drop_goals`, `show_added_time`, `show_penalty_shootout`, `show_match_phase`, `show_two_min_suspensions`, `show_disqualifications`, `show_warnings`, `overlay_position`, `overlay_duration_ms`, `density_mode`, `team_name_mode`

@@ -25,6 +25,15 @@ type TeamRow = {
   secondary_color: string | null;
 };
 
+type DisplayTemplate = {
+  id: string;
+  code: string;
+  name: string;
+  sport: string | null;
+  layout_mode: string;
+  is_default_system: boolean;
+};
+
 export default function TeamBrandingPage() {
   const nav = useNavigate();
   const { teamId = "" } = useParams();
@@ -42,6 +51,10 @@ export default function TeamBrandingPage() {
   const [logoUrl, setLogoUrl] = useState("");
   const [primaryColor, setPrimaryColor] = useState("#2563eb");
   const [secondaryColor, setSecondaryColor] = useState("#0f172a");
+
+  const [templates, setTemplates] = useState<DisplayTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [savingTemplate, setSavingTemplate] = useState(false);
 
   const activeOrgId = useMemo(() => (localStorage.getItem(LS_ACTIVE_ORG_ID) || "").trim(), []);
   const activeOrgSlug = useMemo(() => (localStorage.getItem(LS_ACTIVE_ORG_SLUG) || "").trim(), []);
@@ -92,6 +105,29 @@ export default function TeamBrandingPage() {
       setPrimaryColor(currentTeam.primary_color || "#2563eb");
       setSecondaryColor(currentTeam.secondary_color || "#0f172a");
 
+      // Load display templates + current team template choice
+      const orgSport = (currentOrg.sport || "football").toLowerCase();
+      const [{ data: tplRows }, { data: teamTplRow }] = await Promise.all([
+        supabase
+          .from("display_templates")
+          .select("id, code, name, sport, layout_mode, is_default_system")
+          .eq("is_active", true)
+          .or(`sport.eq.${orgSport},sport.is.null`)
+          .order("is_default_system", { ascending: false })
+          .order("name"),
+        supabase
+          .from("team_display_settings")
+          .select("template_id")
+          .eq("team_id", currentTeam.id)
+          .eq("is_active", true)
+          .maybeSingle(),
+      ]);
+
+      if (!cancelled) {
+        setTemplates((tplRows as DisplayTemplate[]) || []);
+        setSelectedTemplateId((teamTplRow as any)?.template_id ?? null);
+      }
+
       setLoading(false);
     }
 
@@ -104,6 +140,18 @@ export default function TeamBrandingPage() {
   function flash(message: string) {
     setInfo(message);
     window.setTimeout(() => setInfo(""), 2400);
+  }
+
+  async function saveTemplate() {
+    if (!team) return;
+    setSavingTemplate(true);
+    const payload = { team_id: team.id, template_id: selectedTemplateId || null, is_active: true };
+    const { error } = await supabase
+      .from("team_display_settings")
+      .upsert(payload, { onConflict: "team_id" });
+    setSavingTemplate(false);
+    if (error) { flash(`Erreur modèle : ${error.message}`); return; }
+    flash(selectedTemplateId ? "Modèle d'affichage équipe enregistré." : "Modèle réinitialisé (utilise le défaut organisation).");
   }
 
   async function saveBranding() {
@@ -179,6 +227,37 @@ export default function TeamBrandingPage() {
         {info ? <div style={styles.infoBox}>{info}</div> : null}
 
         <div style={styles.grid}>
+          <section style={styles.panel}>
+            <div style={styles.sectionTitle}>Modèle d'affichage</div>
+            <div style={{ fontSize: 13, opacity: 0.72, marginBottom: 14, lineHeight: 1.6 }}>
+              Choisissez un modèle d'affichage pour cette équipe. Si aucun modèle n'est choisi, celui défini par l'organisation sera utilisé.
+            </div>
+            <div style={styles.formGrid}>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label style={{ display: "block" }}>
+                  <div style={{ fontSize: 13, opacity: 0.78, marginBottom: 6 }}>Modèle</div>
+                  <select
+                    value={selectedTemplateId ?? ""}
+                    onChange={(e) => setSelectedTemplateId(e.target.value || null)}
+                    style={styles.input}
+                  >
+                    <option value="">— Défaut organisation —</option>
+                    {templates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}{t.is_default_system ? " ★" : ""} ({t.layout_mode})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={saveTemplate} style={styles.primaryBtn} disabled={savingTemplate}>
+                {savingTemplate ? "Sauvegarde..." : "Enregistrer modèle"}
+              </button>
+            </div>
+          </section>
+
           <section style={styles.panel}>
             <div style={styles.sectionTitle}>Paramètres branding</div>
 

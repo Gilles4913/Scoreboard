@@ -1,0 +1,224 @@
+Prompt Replit — intégration complète de la matrice d’affichage
+J’ai ajouté une nouvelle structure SQL pour la matrice d’affichage :
+
+- display_templates
+- org_display_sport_profiles
+- team_display_settings
+
+Rappel de l’architecture cible :
+
+1. org_display_settings
+= tronc commun d’affichage
+(thème, logos, sponsors, langue, lower third, overlays globaux, etc.)
+
+2. org_sport_settings
+= règles métier du sport
+(period_count, period_duration_s, shot_clock_s, max_team_fouls, max_timeouts, etc.)
+
+3. org_display_sport_profiles
+= matrice d’affichage par sport au niveau organisation
+(quels blocs afficher, densité visuelle, position overlay, template par défaut pour ce sport)
+
+4. display_templates
+= bibliothèque système des modèles d’affichage
+(rugby_stade, rugby_expert, football_stade, basket_arena, etc.)
+
+5. team_display_settings
+= choix du modèle par défaut au niveau équipe
+(override équipe du template par défaut d’organisation)
+
+Objectif :
+brancher cette matrice dans le backend et dans le Display, sans casser l’existant.
+
+Travail attendu :
+
+A. Backend / Edge Function
+Modifier get-display-context pour charger en plus :
+- org_display_sport_profiles pour (org_id, org.sport)
+- team_display_settings pour l’équipe concernée
+- display_templates pour résoudre le template final
+
+Logique de résolution du template :
+1. si team_display_settings.default_display_template_id existe => utiliser celui-là
+2. sinon utiliser org_display_sport_profiles.default_display_template_id
+3. sinon fallback sur display_templates.is_default_system = true pour le sport
+
+Le payload retourné par get-display-context doit maintenant inclure :
+- display_profile
+- display_template
+- resolved_display_template_id
+- config_display_resolved (objet final fusionné)
+
+B. Règles de fusion de config
+Construire un objet final résolu dans cet ordre de priorité :
+1. base commune issue de org_display_settings
+2. règles métier issues de org_sport_settings
+3. matrice visuelle issue de org_display_sport_profiles
+4. config_json du template résolu
+5. overrides équipe via team_display_settings si présents
+
+Le but est d’obtenir un seul objet frontend simple à consommer.
+
+C. Frontend Display
+Modifier le Display pour utiliser la config résolue :
+- affichage des blocs selon la matrice
+- template rugby prioritaire
+- compatibilité avec les autres sports
+- ne pas revenir à du hardcode diffus si une donnée existe déjà dans config_display_resolved
+
+D. Priorité fonctionnelle
+Commencer par Rugby :
+- rugby_stade
+- rugby_expert
+
+Ensuite garder la compatibilité :
+- football
+- basket
+- handball
+- volleyball
+
+E. Contraintes
+- ne jamais réintroduire token / display_token / public_display
+- toujours fournir les fichiers complets modifiés
+- toujours partir de l’existant
+- ne pas refondre inutilement
+- ne pas casser Operator -> Display
+- garder la lisibilité LED comme priorité produit
+
+Je veux en sortie :
+1. la liste des fichiers modifiés
+2. les fichiers complets
+3. la logique de résolution expliquée brièvement
+4. un mini plan de test
+Bloc Bible — à ajouter / remplacer
+
+Tu peux ajouter ce bloc dans la Bible, dans la partie architecture Display / paramètres.
+
+## Matrice d’affichage par sport
+
+L’affichage public de scoreDisplay V2 repose désormais sur une matrice hiérarchisée de paramètres et de modèles.
+
+### 1. `org_display_settings`
+Cette table porte le **tronc commun d’affichage**, indépendamment du sport :
+- thème
+- logos
+- sponsors
+- lower third
+- langues
+- overlays globaux
+- densité générale
+- options transverses d’habillage
+
+### 2. `org_sport_settings`
+Cette table porte les **règles métier du sport** :
+- nombre de périodes
+- durée des périodes
+- shot clock
+- bonus
+- fautes
+- temps morts
+- sets
+- cartes
+- etc.
+
+Elle décrit ce qui relève de la logique sportive, pas du choix visuel.
+
+### 3. `org_display_sport_profiles`
+Cette table porte la **matrice d’affichage par sport au niveau organisation**.
+
+Elle permet, pour un sport donné dans une organisation donnée, de définir :
+- les blocs visuels activés
+- la densité d’affichage
+- la stratégie de lisibilité LED
+- la position et durée des overlays
+- le template d’affichage par défaut pour ce sport
+
+Exemples :
+- Rugby : score, chrono, période, cartons, remplacements, sin bin
+- Basket : score, chrono, période, shot clock, bonus, fautes, possession
+- Football : score, chrono, période, cartons, remplacements, temps additionnel
+- Volley : score, sets, points du set, service, tie-break
+- Handball : score, chrono, temps morts, 2 minutes, avertissements, disqualifications
+
+### 4. `display_templates`
+Cette table porte la **bibliothèque système des modèles d’affichage**.
+
+Chaque template possède :
+- un `code`
+- un `sport`
+- un `layout_mode`
+- une `config_json`
+- un indicateur `is_default_system`
+
+Exemples :
+- `rugby_stade`
+- `rugby_expert`
+- `football_stade`
+- `basket_arena`
+- `handball_classic`
+- `volley_sets`
+
+### 5. `team_display_settings`
+Cette table permet à une équipe de choisir son **modèle d’affichage par défaut**.
+
+Elle sert principalement à surcharger le choix par défaut de l’organisation.
+
+Exemple :
+- l’organisation rugby utilise `rugby_stade` par défaut
+- une équipe particulière peut choisir `rugby_expert`
+
+---
+
+## Résolution finale de l’affichage
+
+Le Display résout sa configuration finale dans cet ordre :
+
+1. `org_display_settings`
+2. `org_sport_settings`
+3. `org_display_sport_profiles`
+4. `display_templates.config_json`
+5. `team_display_settings` (override éventuel)
+
+La priorité de résolution du template est :
+
+1. `team_display_settings.default_display_template_id`
+2. `org_display_sport_profiles.default_display_template_id`
+3. template système par défaut pour le sport
+
+---
+
+## Principes produit
+
+- chaque sport possède ses propres blocs d’affichage
+- chaque organisation peut définir une matrice d’affichage par sport
+- chaque équipe peut disposer d’un modèle d’affichage par défaut
+- le Display public reste piloté par l’URL stable par équipe (`teamSlug`)
+- le mode public par token match est supprimé
+
+---
+
+## Priorité de mise en œuvre
+
+La priorité fonctionnelle actuelle est :
+
+1. Rugby
+   - `rugby_stade`
+   - `rugby_expert`
+
+2. Football
+3. Basket
+4. Handball
+5. Volleyball
+
+Le Rugby est prioritaire car il sert de sport pilote pour les démonstrations club sur écran LED.
+Remplacement court à faire aussi dans la Bible
+
+Dans les sections qui parlent seulement de org_display_settings pour le Display, remplace la logique implicite par cette phrase :
+
+Le Display ne dépend plus uniquement de `org_display_settings`.  
+Il repose désormais sur la combinaison de :
+- `org_display_settings`
+- `org_sport_settings`
+- `org_display_sport_profiles`
+- `display_templates`
+- `team_display_settings`

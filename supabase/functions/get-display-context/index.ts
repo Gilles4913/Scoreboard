@@ -138,12 +138,19 @@ async function loadOrgSettings(
   supabase: ReturnType<typeof createClient>,
   orgId: string,
 ) {
-  const [orgRes, displayRes, sportRes, profileRes] = await Promise.all([
-    supabase
-      .from("orgs")
-      .select("id, slug, name, sport, is_master")
-      .eq("id", orgId)
-      .maybeSingle(),
+  // Step 1: load org first to get sport for filtering org_display_sport_profiles
+  const orgRes = await supabase
+    .from("orgs")
+    .select("id, slug, name, sport, is_master")
+    .eq("id", orgId)
+    .maybeSingle();
+
+  if (orgRes.error) throw orgRes.error;
+
+  const orgSport = ((orgRes.data?.sport as string) || "football").toLowerCase().trim();
+
+  // Step 2: load settings in parallel, profile filtered by sport
+  const [displayRes, sportRes, profileRes] = await Promise.all([
     supabase
       .from("org_display_settings")
       .select("*")
@@ -158,14 +165,14 @@ async function loadOrgSettings(
       .from("org_display_sport_profiles")
       .select(
         `*, display_templates (
-          id, code, layout_mode, config_json, is_active
+          id, code, name, layout_mode, config_json, is_active
         )`,
       )
       .eq("org_id", orgId)
+      .eq("sport", orgSport)
       .maybeSingle(),
   ]);
 
-  if (orgRes.error) throw orgRes.error;
   if (displayRes.error) throw displayRes.error;
   if (sportRes.error) throw sportRes.error;
   // profileRes errors are soft — table may not exist yet in all envs
@@ -533,11 +540,36 @@ serve(async (req) => {
 
     const { org, display_settings: orgDisplaySettings, sport_settings, sport_profile } = orgSettings;
 
-    // Resolve display template: team override > org sport profile default > none
+    // Resolve display template:
+    // 1. team_display_settings override
+    // 2. org_display_sport_profiles.default_display_template_id
+    // 3. fallback: display_templates WHERE is_default_system=true AND sport=org.sport
     const profileTemplate = (sport_profile as any)?.display_templates ?? null;
     const profileTemplateActive = profileTemplate && profileTemplate.is_active !== false;
-    const resolvedTemplate: { layout_mode: string | null; config_json: JsonRecord } | null =
+    let resolvedTemplate: { id?: string; code?: string; name?: string; layout_mode: string | null; config_json: JsonRecord } | null =
       teamTemplate ?? (profileTemplateActive ? profileTemplate : null) ?? null;
+
+    if (!resolvedTemplate) {
+      const sportValue = ((org?.sport as string) || (sport_settings as any)?.sport || "football").toLowerCase().trim();
+      const { data: sysTemplate, error: sysErr } = await supabase
+        .from("display_templates")
+        .select("id, code, name, layout_mode, config_json")
+        .eq("sport", sportValue)
+        .eq("is_default_system", true)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (!sysErr && sysTemplate) {
+        resolvedTemplate = {
+          id: sysTemplate.id,
+          code: sysTemplate.code,
+          name: sysTemplate.name,
+          layout_mode: sysTemplate.layout_mode,
+          config_json: (sysTemplate.config_json && typeof sysTemplate.config_json === "object"
+            ? sysTemplate.config_json
+            : {}) as JsonRecord,
+        };
+      }
+    }
 
     const baseDisplayDefaults = {
       theme: "dark",
@@ -568,8 +600,18 @@ serve(async (req) => {
     const sportProfilePayload = sport_profile
       ? {
           ...sportProfileClean,
-          resolved_template_id: profileTemplate?.id ?? null,
-          resolved_template_code: profileTemplate?.code ?? null,
+          resolved_template_id: resolvedTemplate?.id ?? profileTemplate?.id ?? null,
+          resolved_template_code: resolvedTemplate?.code ?? profileTemplate?.code ?? null,
+        }
+      : null;
+
+    // Explicit display_template metadata for frontend convenience
+    const displayTemplatePayload = resolvedTemplate
+      ? {
+          id: resolvedTemplate.id ?? null,
+          code: resolvedTemplate.code ?? null,
+          name: resolvedTemplate.name ?? null,
+          layout_mode: resolvedTemplate.layout_mode ?? null,
         }
       : null;
 
@@ -582,6 +624,14 @@ serve(async (req) => {
         : null,
 
       display_settings,
+      // Alias: config_display_resolved is the merged final config (= display_settings)
+      config_display_resolved: display_settings,
+
+      display_template: displayTemplatePayload,
+      resolved_display_template_id: resolvedTemplate?.id ?? null,
+
+      // Sport profile alias
+      display_profile: sportProfilePayload,
 
       sport_settings: {
         show_team_fouls: false,
