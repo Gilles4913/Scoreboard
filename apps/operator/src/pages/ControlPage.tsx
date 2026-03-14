@@ -689,40 +689,47 @@ export default function ControlPage() {
         const homeMp = mp.filter((p) => !homeTeamId || p.team_id === homeTeamId);
         const awayMp = awayTeamId ? mp.filter((p) => p.team_id === awayTeamId) : [];
 
-        let homeRows = toPlayerStatRows(homeMp);
-        let awayRows = toPlayerStatRows(awayMp);
+        /* Fusion feuille de match + squad complet de l'équipe (dédupliqués par player_id).
+           Garantit que TOUS les joueurs du squad sont toujours proposés dans le picker,
+           même si certains n'ont pas été cochés dans la feuille de match. */
+        function mergeWithSquad(
+          matchRows: PlayerStatRow[],
+          squadData: { id: string; name: string; number: string }[],
+          teamId: string | null
+        ): PlayerStatRow[] {
+          const matchIds = new Set(matchRows.map((r) => r.id));
+          const extras = squadData
+            .filter((p) => !matchIds.has(p.id))
+            .map((p) => ({ id: p.id, team_id: teamId || undefined, name: p.name || "Joueur", number: p.number || "?", fouls: 0 }));
+          return [...matchRows, ...extras].sort((a, b) => {
+            const na = parseInt(a.number, 10);
+            const nb = parseInt(b.number, 10);
+            if (!isNaN(na) && !isNaN(nb)) return na - nb;
+            return a.number.localeCompare(b.number);
+          });
+        }
 
-        /* fallback: si match_players vide, charger les joueurs depuis la table players de l'équipe */
-        const fallbackPromises: Promise<void>[] = [];
-        if (homeRows.length === 0 && homeTeamId) {
-          fallbackPromises.push(
-            supabase.from("players").select("id, name, number").eq("team_id", homeTeamId).order("number", { ascending: true })
-              .then(({ data }) => {
-                if (data && !cancelled) {
-                  homeRows = (data as { id: string; name: string; number: string }[]).map((p) => ({
-                    id: p.id, team_id: homeTeamId, name: p.name || "Joueur", number: p.number || "?", fouls: 0,
-                  }));
-                }
-              })
+        const squadPromises: Promise<void>[] = [];
+        let homeSquad: { id: string; name: string; number: string }[] = [];
+        let awaySquad: { id: string; name: string; number: string }[] = [];
+
+        if (homeTeamId) {
+          squadPromises.push(
+            supabase.from("players").select("id, name, number").eq("team_id", homeTeamId).eq("is_active", true).order("number", { ascending: true })
+              .then(({ data }) => { if (data) homeSquad = data as { id: string; name: string; number: string }[]; })
           );
         }
-        if (awayRows.length === 0 && awayTeamId) {
-          fallbackPromises.push(
-            supabase.from("players").select("id, name, number").eq("team_id", awayTeamId).order("number", { ascending: true })
-              .then(({ data }) => {
-                if (data && !cancelled) {
-                  awayRows = (data as { id: string; name: string; number: string }[]).map((p) => ({
-                    id: p.id, team_id: awayTeamId, name: p.name || "Joueur", number: p.number || "?", fouls: 0,
-                  }));
-                }
-              })
+        if (awayTeamId) {
+          squadPromises.push(
+            supabase.from("players").select("id, name, number").eq("team_id", awayTeamId).eq("is_active", true).order("number", { ascending: true })
+              .then(({ data }) => { if (data) awaySquad = data as { id: string; name: string; number: string }[]; })
           );
         }
-        if (fallbackPromises.length > 0) await Promise.all(fallbackPromises);
+        if (squadPromises.length > 0) await Promise.all(squadPromises);
 
         if (!cancelled) {
-          setHomePlayers(homeRows);
-          setAwayPlayers(awayRows);
+          setHomePlayers(mergeWithSquad(toPlayerStatRows(homeMp), homeSquad, homeTeamId));
+          setAwayPlayers(mergeWithSquad(toPlayerStatRows(awayMp), awaySquad, awayTeamId));
         }
       }
 

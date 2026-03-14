@@ -147,34 +147,44 @@ export default function MobileControlPage() {
       setClockMs(initMs);
       setClockRunning(initRunning);
 
-      /* players */
+      /* players — fusion feuille de match + squad complet dédupliqués */
       const mp = (mpData || []) as any[];
       const homeTeamId = m.home_team_id || m.team_id || null;
       const awayTeamId = m.away_team_id || null;
-      const toOpt = (row: any): PlayerOption => ({
-        id: row.player_id || row.id,
-        name: row.player?.name || row.name || "Joueur",
-        number: row.shirt_number || row.player?.number || row.number || "?",
+      const mpToOpt = (row: any): PlayerOption => ({
+        id: row.player_id,
+        name: row.player?.name || "Joueur",
+        number: row.shirt_number || row.player?.number || "?",
       });
-
-      let homePl = mp.filter((p) => !homeTeamId || p.team_id === homeTeamId).map(toOpt);
-      let awayPl = awayTeamId ? mp.filter((p) => p.team_id === awayTeamId).map(toOpt) : [];
-
-      /* fallback: charger depuis la table players si match_players vide */
-      const fb: Promise<void>[] = [];
-      if (homePl.length === 0 && homeTeamId) {
-        fb.push(supabase.from("players").select("id, name, number").eq("team_id", homeTeamId).order("number", { ascending: true })
-          .then(({ data }) => { if (data && !cancelled) homePl = (data as any[]).map(toOpt); }));
+      const squadToOpt = (row: any): PlayerOption => ({
+        id: row.id,
+        name: row.name || "Joueur",
+        number: row.number || "?",
+      });
+      function mergeOpts(mpList: PlayerOption[], squadList: PlayerOption[]): PlayerOption[] {
+        const ids = new Set(mpList.map((p) => p.id));
+        const extras = squadList.filter((p) => !ids.has(p.id));
+        return [...mpList, ...extras].sort((a, b) => {
+          const na = parseInt(a.number, 10), nb = parseInt(b.number, 10);
+          return (!isNaN(na) && !isNaN(nb)) ? na - nb : a.number.localeCompare(b.number);
+        });
       }
-      if (awayPl.length === 0 && awayTeamId) {
-        fb.push(supabase.from("players").select("id, name, number").eq("team_id", awayTeamId).order("number", { ascending: true })
-          .then(({ data }) => { if (data && !cancelled) awayPl = (data as any[]).map(toOpt); }));
-      }
-      if (fb.length > 0) await Promise.all(fb);
+
+      const homeMpOpts = mp.filter((p) => !homeTeamId || p.team_id === homeTeamId).map(mpToOpt);
+      const awayMpOpts = awayTeamId ? mp.filter((p) => p.team_id === awayTeamId).map(mpToOpt) : [];
+
+      let homeSquad: PlayerOption[] = [];
+      let awaySquad: PlayerOption[] = [];
+      const sq: Promise<void>[] = [];
+      if (homeTeamId) sq.push(supabase.from("players").select("id, name, number").eq("team_id", homeTeamId).eq("is_active", true).order("number", { ascending: true })
+        .then(({ data }) => { if (data) homeSquad = (data as any[]).map(squadToOpt); }));
+      if (awayTeamId) sq.push(supabase.from("players").select("id, name, number").eq("team_id", awayTeamId).eq("is_active", true).order("number", { ascending: true })
+        .then(({ data }) => { if (data) awaySquad = (data as any[]).map(squadToOpt); }));
+      if (sq.length > 0) await Promise.all(sq);
 
       if (!cancelled) {
-        setHomePlayers(homePl);
-        setAwayPlayers(awayPl);
+        setHomePlayers(mergeOpts(homeMpOpts, homeSquad));
+        setAwayPlayers(mergeOpts(awayMpOpts, awaySquad));
       }
 
       setLoading(false);
