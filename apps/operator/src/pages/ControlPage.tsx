@@ -1039,7 +1039,26 @@ export default function ControlPage() {
     } catch {}
   }
 
-
+  async function archiveMatch() {
+    if (!match) return;
+    const ok = await confirm({
+      title: "Archiver ce match ?",
+      message: "Le match sera marqué comme archivé. Toutes les données (score, statistiques, événements) sont conservées et ne pourront plus être modifiées depuis la régie.",
+      confirmLabel: "Archiver",
+      cancelLabel: "Annuler",
+      variant: "danger",
+    });
+    if (!ok) return;
+    try {
+      const { error } = await supabase.from("matches").update({ status: "archived" }).eq("id", match.id);
+      if (error) { toast(error.message, "error"); return; }
+      setStatus("archived");
+      void pushPatch({ status: "archived" });
+      toast("Match archivé.", "success");
+    } catch (e: any) {
+      toast(e?.message || "Erreur archivage.", "error");
+    }
+  }
 
   async function startClock() {
     const nextClockMs =
@@ -1931,11 +1950,17 @@ export default function ControlPage() {
               </Field>
 
               <Field label="Statut">
-                <select value={status} onChange={(e) => setStatus(e.target.value)} style={styles.input}>
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value)}
+                  style={styles.input}
+                  disabled={status === "archived"}
+                >
                   <option value="scheduled">À préparer</option>
                   <option value="live">En cours</option>
                   <option value="paused">Pause</option>
                   <option value="finished">Terminé</option>
+                  {status === "archived" && <option value="archived">Archivé</option>}
                 </select>
               </Field>
 
@@ -1976,6 +2001,26 @@ export default function ControlPage() {
                 </select>
               </Field>
             </div>
+
+            {status === "finished" && (
+              <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid rgba(255,255,255,.08)" }}>
+                <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 10 }}>
+                  Le match est terminé. Archivez-le pour le verrouiller et le conserver dans l'historique.
+                </div>
+                <button
+                  onClick={archiveMatch}
+                  style={{ ...styles.ghostBtn, borderColor: "rgba(148,163,184,.4)", color: "#94a3b8", display: "flex", alignItems: "center", gap: 8 }}
+                >
+                  📦 Archiver le match
+                </button>
+              </div>
+            )}
+
+            {status === "archived" && (
+              <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid rgba(255,255,255,.08)", color: "#64748b", fontSize: 13 }}>
+                ✅ Ce match est archivé — données verrouillées.
+              </div>
+            )}
           </section>
 
           <section style={styles.panel}>
@@ -3058,7 +3103,7 @@ const styles: Record<string, any> = {
   formGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 },
   input: {
     width: "100%",
-    background: "rgba(255,255,255,.05)",
+    background: "#0f172a",
     color: "#e7eefc",
     border: "1px solid rgba(255,255,255,.12)",
     borderRadius: 12,

@@ -1,0 +1,18 @@
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root { height: 100%; margin: 0; }
+
+body {
+  font-family: Inter, ui-sans-serif, system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+}
+
+select,
+select option {
+  background-color: #0f172a;
+  color: #e7eefc;
+}
+
+select:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
