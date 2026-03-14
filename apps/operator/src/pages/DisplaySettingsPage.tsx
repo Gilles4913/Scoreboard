@@ -161,6 +161,43 @@ function presetDisplayForSport(sport: string): Partial<DisplaySettingsRow> {
   };
 }
 
+function sportUiConfig(sport: string) {
+  const s = normalizeSport(sport);
+  const rugby    = s === "rugby";
+  const basket   = s === "basket" || s === "basketball";
+  const handball = s === "handball";
+  const volley   = s === "volleyball";
+  return {
+    periodCountLabel:       volley   ? "Nombre de sets"                    : basket  ? "Nombre de quarts"                  : rugby   ? "Nombre de mi-temps"              : "Nombre de périodes",
+    periodDurationLabel:    basket   ? "Durée d'un quart (secondes)"       : rugby   ? "Durée d'une mi-temps (secondes)"    : volley  ? "Durée par set (secondes)"        : "Durée d'une période (secondes)",
+    extraTimeLabel:         rugby    ? "Prolongations"                     : "Prolongation",
+    penaltiesLabel:         rugby    ? "Séance de tirs au but"             : volley  ? "Tirs au but"                        : "Tirs au but / pénalités",
+    maxTimeoutsLabel:       handball ? "Temps morts max (par équipe)"      : volley  ? "Temps techniques max"               : "Temps morts max",
+    maxTeamFoulsLabel:      "Fautes équipe max",
+    maxPlayerFoulsLabel:    basket   ? "Fautes joueur max (exclusion à 5)" : "Fautes joueur max",
+    shotClockLabel:         basket   ? "Shot clock (secondes)"             : "Chrono tir (secondes)",
+    showTeamFoulsLabel:     "Afficher fautes équipe",
+    showPlayerFoulsLabel:   basket   ? "Afficher fautes joueur"            : "Afficher fautes joueur",
+    showTimeoutsLabel:      volley   ? "Afficher temps techniques"         : "Afficher temps morts",
+    showBonusLabel:         rugby    ? "Afficher points de bonus"          : "Afficher bonus",
+    showSetsLabel:          "Afficher sets",
+    showCardsLabel:         rugby    ? "Afficher cartons (jaune/rouge)"    : "Afficher cartons",
+    showShotClockLabel:     "Afficher shot clock",
+    showPenalties:          !volley,
+    showMaxTimeouts:        !rugby,
+    showMaxTeamFouls:       basket,
+    showMaxPlayerFouls:     basket,
+    showShotClockField:     basket,
+    showTeamFoulsToggle:    basket,
+    showPlayerFoulsToggle:  basket,
+    showTimeoutsToggle:     !rugby,
+    showBonusToggle:        rugby,
+    showSetsToggle:         volley,
+    showCardsToggle:        !basket && !volley,
+    showShotClockToggle:    basket,
+  };
+}
+
 function presetSportSettingsForSport(sport: string): Partial<SportSettingsRow> {
   const s = normalizeSport(sport);
 
@@ -565,8 +602,8 @@ export default function DisplaySettingsPage() {
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button onClick={() => nav("/teams")} style={styles.ghostBtn}>
-              Retour équipes
+            <button onClick={() => nav(-1 as any)} style={styles.ghostBtn}>
+              ← Retour
             </button>
             <button onClick={applySportPreset} style={styles.ghostBtn}>
               Appliquer preset sport
@@ -721,90 +758,119 @@ export default function DisplaySettingsPage() {
             </div>
           </section>
 
-          <section style={styles.panel}>
-            <div style={styles.sectionTitle}>Paramètres sport</div>
-            <div style={styles.sectionText}>
-              Ces options définissent les informations métier exploitables pour ce sport.
-            </div>
+          {(() => {
+            const sUi = sportUiConfig(sportForm.sport);
+            return (
+              <section style={styles.panel}>
+                <div style={styles.sectionTitle}>Paramètres sport</div>
+                <div style={styles.sectionText}>
+                  Ces options définissent les informations métier exploitables pour ce sport.
+                </div>
 
-            <div style={styles.formGrid}>
-              <Field label="Sport">
-                <input readOnly value={sportForm.sport} style={{ ...styles.input, opacity: 0.82 }} />
-              </Field>
+                <div style={styles.formGrid}>
+                  <Field label="Sport">
+                    <input readOnly value={sportForm.sport} style={{ ...styles.input, opacity: 0.82 }} />
+                  </Field>
 
-              <Field label="Nombre de périodes / sets">
-                <input
-                  type="number"
-                  min={1}
-                  value={sportForm.period_count}
-                  onChange={(e) => patchSport({ period_count: Math.max(1, Number(e.target.value || 1)) })}
-                  style={styles.input}
-                />
-              </Field>
+                  <Field label={sUi.periodCountLabel}>
+                    <input
+                      type="number"
+                      min={1}
+                      value={sportForm.period_count}
+                      onChange={(e) => patchSport({ period_count: Math.max(1, Number(e.target.value || 1)) })}
+                      style={styles.input}
+                    />
+                  </Field>
 
-              <Field label="Durée d’une période (secondes)">
-                <input
-                  type="number"
-                  min={0}
-                  value={sportForm.period_duration_s}
-                  onChange={(e) => patchSport({ period_duration_s: Math.max(0, Number(e.target.value || 0)) })}
-                  style={styles.input}
-                />
-              </Field>
+                  <Field label={sUi.periodDurationLabel}>
+                    <input
+                      type="number"
+                      min={0}
+                      value={sportForm.period_duration_s}
+                      onChange={(e) => patchSport({ period_duration_s: Math.max(0, Number(e.target.value || 0)) })}
+                      style={styles.input}
+                    />
+                  </Field>
 
-              <Field label="Temps morts max">
-                <input
-                  type="number"
-                  min={0}
-                  value={sportForm.max_timeouts ?? 0}
-                  onChange={(e) => patchSport({ max_timeouts: Math.max(0, Number(e.target.value || 0)) })}
-                  style={styles.input}
-                />
-              </Field>
+                  {sUi.showMaxTimeouts && (
+                    <Field label={sUi.maxTimeoutsLabel}>
+                      <input
+                        type="number"
+                        min={0}
+                        value={sportForm.max_timeouts ?? 0}
+                        onChange={(e) => patchSport({ max_timeouts: Math.max(0, Number(e.target.value || 0)) })}
+                        style={styles.input}
+                      />
+                    </Field>
+                  )}
 
-              <Field label="Fautes équipe max">
-                <input
-                  type="number"
-                  min={0}
-                  value={sportForm.max_team_fouls ?? 0}
-                  onChange={(e) => patchSport({ max_team_fouls: Math.max(0, Number(e.target.value || 0)) })}
-                  style={styles.input}
-                />
-              </Field>
+                  {sUi.showMaxTeamFouls && (
+                    <Field label={sUi.maxTeamFoulsLabel}>
+                      <input
+                        type="number"
+                        min={0}
+                        value={sportForm.max_team_fouls ?? 0}
+                        onChange={(e) => patchSport({ max_team_fouls: Math.max(0, Number(e.target.value || 0)) })}
+                        style={styles.input}
+                      />
+                    </Field>
+                  )}
 
-              <Field label="Fautes joueur max">
-                <input
-                  type="number"
-                  min={0}
-                  value={sportForm.max_player_fouls ?? 0}
-                  onChange={(e) => patchSport({ max_player_fouls: Math.max(0, Number(e.target.value || 0)) })}
-                  style={styles.input}
-                />
-              </Field>
+                  {sUi.showMaxPlayerFouls && (
+                    <Field label={sUi.maxPlayerFoulsLabel}>
+                      <input
+                        type="number"
+                        min={0}
+                        value={sportForm.max_player_fouls ?? 0}
+                        onChange={(e) => patchSport({ max_player_fouls: Math.max(0, Number(e.target.value || 0)) })}
+                        style={styles.input}
+                      />
+                    </Field>
+                  )}
 
-              <Field label="Shot clock (secondes)">
-                <input
-                  type="number"
-                  min={0}
-                  value={sportForm.shot_clock_s ?? 0}
-                  onChange={(e) => patchSport({ shot_clock_s: Math.max(0, Number(e.target.value || 0)) })}
-                  style={styles.input}
-                />
-              </Field>
-            </div>
+                  {sUi.showShotClockField && (
+                    <Field label={sUi.shotClockLabel}>
+                      <input
+                        type="number"
+                        min={0}
+                        value={sportForm.shot_clock_s ?? 0}
+                        onChange={(e) => patchSport({ shot_clock_s: Math.max(0, Number(e.target.value || 0)) })}
+                        style={styles.input}
+                      />
+                    </Field>
+                  )}
+                </div>
 
-            <div style={styles.flagsGrid}>
-              <Toggle label="Prolongation" value={sportForm.extra_time_enabled} onChange={(v) => patchSport({ extra_time_enabled: v })} />
-              <Toggle label="Tirs au but / pénalités" value={sportForm.penalties_enabled} onChange={(v) => patchSport({ penalties_enabled: v })} />
-              <Toggle label="Afficher fautes équipe" value={sportForm.show_team_fouls} onChange={(v) => patchSport({ show_team_fouls: v })} />
-              <Toggle label="Afficher fautes joueur" value={sportForm.show_player_fouls} onChange={(v) => patchSport({ show_player_fouls: v })} />
-              <Toggle label="Afficher temps morts" value={sportForm.show_timeouts} onChange={(v) => patchSport({ show_timeouts: v })} />
-              <Toggle label="Afficher bonus" value={sportForm.show_bonus} onChange={(v) => patchSport({ show_bonus: v })} />
-              <Toggle label="Afficher sets" value={sportForm.show_sets} onChange={(v) => patchSport({ show_sets: v })} />
-              <Toggle label="Afficher cartons" value={sportForm.show_cards} onChange={(v) => patchSport({ show_cards: v })} />
-              <Toggle label="Afficher shot clock" value={sportForm.show_shot_clock} onChange={(v) => patchSport({ show_shot_clock: v })} />
-            </div>
-          </section>
+                <div style={styles.flagsGrid}>
+                  <Toggle label={sUi.extraTimeLabel} value={sportForm.extra_time_enabled} onChange={(v) => patchSport({ extra_time_enabled: v })} />
+                  {sUi.showPenalties && (
+                    <Toggle label={sUi.penaltiesLabel} value={sportForm.penalties_enabled} onChange={(v) => patchSport({ penalties_enabled: v })} />
+                  )}
+                  {sUi.showTeamFoulsToggle && (
+                    <Toggle label={sUi.showTeamFoulsLabel} value={sportForm.show_team_fouls} onChange={(v) => patchSport({ show_team_fouls: v })} />
+                  )}
+                  {sUi.showPlayerFoulsToggle && (
+                    <Toggle label={sUi.showPlayerFoulsLabel} value={sportForm.show_player_fouls} onChange={(v) => patchSport({ show_player_fouls: v })} />
+                  )}
+                  {sUi.showTimeoutsToggle && (
+                    <Toggle label={sUi.showTimeoutsLabel} value={sportForm.show_timeouts} onChange={(v) => patchSport({ show_timeouts: v })} />
+                  )}
+                  {sUi.showBonusToggle && (
+                    <Toggle label={sUi.showBonusLabel} value={sportForm.show_bonus} onChange={(v) => patchSport({ show_bonus: v })} />
+                  )}
+                  {sUi.showSetsToggle && (
+                    <Toggle label={sUi.showSetsLabel} value={sportForm.show_sets} onChange={(v) => patchSport({ show_sets: v })} />
+                  )}
+                  {sUi.showCardsToggle && (
+                    <Toggle label={sUi.showCardsLabel} value={sportForm.show_cards} onChange={(v) => patchSport({ show_cards: v })} />
+                  )}
+                  {sUi.showShotClockToggle && (
+                    <Toggle label={sUi.showShotClockLabel} value={sportForm.show_shot_clock} onChange={(v) => patchSport({ show_shot_clock: v })} />
+                  )}
+                </div>
+              </section>
+            );
+          })()}
 
           <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
             <div style={styles.sectionTitle}>Sponsors</div>

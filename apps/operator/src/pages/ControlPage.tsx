@@ -2123,22 +2123,12 @@ export default function ControlPage() {
               </Field>
 
               <Field label="Sport">
-                <select
+                <input
+                  readOnly
                   value={sport}
-                  onChange={(e) => {
-                    const newSport = e.target.value;
-                    setOrg((prev) => prev ? { ...prev, sport: newSport } : prev);
-                  }}
-                  style={styles.input}
-                >
-                  <option value="football">Football</option>
-                  <option value="rugby">Rugby</option>
-                  <option value="basketball">Basketball</option>
-                  <option value="handball">Handball</option>
-                  <option value="volleyball">Volleyball</option>
-                  <option value="hockey">Hockey</option>
-                  <option value="autres">Autres</option>
-                </select>
+                  style={{ ...styles.input, opacity: 0.6, cursor: "not-allowed" }}
+                  title="Le sport est défini dans les paramètres de l'organisation"
+                />
               </Field>
             </div>
 
