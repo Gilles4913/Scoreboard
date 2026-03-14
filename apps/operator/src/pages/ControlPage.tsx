@@ -488,6 +488,7 @@ export default function ControlPage() {
   const clockMsRef = useRef<number>(0);
   const clockRunningRef = useRef<boolean>(false);
   const clockAnchorRef = useRef<{ epoch: number; ms: number }>({ epoch: Date.now(), ms: 0 });
+  const matchRef = useRef<MatchRow | null>(null);
 
   const sport = normalizeSport(org?.sport);
   const canScore = status === "live";
@@ -761,6 +762,8 @@ export default function ControlPage() {
     }
   }, [handballSuspensions, isHandball]);
 
+  useEffect(() => { matchRef.current = match; }, [match]);
+
   useEffect(() => {
     const orgId = org?.id;
     if (!orgId) return;
@@ -776,6 +779,37 @@ export default function ControlPage() {
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [org?.id]);
+
+  useEffect(() => {
+    if (!matchId) return;
+    const ch = supabase
+      .channel(`mp_changes:${matchId}`)
+      .on(
+        "postgres_changes" as any,
+        { event: "*", schema: "public", table: "match_players", filter: `match_id=eq.${matchId}` },
+        async () => {
+          const m = matchRef.current;
+          if (!m) return;
+          const { data } = await supabase
+            .from("match_players")
+            .select(`
+              id, player_id, team_id, shirt_number, fouls, points,
+              yellow_cards, red_cards, is_selected, is_starter, is_on_field,
+              player:players (id, name, number)
+            `)
+            .eq("match_id", matchId)
+            .order("shirt_number", { ascending: true });
+          if (!data) return;
+          const mp = data as unknown as MatchPlayerRow[];
+          const homeTeamId = m.home_team_id || m.team_id || null;
+          const awayTeamId = m.away_team_id || null;
+          setHomePlayers(toPlayerStatRows(mp.filter((p) => !homeTeamId || p.team_id === homeTeamId)));
+          setAwayPlayers(toPlayerStatRows(awayTeamId ? mp.filter((p) => p.team_id === awayTeamId) : []));
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [matchId]);
 
   function displayLink() {
     if (!DISPLAY_URL) return "";
