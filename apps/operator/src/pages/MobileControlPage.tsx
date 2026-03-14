@@ -181,6 +181,67 @@ export default function MobileControlPage() {
     return () => { if (timerRef.current) { window.clearInterval(timerRef.current); timerRef.current = null; } };
   }, [clockRunning]);
 
+  /* ── remote clock sync ───────────────────────────────────────────────────── */
+  // Applique un patch distant (broadcast ou postgres_changes) en corrigeant
+  // la dérive réseau via emitted_at — même logique que le Display app.
+  function applyRemoteClockSync(patch: any) {
+    if (!patch || typeof patch !== "object") return;
+    if (typeof patch.clock_ms !== "number" && typeof patch.clock_running !== "boolean") return;
+
+    if (typeof patch.clock_ms === "number") {
+      // Priorité 1 : clock_anchor_epoch/ms envoyés par ControlPage (interpolation exacte)
+      const anchorEpoch = typeof patch.clock_anchor_epoch === "number" ? patch.clock_anchor_epoch : null;
+      const anchorMs    = typeof patch.clock_anchor_ms    === "number" ? patch.clock_anchor_ms    : null;
+      let correctedMs: number;
+      if (anchorEpoch !== null && anchorMs !== null) {
+        correctedMs = Math.max(0, anchorMs - (Date.now() - anchorEpoch));
+      } else {
+        // Fallback : compenser la dérive réseau via emitted_at
+        const emittedAt = typeof patch.emitted_at === "number" ? patch.emitted_at : Date.now();
+        correctedMs = Math.max(0, patch.clock_ms - Math.max(0, Date.now() - emittedAt));
+      }
+      clockMsRef.current = correctedMs;
+      clockAnchorRef.current = { epoch: Date.now(), ms: correctedMs };
+      setClockMs(correctedMs);
+    }
+    if (typeof patch.clock_running === "boolean") {
+      clockRunningRef.current = patch.clock_running;
+      setClockRunning(patch.clock_running);
+    }
+    if (typeof patch.status === "string") {
+      setStatus(patch.status.toLowerCase());
+    }
+  }
+
+  useEffect(() => {
+    if (!matchId) return;
+
+    const channel = supabase.channel(`mobile-clock:${matchId}`);
+    channel
+      .on("broadcast", { event: "*" }, (message: any) => {
+        const patch = message?.payload?.patch || message?.payload || message;
+        applyRemoteClockSync(patch);
+      })
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "matches", filter: `id=eq.${matchId}` },
+        (payload: any) => {
+          const row = payload?.new;
+          if (!row) return;
+          // postgres_changes n'a pas d'emitted_at : on utilise Date.now() (dérive ~0)
+          applyRemoteClockSync({
+            clock_ms: row.clock_ms,
+            clock_running: row.clock_running,
+            status: row.status,
+            emitted_at: Date.now(),
+          });
+        },
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [matchId]);
+
   /* ── helpers ─────────────────────────────────────────────────────────────── */
   function nextSeq() { liveSeqRef.current += 1; return liveSeqRef.current; }
 
