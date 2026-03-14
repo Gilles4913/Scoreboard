@@ -66,11 +66,27 @@ Merge order (lowest to highest priority):
 2. `org_display_settings` (org-level)
 3. `team_display_settings` → `display_templates.config_json` + `layout_mode` (team-level override)
 
+## Substitutions (Rugby & Football)
+- **Dialog**: `apps/operator/src/components/SubstitutionDialog.tsx` — select player out / player in, reason, is_temporary, is_blood_substitution
+- **Handler**: `handleSubstitution()` in ControlPage — writes to `match_substitutions`, updates `match_players.is_on_field`, logs `rugby_substitution` / `football_substitution` to `match_events`
+- **Buttons**: Appear in "Mode rugby" and "Mode football" sections of ControlPage
+- **Event log**: Substitution events display as `#N1 PlayerOut → #N2 PlayerIn (reason)` in the journal
+- **is_on_field tracking**: `match_players` has `is_on_field`, `entered_at_clock_ms`, `left_at_clock_ms`, `minutes_played_s`. Default: `is_on_field = is_starter` (pre-migration fallback)
+
+## Team Statistics
+- **Page**: `apps/operator/src/pages/TeamStatsPage.tsx` at `/teams/:teamId/stats`
+- **Access**: "Statistiques" button in TeamMatchesPage
+- **Data sources**: 4 SQL RPCs — `get_team_match_summary`, `get_team_discipline_summary`, `get_team_player_stats`, `get_team_substitution_summary`
+- **Reliable stats**: match record (W/D/L), scores, cards per match, player selections/starts/points/fouls/cards
+- **Not available**: xG, passes, distance, any data not entered in operator
+
 ## Database Migrations
 Migrations are in `supabase/migrations/`. Recent additions:
 - `20260313000001_cleanup_legacy_token.sql` — Drops `public_display` and `display_token` columns from `matches`
 - `20260313000002_display_templates.sql` — Creates `display_templates` and `team_display_settings` tables with seed data
 - `20260313000003_fix_rls_public_display.sql` — Fixes RLS policies that depended on `public_display`; allows anon read on matches + teams; recreates clean `matches_v` view
+- `20260314000001_substitutions.sql` — Adds `is_on_field/entered_at/left_at/minutes_played_s` to `match_players`; creates `match_substitutions` table with indexes
+- `20260314000002_team_stats_rpc.sql` — Creates 4 RPC functions for team statistics (match summary, discipline, player stats, substitution summary)
 
 ## Key Files
 - `apps/home/src/App.tsx` — Home hub entry point (login + org selection)

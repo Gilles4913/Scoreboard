@@ -6,6 +6,7 @@ import { supabase } from "../supabase";
 import { useToast, ToastContainer } from "../components/Toast";
 import { useConfirm, ConfirmDialog } from "../components/ConfirmDialog";
 import { usePlayerPicker, PlayerPickerDialog } from "../components/PlayerPickerDialog";
+import SubstitutionDialog, { type SubstPlayer, type SubstitutionPayload } from "../components/SubstitutionDialog";
 
 type MatchRow = {
   id: string;
@@ -126,6 +127,7 @@ type MatchPlayerRow = {
   red_cards: number;
   is_selected: boolean;
   is_starter: boolean;
+  is_on_field: boolean;
   player: {
     id: string;
     name: string;
@@ -178,6 +180,7 @@ type PlayerStatRow = {
   points?: number;
   yellow_cards?: number;
   red_cards?: number;
+  is_on_field?: boolean;
 };
 
 type MatchEventRow = {
@@ -286,6 +289,8 @@ function fmtEventType(event_type: string): string {
     basket_foul: "Faute",
     volleyball_score: "Point volleyball",
     volleyball_set_end: "Fin de set",
+    rugby_substitution: "Remplacement rugby",
+    football_substitution: "Remplacement football",
   };
   if (map[event_type]) return map[event_type];
   // Generic fallback: replace underscores with spaces
@@ -324,6 +329,14 @@ function fmtEventPayload(event_type: string, payload: Record<string, any>): stri
   }
   // Period change
   if (event_type === "basket_period_change") return `Période : ${p.period_label || p.label || ""}`;
+  // Substitution events
+  if (event_type === "rugby_substitution" || event_type === "football_substitution") {
+    const out = p.player_out_number ? `#${p.player_out_number} ${p.player_out_name || ""}` : (p.player_out_name || "?");
+    const inn = p.player_in_number ? `#${p.player_in_number} ${p.player_in_name || ""}` : (p.player_in_name || "?");
+    const reasonLabel = p.reason && p.reason !== "tactical" ? ` (${p.reason})` : "";
+    const tmpLabel = p.is_temporary ? " [temp.]" : "";
+    return `${out} → ${inn}${reasonLabel}${tmpLabel}`;
+  }
   // Score events
   if (event_type.includes("score") && p.home_score !== undefined) return `${p.home_score}-${p.away_score}`;
   // Possession
@@ -353,6 +366,7 @@ function toPlayerStatRows(matchPlayers: MatchPlayerRow[]) {
       points: p.points || 0,
       yellow_cards: p.yellow_cards || 0,
       red_cards: p.red_cards || 0,
+      is_on_field: p.is_on_field ?? p.is_starter,
     }));
 }
 
@@ -417,6 +431,7 @@ export default function ControlPage() {
 
   const [homePlayers, setHomePlayers] = useState<PlayerStatRow[]>([]);
   const [awayPlayers, setAwayPlayers] = useState<PlayerStatRow[]>([]);
+  const [substitutionDialog, setSubstitutionDialog] = useState<{ teamSide: "home" | "away" } | null>(null);
 
   const [rugbyHomeTries, setRugbyHomeTries] = useState(0);
   const [rugbyAwayTries, setRugbyAwayTries] = useState(0);
@@ -672,6 +687,7 @@ export default function ControlPage() {
           red_cards,
           is_selected,
           is_starter,
+          is_on_field,
           player:players (
             id,
             name,
@@ -836,6 +852,68 @@ export default function ControlPage() {
       setEvents((prev) => [data as MatchEventRow, ...prev].slice(0, 50));
 
     }
+  }
+
+  async function handleSubstitution(sub: SubstitutionPayload) {
+    if (!match) return;
+    const eventType = sport === "rugby" ? "rugby_substitution" : "football_substitution";
+
+    await supabase.from("match_substitutions").insert({
+      org_id: match.org_id,
+      match_id: match.id,
+      sport,
+      team_side: sub.teamSide,
+      team_id: sub.teamId,
+      player_out_id: sub.playerOut.id,
+      player_in_id: sub.playerIn.id,
+      player_out_name_snapshot: sub.playerOut.name,
+      player_in_name_snapshot: sub.playerIn.name,
+      player_out_number_snapshot: sub.playerOut.number,
+      player_in_number_snapshot: sub.playerIn.number,
+      period_index: currentPeriodIndex,
+      game_clock_ms: clockMsRef.current,
+      reason: sub.reason,
+      is_temporary: sub.isTemporary,
+      is_blood_substitution: sub.isBloodSubstitution,
+    });
+
+    const updateOut = supabase.from("match_players")
+      .update({ is_on_field: false, left_at_clock_ms: clockMsRef.current })
+      .eq("match_id", match.id)
+      .eq("player_id", sub.playerOut.id);
+    const updateIn = supabase.from("match_players")
+      .update({ is_on_field: true, entered_at_clock_ms: clockMsRef.current })
+      .eq("match_id", match.id)
+      .eq("player_id", sub.playerIn.id);
+    await Promise.all([updateOut, updateIn]);
+
+    const updatePlayers = (prev: PlayerStatRow[]): PlayerStatRow[] =>
+      prev.map((p) => {
+        if (p.id === sub.playerOut.id) return { ...p, is_on_field: false };
+        if (p.id === sub.playerIn.id) return { ...p, is_on_field: true };
+        return p;
+      });
+    if (sub.teamSide === "home") setHomePlayers(updatePlayers);
+    else setAwayPlayers(updatePlayers);
+
+    await appendEvent({
+      event_type: eventType,
+      team_side: sub.teamSide,
+      player_id: sub.playerIn.id,
+      payload: {
+        player_out_id: sub.playerOut.id,
+        player_out_name: sub.playerOut.name,
+        player_out_number: sub.playerOut.number,
+        player_in_id: sub.playerIn.id,
+        player_in_name: sub.playerIn.name,
+        player_in_number: sub.playerIn.number,
+        reason: sub.reason,
+        is_temporary: sub.isTemporary,
+        is_blood_substitution: sub.isBloodSubstitution,
+      },
+    });
+
+    toast(`Remplacement enregistré : #${sub.playerOut.number} → #${sub.playerIn.number}`, "success");
   }
 
   async function pushPatch(extra: Record<string, any>) {
@@ -2240,6 +2318,25 @@ export default function ControlPage() {
                   </div>
                 </div>
               </div>
+              <div style={{ marginTop: 14 }}>
+                <div style={{ ...styles.statCardTitle, marginBottom: 8 }}>Remplacements</div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button
+                    onClick={() => setSubstitutionDialog({ teamSide: "home" })}
+                    style={{ ...styles.ghostBtnSmall, flex: 1 }}
+                    disabled={homePlayers.length === 0}
+                  >
+                    Remplacer {homeName}
+                  </button>
+                  <button
+                    onClick={() => setSubstitutionDialog({ teamSide: "away" })}
+                    style={{ ...styles.ghostBtnSmall, flex: 1 }}
+                    disabled={awayPlayers.length === 0}
+                  >
+                    Remplacer {awayName}
+                  </button>
+                </div>
+              </div>
             </section>
           ) : null}
 
@@ -2525,6 +2622,26 @@ export default function ControlPage() {
                       style={styles.ghostBtnSmall}
                     >
                       Rouge {awayName}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={styles.statCard}>
+                  <div style={styles.statCardTitle}>Remplacements</div>
+                  <div style={styles.scoreActions}>
+                    <button
+                      onClick={() => setSubstitutionDialog({ teamSide: "home" })}
+                      style={styles.ghostBtnSmall}
+                      disabled={homePlayers.length === 0}
+                    >
+                      Remplacer {homeName}
+                    </button>
+                    <button
+                      onClick={() => setSubstitutionDialog({ teamSide: "away" })}
+                      style={styles.ghostBtnSmall}
+                      disabled={awayPlayers.length === 0}
+                    >
+                      Remplacer {awayName}
                     </button>
                   </div>
                 </div>
@@ -2838,6 +2955,23 @@ export default function ControlPage() {
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
       <ConfirmDialog state={dialogState} onClose={handleClose} />
       <PlayerPickerDialog state={pickerState} onClose={handlePickerClose} />
+      {substitutionDialog && (isRugby || isFootball) && match && (
+        <SubstitutionDialog
+          sport={sport as "rugby" | "football"}
+          matchId={match.id}
+          orgId={match.org_id}
+          currentPeriodIndex={currentPeriodIndex}
+          clockMs={clockMsRef.current}
+          homeName={homeName}
+          awayName={awayName}
+          homeTeamId={match.home_team_id || match.team_id || null}
+          awayTeamId={match.away_team_id || null}
+          homePlayers={homePlayers as SubstPlayer[]}
+          awayPlayers={awayPlayers as SubstPlayer[]}
+          onConfirm={handleSubstitution}
+          onClose={() => setSubstitutionDialog(null)}
+        />
+      )}
     </div>
   );
 }

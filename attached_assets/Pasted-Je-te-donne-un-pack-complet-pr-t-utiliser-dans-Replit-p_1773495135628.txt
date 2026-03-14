@@ -1,0 +1,581 @@
+Je te donne un pack complet, prêt à utiliser dans Replit, pour mettre en place :
+
+les remplacements rugby / foot
+
+la journalisation de ces remplacements
+
+les statistiques équipe calculables
+
+la base pour une page Statistiques équipe
+
+la mise à jour de la bible après implémentation
+
+Je te le découpe en :
+
+prompts Replit
+
+migrations SQL
+
+edge functions / RPC si nécessaire
+
+règles métier à transmettre
+
+prompt final pour actualiser la bible
+
+1) Contexte à donner à Replit avant les prompts
+
+Colle d’abord ceci.
+
+Projet : scoreDisplay V2
+
+Stack :
+- React + TypeScript
+- Supabase
+- PostgreSQL
+- Edge Functions
+- Operator = console live
+- Display = écran public
+
+Sports :
+- rugby
+- football
+- basket
+- handball
+- volleyball
+
+Règles déjà validées :
+- mode public officiel = URL stable par équipe via teamSlug
+- ne jamais réintroduire token, display_token, public_display
+- orgs.sport est le champ valide pour le sport
+- réglages valides :
+  - org_display_settings
+  - org_sport_settings
+- enum match_status :
+  - scheduled
+  - live
+  - paused
+  - finished
+  - archived
+
+Existant important :
+- matches
+- match_players
+- match_events
+- match_sin_bins
+- match_two_min_suspensions
+- players
+- teams
+- orgs
+- org_display_settings
+- org_sport_settings
+
+Objectif de ce lot :
+- gérer les remplacements pour rugby et football
+- enregistrer cela proprement dans le journal d’événements
+- enrichir match_players pour savoir qui est sur le terrain
+- permettre des statistiques équipe exploitables à partir des données de matchs
+- produire ensuite la mise à jour de la bible
+
+Contraintes :
+- toujours partir de l’existant
+- toujours fournir SQL complet
+- toujours fournir fichiers complets quand un fichier structurant change
+- pas de refonte gratuite
+2) Prompt Replit — Migration DB complète
+Je veux mettre en place les remplacements rugby et football ainsi que la base de statistiques équipe.
+
+Propose et fournis une migration SQL complète, incrémentale et compatible avec l’existant, pour :
+
+1. enrichir match_players avec l’état de présence terrain
+2. créer une table dédiée match_substitutions
+3. préparer des index utiles pour les statistiques
+4. ne rien casser de l’existant
+
+Je veux au minimum :
+- match_players :
+  - is_on_field boolean not null default false
+  - entered_at_clock_ms integer null
+  - left_at_clock_ms integer null
+  - minutes_played_s integer not null default 0
+- match_substitutions :
+  - id
+  - org_id
+  - match_id
+  - sport
+  - team_side ('home'/'away')
+  - team_id
+  - player_out_id
+  - player_in_id
+  - player_out_name_snapshot
+  - player_in_name_snapshot
+  - player_out_number_snapshot
+  - player_in_number_snapshot
+  - period_index
+  - game_clock_ms
+  - reason
+  - is_temporary
+  - is_blood_substitution
+  - created_at
+
+Je veux :
+- SQL complet
+- contraintes
+- index
+- commentaires éventuels sur les choix
+3) Migration SQL complète
+
+Voici la migration que Replit doit pouvoir utiliser telle quelle :
+
+begin;
+
+alter table public.match_players
+  add column if not exists is_on_field boolean not null default false,
+  add column if not exists entered_at_clock_ms integer null,
+  add column if not exists left_at_clock_ms integer null,
+  add column if not exists minutes_played_s integer not null default 0;
+
+create table if not exists public.match_substitutions (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null,
+  match_id uuid not null references public.matches(id) on delete cascade,
+  sport text not null,
+  team_side text not null check (team_side in ('home', 'away')),
+  team_id uuid null references public.teams(id) on delete set null,
+  player_out_id uuid null references public.players(id) on delete set null,
+  player_in_id uuid null references public.players(id) on delete set null,
+  player_out_name_snapshot text null,
+  player_in_name_snapshot text null,
+  player_out_number_snapshot text null,
+  player_in_number_snapshot text null,
+  period_index integer null,
+  game_clock_ms integer null,
+  reason text null,
+  is_temporary boolean not null default false,
+  is_blood_substitution boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_match_substitutions_match_id
+  on public.match_substitutions(match_id);
+
+create index if not exists idx_match_substitutions_match_team_side
+  on public.match_substitutions(match_id, team_side);
+
+create index if not exists idx_match_substitutions_player_out_id
+  on public.match_substitutions(player_out_id);
+
+create index if not exists idx_match_substitutions_player_in_id
+  on public.match_substitutions(player_in_id);
+
+create index if not exists idx_match_players_match_team
+  on public.match_players(match_id, team_id);
+
+create index if not exists idx_match_players_match_selected
+  on public.match_players(match_id, is_selected);
+
+commit;
+4) Prompt Replit — logique Operator remplacements rugby / foot
+Implémente la gestion des remplacements rugby et football dans l’Operator.
+
+Objectif :
+- depuis la feuille de match ou la régie, pouvoir effectuer un remplacement
+- mettre à jour match_players
+- insérer dans match_substitutions
+- insérer un événement match_events
+- préparer l’affichage éventuel d’un bandeau de remplacement côté Display
+
+Règles métier :
+- le remplacement concerne un joueur sortant et un joueur entrant
+- le joueur sortant doit être actuellement sur le terrain
+- le joueur entrant doit être sélectionné sur la feuille de match
+- le joueur entrant ne doit pas déjà être sur le terrain
+- il faut stocker :
+  - sport
+  - team_side
+  - player_out
+  - player_in
+  - période
+  - clock match
+  - reason éventuelle
+  - flags is_temporary / is_blood_substitution
+- dans match_events :
+  - rugby_substitution
+  - football_substitution
+
+Je veux :
+- les fichiers complets à modifier
+- les fonctions complètes
+- la logique UI
+- la logique de persistance Supabase
+- l’écriture dans match_substitutions
+- l’écriture dans match_events
+- la mise à jour de match_players
+5) Règles métier à imposer à Replit pour les remplacements
+
+Colle aussi ceci si besoin :
+
+Règles de remplacement :
+
+Pour rugby et football :
+- un joueur titulaire au démarrage doit avoir :
+  - is_selected = true
+  - is_starter = true
+  - is_on_field = true
+- un remplaçant sélectionné au démarrage :
+  - is_selected = true
+  - is_starter = false
+  - is_on_field = false
+
+Quand un remplacement est validé :
+- joueur sortant :
+  - is_on_field = false
+  - left_at_clock_ms = clock_ms courant
+- joueur entrant :
+  - is_on_field = true
+  - entered_at_clock_ms = clock_ms courant
+- insérer une ligne dans match_substitutions
+- insérer une ligne dans match_events
+
+Types d’événements :
+- rugby_substitution
+- football_substitution
+
+Payload match_events attendu :
+{
+  "player_out_id": "...",
+  "player_out_name": "...",
+  "player_out_number": "...",
+  "player_in_id": "...",
+  "player_in_name": "...",
+  "player_in_number": "...",
+  "reason": "tactical",
+  "is_temporary": false,
+  "is_blood_substitution": false
+}
+6) Prompt Replit — statistiques équipe calculables
+Je veux implémenter les statistiques équipe calculables à partir des données réellement présentes dans la base.
+
+Objectif :
+- définir ce qui est fiable et calculable immédiatement
+- implémenter les agrégats SQL / RPC / Edge Functions nécessaires
+- préparer une future page Statistiques équipe
+
+Je veux 3 blocs de stats :
+
+1. bilan global équipe
+- matchs joués
+- victoires
+- défaites
+- nuls
+- points marqués
+- points encaissés
+- différence de points
+- moyenne points marqués / match
+- moyenne points encaissés / match
+
+2. discipline équipe
+- total cartons jaunes
+- total cartons rouges
+- moyenne cartons / match
+- matchs avec au moins un carton
+
+3. stats joueurs par équipe
+- feuilles de match
+- titularisations
+- sélections
+- total cartons jaunes
+- total cartons rouges
+- total fautes
+- total points
+
+Je veux :
+- la liste précise des stats faisables immédiatement
+- la liste des stats non fiables ou non faisables pour l’instant
+- SQL ou RPC pour calculer ces stats
+- si nécessaire une edge function ou plusieurs
+- fichiers complets si une page frontend est créée
+7) RPC SQL recommandées pour les statistiques équipe
+
+Je te conseille de passer par des fonctions SQL RPC. C’est plus simple, plus propre, et facile à consommer depuis Supabase.
+
+RPC 1 — bilan équipe
+create or replace function public.get_team_match_summary(p_team_id uuid)
+returns table (
+  matches_played integer,
+  wins integer,
+  draws integer,
+  losses integer,
+  points_scored integer,
+  points_conceded integer,
+  points_diff integer,
+  avg_points_scored numeric,
+  avg_points_conceded numeric
+)
+language sql
+stable
+as $$
+with team_matches as (
+  select
+    m.id,
+    m.status,
+    case
+      when m.home_team_id = p_team_id then coalesce(m.home_score, 0)
+      when m.away_team_id = p_team_id then coalesce(m.away_score, 0)
+      else 0
+    end as scored,
+    case
+      when m.home_team_id = p_team_id then coalesce(m.away_score, 0)
+      when m.away_team_id = p_team_id then coalesce(m.home_score, 0)
+      else 0
+    end as conceded
+  from public.matches m
+  where (m.home_team_id = p_team_id or m.away_team_id = p_team_id or m.team_id = p_team_id)
+    and m.status in ('finished', 'archived')
+)
+select
+  count(*)::integer as matches_played,
+  count(*) filter (where scored > conceded)::integer as wins,
+  count(*) filter (where scored = conceded)::integer as draws,
+  count(*) filter (where scored < conceded)::integer as losses,
+  coalesce(sum(scored), 0)::integer as points_scored,
+  coalesce(sum(conceded), 0)::integer as points_conceded,
+  coalesce(sum(scored - conceded), 0)::integer as points_diff,
+  coalesce(round(avg(scored)::numeric, 2), 0) as avg_points_scored,
+  coalesce(round(avg(conceded)::numeric, 2), 0) as avg_points_conceded
+from team_matches;
+$$;
+RPC 2 — discipline équipe
+create or replace function public.get_team_discipline_summary(p_team_id uuid)
+returns table (
+  matches_with_cards integer,
+  yellow_cards integer,
+  red_cards integer,
+  avg_yellow_per_match numeric,
+  avg_red_per_match numeric
+)
+language sql
+stable
+as $$
+with team_matches as (
+  select
+    m.id,
+    case
+      when m.home_team_id = p_team_id then coalesce(m.home_yellow_cards, 0)
+      when m.away_team_id = p_team_id then coalesce(m.away_yellow_cards, 0)
+      else 0
+    end as yellow_cards,
+    case
+      when m.home_team_id = p_team_id then coalesce(m.home_red_cards, 0)
+      when m.away_team_id = p_team_id then coalesce(m.away_red_cards, 0)
+      else 0
+    end as red_cards
+  from public.matches m
+  where (m.home_team_id = p_team_id or m.away_team_id = p_team_id or m.team_id = p_team_id)
+    and m.status in ('finished', 'archived')
+)
+select
+  count(*) filter (where yellow_cards > 0 or red_cards > 0)::integer as matches_with_cards,
+  coalesce(sum(yellow_cards), 0)::integer as yellow_cards,
+  coalesce(sum(red_cards), 0)::integer as red_cards,
+  coalesce(round(avg(yellow_cards)::numeric, 2), 0) as avg_yellow_per_match,
+  coalesce(round(avg(red_cards)::numeric, 2), 0) as avg_red_per_match
+from team_matches;
+$$;
+RPC 3 — stats joueurs équipe
+create or replace function public.get_team_player_stats(p_team_id uuid)
+returns table (
+  player_id uuid,
+  player_name text,
+  player_number text,
+  match_selections integer,
+  match_starts integer,
+  total_points integer,
+  total_fouls integer,
+  total_yellow_cards integer,
+  total_red_cards integer
+)
+language sql
+stable
+as $$
+select
+  p.id as player_id,
+  p.name as player_name,
+  p.number as player_number,
+  count(mp.*) filter (where mp.is_selected = true)::integer as match_selections,
+  count(mp.*) filter (where mp.is_starter = true)::integer as match_starts,
+  coalesce(sum(mp.points), 0)::integer as total_points,
+  coalesce(sum(mp.fouls), 0)::integer as total_fouls,
+  coalesce(sum(mp.yellow_cards), 0)::integer as total_yellow_cards,
+  coalesce(sum(mp.red_cards), 0)::integer as total_red_cards
+from public.players p
+left join public.match_players mp
+  on mp.player_id = p.id
+where p.team_id = p_team_id
+group by p.id, p.name, p.number
+order by p.name asc;
+$$;
+RPC 4 — stats remplacements équipe
+create or replace function public.get_team_substitution_summary(p_team_id uuid)
+returns table (
+  substitutions_made integer,
+  players_subbed_out integer,
+  players_subbed_in integer
+)
+language sql
+stable
+as $$
+select
+  count(*)::integer as substitutions_made,
+  count(distinct player_out_id)::integer as players_subbed_out,
+  count(distinct player_in_id)::integer as players_subbed_in
+from public.match_substitutions
+where team_id = p_team_id;
+$$;
+8) Prompt Replit — Edge Function ou agrégateur API équipe
+
+Si tu préfères un point d’entrée unique côté frontend :
+
+Je veux une edge function ou un endpoint backend unique pour les statistiques équipe.
+
+Entrée :
+- teamId
+
+Sortie :
+{
+  team: ...,
+  summary: ...,
+  discipline: ...,
+  player_stats: ...,
+  substitution_summary: ...
+}
+
+La fonction doit agréger :
+- get_team_match_summary
+- get_team_discipline_summary
+- get_team_player_stats
+- get_team_substitution_summary
+
+Je veux :
+- le code complet de l’edge function
+- gestion propre des erreurs
+- utilisation de SUPABASE_SERVICE_ROLE_KEY si nécessaire
+- payload JSON propre
+9) Edge function recommandée : get-team-stats
+
+Tu peux demander à Replit d’implémenter une fonction supabase/functions/get-team-stats/index.ts.
+
+Le prompt à coller :
+
+Crée une edge function Supabase get-team-stats.
+
+Spécifications :
+- query param obligatoire : teamId
+- utilise SUPABASE_SERVICE_ROLE_KEY
+- lit :
+  - teams
+  - orgs si utile
+  - RPC :
+    - get_team_match_summary
+    - get_team_discipline_summary
+    - get_team_player_stats
+    - get_team_substitution_summary
+- retourne :
+{
+  team: {...},
+  match_summary: {...},
+  discipline_summary: {...},
+  player_stats: [...],
+  substitution_summary: {...}
+}
+- réponse 404 si équipe introuvable
+- réponse 400 si teamId absent
+- code complet uniquement
+10) Prompt Replit — Page Statistiques équipe
+Implémente une page Statistiques équipe dans l’Operator.
+
+Objectif :
+- afficher les statistiques calculables de manière fiable à partir des matchs et des match_players
+- intégrer aussi les remplacements si match_substitutions existe
+
+Je veux une page claire avec 4 blocs :
+1. bilan général
+2. discipline
+3. joueurs
+4. remplacements
+
+Exigences :
+- partir des RPC ou de l’edge function get-team-stats
+- React + TypeScript
+- afficher des cartes lisibles
+- pas de complexité inutile
+- code complet du fichier de page
+- si un composant utilitaire est créé, fournir le fichier complet aussi
+11) Ce qu’il faut dire à Replit sur les stats fiables / non fiables
+Stats fiables immédiatement :
+- matchs joués
+- victoires / nuls / défaites
+- points marqués / encaissés
+- différence de points
+- moyennes par match
+- cartons équipe
+- stats joueur présentes dans match_players
+- sélections
+- titularisations
+- remplacements si match_substitutions est implémentée
+
+Stats non fiables pour l’instant sans logique supplémentaire :
+- temps de jeu réel précis
+- joueur du match
+- composition type robuste
+- efficacité individuelle avancée
+- impact de remplacement
+12) Prompt final Replit — actualisation de la bible
+Maintenant que le lot a été implémenté, mets à jour la bible du projet scoreDisplay V2.
+
+Je veux une mise à jour claire et incrémentale, pas une réécriture totale.
+
+À intégrer :
+1. support des remplacements rugby et football
+2. enrichissement de match_players :
+   - is_on_field
+   - entered_at_clock_ms
+   - left_at_clock_ms
+   - minutes_played_s
+3. nouvelle table match_substitutions
+4. journalisation dans match_events :
+   - rugby_substitution
+   - football_substitution
+5. nouvelles statistiques équipe calculables :
+   - bilan global
+   - discipline
+   - stats joueurs
+   - stats remplacements
+6. mentionner explicitement les limites actuelles :
+   - temps de jeu encore approximatif
+   - stats avancées non garanties
+7. conserver les décisions déjà validées :
+   - Display public stable par équipe via teamSlug
+   - abandon du mode token match
+   - orgs.sport
+   - org_display_settings
+   - org_sport_settings
+
+Je veux :
+- le contenu mis à jour de la bible
+- ou au minimum les blocs exacts à remplacer
+- rédaction propre, cohérente avec la bible existante
+13) Ce que je te recommande comme ordre d’exécution dans Replit
+
+Dans cet ordre :
+
+Prompt migration DB
+
+Prompt logique remplacements Operator
+
+Prompt statistiques équipe
+
+Prompt edge function get-team-stats
+
+Prompt page Statistiques équipe
+
+Prompt actualisation de la bible
