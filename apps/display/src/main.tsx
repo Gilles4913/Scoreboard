@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
 import Scoreboard, { ScoreboardContext } from "./components/Scoreboard";
-import LiveOverlayBanner, { type LiveOverlay } from "./components/LiveOverlayBanner";
+import { type LiveOverlay } from "./components/LiveOverlayBanner";
 
 function getEnv(name: string): string {
   const v = (import.meta as any).env?.[name];
@@ -60,6 +60,7 @@ function buildContextFromResponse(json: any): ScoreboardContext {
     show_status: displaySettings.show_status ?? true,
     show_sponsors: displaySettings.show_sponsors ?? true,
     layout_mode: displaySettings.layout_mode ?? "stadium",
+    show_substitution_banner: displaySettings.show_substitution_banner ?? true,
 
     show_team_fouls: sportSettings.show_team_fouls ?? false,
     show_player_fouls: sportSettings.show_player_fouls ?? false,
@@ -478,12 +479,19 @@ function App() {
 
     if (patch.overlay?.type === "substitution") {
       const ov = patch.overlay as LiveOverlay;
-      if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current);
-      setActiveOverlay(ov);
-      overlayTimerRef.current = setTimeout(
-        () => setActiveOverlay(null),
-        ov.duration_ms && ov.duration_ms > 0 ? ov.duration_ms : 5000,
-      );
+      setCtx((prev) => {
+        const bannerEnabled = (prev?.show_substitution_banner ?? true) &&
+          (patch.show_substitution_banner ?? prev?.show_substitution_banner ?? true);
+        if (bannerEnabled !== false) {
+          if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current);
+          setActiveOverlay(ov);
+          overlayTimerRef.current = setTimeout(
+            () => setActiveOverlay(null),
+            ov.duration_ms && ov.duration_ms > 0 ? ov.duration_ms : 5000,
+          );
+        }
+        return prev;
+      });
     }
 
     const { overlay: _overlay, ...patchWithoutOverlay } = patch;
@@ -563,8 +571,7 @@ function App() {
 
   return (
     <div style={{ position: "relative" }}>
-      <Scoreboard context={computedContext} />
-      {activeOverlay && <LiveOverlayBanner overlay={activeOverlay} />}
+      <Scoreboard context={computedContext} activeOverlay={activeOverlay} />
     </div>
   );
 }

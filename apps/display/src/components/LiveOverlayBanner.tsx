@@ -18,125 +18,129 @@ type Props = {
   overlay: LiveOverlay;
 };
 
+const LABEL_W = 160;
+
 export default function LiveOverlayBanner({ overlay }: Props) {
-  const teamLabel = overlay.team_name || (overlay.team_side === "home" ? "Domicile" : "Extérieur");
-  const out = [overlay.player_out_number ? `#${overlay.player_out_number}` : null, overlay.player_out_name || null].filter(Boolean).join(" ") || "—";
-  const inn = [overlay.player_in_number ? `#${overlay.player_in_number}` : null, overlay.player_in_name || null].filter(Boolean).join(" ") || "—";
+  const teamLabel = (overlay.team_name || (overlay.team_side === "home" ? "DOMICILE" : "EXTÉRIEUR")).toUpperCase();
+  const out = [overlay.player_out_number ? `#${overlay.player_out_number}` : null, overlay.player_out_name || null].filter(Boolean).join("  ") || "—";
+  const inn = [overlay.player_in_number ? `#${overlay.player_in_number}` : null, overlay.player_in_name || null].filter(Boolean).join("  ") || "—";
+
+  const durationMs = overlay.duration_ms && overlay.duration_ms > 0 ? overlay.duration_ms : 8000;
+  const scrollDuration = `${Math.max(6, Math.round(durationMs / 1000))}s`;
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        bottom: 0,
-        left: 0,
-        right: 0,
-        zIndex: 999,
-        background: "rgba(10, 16, 30, 0.96)",
-        borderTop: "3px solid #3b82f6",
-        display: "flex",
-        alignItems: "center",
-        gap: 0,
-        padding: "0 32px",
-        height: 80,
-        boxSizing: "border-box",
-      }}
-    >
+    <>
+      <style>{`
+        @keyframes sbMarquee {
+          from { transform: translateX(calc(100vw - ${LABEL_W}px)); }
+          to   { transform: translateX(-100%); }
+        }
+      `}</style>
       <div
         style={{
-          background: "#3b82f6",
-          color: "#fff",
-          fontWeight: 900,
-          fontSize: 13,
-          letterSpacing: "0.12em",
-          textTransform: "uppercase",
-          padding: "6px 14px",
-          borderRadius: 6,
-          marginRight: 24,
-          whiteSpace: "nowrap",
+          width: "100%",
+          height: 100,
+          background: "rgba(6, 10, 20, 0.97)",
+          borderTop: "3px solid #2563eb",
+          borderBottom: "3px solid #2563eb",
+          display: "flex",
+          alignItems: "stretch",
+          overflow: "hidden",
           flexShrink: 0,
+          boxSizing: "border-box",
         }}
       >
-        {teamLabel}
-      </div>
-
-      <div
-        style={{
-          color: "#94a3b8",
-          fontSize: 13,
-          fontWeight: 700,
-          letterSpacing: "0.1em",
-          textTransform: "uppercase",
-          marginRight: 20,
-          flexShrink: 0,
-        }}
-      >
-        REMPLACEMENT
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 20, flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div
+          style={{
+            width: LABEL_W,
+            flexShrink: 0,
+            background: "#2563eb",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 2,
+            padding: "0 10px",
+          }}
+        >
           <span
             style={{
-              fontSize: 12,
-              color: "#ef4444",
-              fontWeight: 700,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              flexShrink: 0,
-            }}
-          >
-            SORTIE
-          </span>
-          <span
-            style={{
-              fontSize: 26,
+              color: "#fff",
               fontWeight: 900,
-              color: "#f8fafc",
-              letterSpacing: "0.02em",
-              whiteSpace: "nowrap",
+              fontSize: 13,
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              textAlign: "center",
+              lineHeight: 1.3,
             }}
           >
-            {out}
+            REMPLACE<br />MENT
           </span>
-          <span style={{ fontSize: 22, color: "#ef4444", fontWeight: 900 }}>↓</span>
         </div>
 
         <div
           style={{
-            width: 1,
-            height: 40,
-            background: "#334155",
-            flexShrink: 0,
+            flex: 1,
+            overflow: "hidden",
+            position: "relative",
           }}
-        />
-
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span
+        >
+          <div
             style={{
-              fontSize: 12,
-              color: "#22c55e",
-              fontWeight: 700,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              flexShrink: 0,
-            }}
-          >
-            ENTRÉE
-          </span>
-          <span
-            style={{
-              fontSize: 26,
-              fontWeight: 900,
-              color: "#f8fafc",
-              letterSpacing: "0.02em",
+              position: "absolute",
+              top: 0,
+              bottom: 0,
+              left: 0,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 0,
               whiteSpace: "nowrap",
+              animation: `sbMarquee ${scrollDuration} linear 1 forwards`,
             }}
           >
-            {inn}
-          </span>
-          <span style={{ fontSize: 22, color: "#22c55e", fontWeight: 900 }}>↑</span>
+            <span style={{ color: "#93c5fd", fontWeight: 900, fontSize: "clamp(20px,2.5vw,28px)", letterSpacing: "0.14em", textTransform: "uppercase", marginRight: "2vw" }}>
+              {teamLabel}
+            </span>
+
+            <span style={{ color: "#475569", marginRight: "1.5vw", fontSize: "clamp(18px,2vw,24px)", fontWeight: 300 }}>|</span>
+
+            <span style={{ color: "#fca5a5", fontWeight: 700, fontSize: "clamp(13px,1.4vw,16px)", letterSpacing: "0.14em", textTransform: "uppercase", marginRight: "0.8vw" }}>
+              SORTIE
+            </span>
+            <span style={{ color: "#ef4444", fontSize: "clamp(20px,2.5vw,30px)", marginRight: "0.6vw", lineHeight: 1 }}>⬇</span>
+            <span
+              style={{
+                color: "#f1f5f9",
+                fontWeight: 900,
+                fontSize: "clamp(32px,4.5vw,56px)",
+                fontFamily: "'Courier New','Lucida Console',monospace",
+                letterSpacing: 2,
+                marginRight: "3vw",
+              }}
+            >
+              {out}
+            </span>
+
+            <span style={{ color: "#334155", marginRight: "3vw", fontSize: "clamp(18px,2vw,24px)", fontWeight: 300 }}>|</span>
+
+            <span style={{ color: "#86efac", fontWeight: 700, fontSize: "clamp(13px,1.4vw,16px)", letterSpacing: "0.14em", textTransform: "uppercase", marginRight: "0.8vw" }}>
+              ENTRÉE
+            </span>
+            <span style={{ color: "#22c55e", fontSize: "clamp(20px,2.5vw,30px)", marginRight: "0.6vw", lineHeight: 1 }}>⬆</span>
+            <span
+              style={{
+                color: "#f1f5f9",
+                fontWeight: 900,
+                fontSize: "clamp(32px,4.5vw,56px)",
+                fontFamily: "'Courier New','Lucida Console',monospace",
+                letterSpacing: 2,
+              }}
+            >
+              {inn}
+            </span>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import LiveOverlayBanner, { LiveOverlay } from "./LiveOverlayBanner";
 
 type ThemeMode = "dark" | "light";
 type SportKey = "football" | "basket" | "handball" | "rugby" | "volleyball" | string;
@@ -124,10 +125,13 @@ export type ScoreboardContext = {
   football_added_time_second_half?: number;
   football_added_time_extra_1?: number;
   football_added_time_extra_2?: number;
+
+  show_substitution_banner?: boolean;
 };
 
 type Props = {
   context: ScoreboardContext;
+  activeOverlay?: LiveOverlay | null;
 };
 
 function clamp(n: number, a: number, b: number) {
@@ -494,7 +498,7 @@ function BreakdownChip({
   );
 }
 
-function RugbyStadeLayout({ context }: Props) {
+function RugbyStadeLayout({ context, activeOverlay }: Props) {
   const theme: ThemeMode = context.theme === "light" ? "light" : "dark";
   const bg = theme === "dark" ? "#04070a" : "#f7f8fb";
   const text = theme === "dark" ? "#edf2ff" : "#0f172a";
@@ -548,7 +552,7 @@ function RugbyStadeLayout({ context }: Props) {
         color: text,
         overflow: "hidden",
         display: "grid",
-        gridTemplateRows: "auto 1fr auto",
+        gridTemplateRows: "auto 1fr auto auto",
         fontFamily:
           'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial',
       }}
@@ -729,6 +733,12 @@ function RugbyStadeLayout({ context }: Props) {
         </div>
       </div>
 
+      <div style={{ overflow: "hidden" }}>
+        {activeOverlay && context.show_substitution_banner !== false && (
+          <LiveOverlayBanner overlay={activeOverlay} />
+        )}
+      </div>
+
       <div
         style={{
           padding: "0 40px 28px",
@@ -777,7 +787,7 @@ function RugbyStadeLayout({ context }: Props) {
   );
 }
 
-function RugbyExpertLayout({ context }: Props) {
+function RugbyExpertLayout({ context, activeOverlay }: Props) {
   const theme: ThemeMode = context.theme === "light" ? "light" : "dark";
   const bg = theme === "dark" ? "#04070a" : "#f7f8fb";
   const text = theme === "dark" ? "#edf2ff" : "#0f172a";
@@ -823,7 +833,7 @@ function RugbyExpertLayout({ context }: Props) {
         color: text,
         overflow: "hidden",
         display: "grid",
-        gridTemplateRows: "auto 1fr auto",
+        gridTemplateRows: "auto 1fr auto auto",
         fontFamily:
           'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial',
       }}
@@ -1004,6 +1014,12 @@ function RugbyExpertLayout({ context }: Props) {
         </div>
       </div>
 
+      <div style={{ overflow: "hidden" }}>
+        {activeOverlay && context.show_substitution_banner !== false && (
+          <LiveOverlayBanner overlay={activeOverlay} />
+        )}
+      </div>
+
       <div
         style={{
           padding: "0 40px 20px",
@@ -1099,15 +1115,15 @@ function RugbyExpertLayout({ context }: Props) {
   );
 }
 
-export default function Scoreboard({ context }: Props) {
+export default function Scoreboard({ context, activeOverlay }: Props) {
   const layout = (context.layout_mode || "stadium").toLowerCase();
   const rawSportCheck = (context.sport || "").toLowerCase();
 
   if (rawSportCheck === "rugby" && layout === "rugby_stade") {
-    return <RugbyStadeLayout context={context} />;
+    return <RugbyStadeLayout context={context} activeOverlay={activeOverlay} />;
   }
   if (rawSportCheck === "rugby" && layout === "rugby_expert") {
-    return <RugbyExpertLayout context={context} />;
+    return <RugbyExpertLayout context={context} activeOverlay={activeOverlay} />;
   }
   const theme: ThemeMode = context.theme === "light" ? "light" : "dark";
   const accent = context.home?.primary_color?.trim?.() || (context.accent || "#00d9ff").trim();
@@ -1281,6 +1297,7 @@ export default function Scoreboard({ context }: Props) {
         background: bg,
         color: text,
         overflow: "hidden",
+        position: "relative",
         fontFamily:
           'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"',
       }}
@@ -1594,6 +1611,12 @@ export default function Scoreboard({ context }: Props) {
           </div>
         </div>
       ) : null}
+
+      {activeOverlay && context.show_substitution_banner !== false && (
+        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0 }}>
+          <LiveOverlayBanner overlay={activeOverlay} />
+        </div>
+      )}
     </div>
   );
 }

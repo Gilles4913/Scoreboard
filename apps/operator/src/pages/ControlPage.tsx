@@ -145,6 +145,7 @@ type DisplaySettings = {
   show_lower_third: boolean;
   show_logos: boolean;
   show_sponsors: boolean;
+  show_substitution_banner: boolean;
   dual_language: boolean;
   lang_primary: string;
   lang_secondary: string;
@@ -543,7 +544,7 @@ export default function ControlPage() {
           : Promise.resolve({ data: null }),
         supabase
           .from("org_display_settings")
-          .select("theme, layout_mode, show_score, show_clock, show_period, show_status, show_lower_third, show_logos, show_sponsors, dual_language, lang_primary, lang_secondary, sponsor_rotate_s")
+          .select("theme, layout_mode, show_score, show_clock, show_period, show_status, show_lower_third, show_logos, show_sponsors, show_substitution_banner, dual_language, lang_primary, lang_secondary, sponsor_rotate_s")
           .eq("org_id", currentMatch.org_id)
           .maybeSingle(),
         supabase
@@ -993,6 +994,7 @@ export default function ControlPage() {
       show_lower_third: displaySettings?.show_lower_third ?? true,
       show_logos: displaySettings?.show_logos ?? true,
       show_sponsors: displaySettings?.show_sponsors ?? true,
+      show_substitution_banner: displaySettings?.show_substitution_banner ?? true,
 
       show_team_fouls: sportSettings?.show_team_fouls ?? false,
       show_player_fouls: sportSettings?.show_player_fouls ?? false,
