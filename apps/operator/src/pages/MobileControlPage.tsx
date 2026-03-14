@@ -147,44 +147,19 @@ export default function MobileControlPage() {
       setClockMs(initMs);
       setClockRunning(initRunning);
 
-      /* players — fusion feuille de match + squad complet dédupliqués */
+      /* players — feuille de match uniquement : titulaires + remplaçants */
       const mp = (mpData || []) as any[];
       const homeTeamId = m.home_team_id || m.team_id || null;
       const awayTeamId = m.away_team_id || null;
-      const mpToOpt = (row: any): PlayerOption => ({
+      const toOpt = (row: any): PlayerOption => ({
         id: row.player_id,
         name: row.player?.name || "Joueur",
         number: row.shirt_number || row.player?.number || "?",
       });
-      const squadToOpt = (row: any): PlayerOption => ({
-        id: row.id,
-        name: row.name || "Joueur",
-        number: row.number || "?",
-      });
-      function mergeOpts(mpList: PlayerOption[], squadList: PlayerOption[]): PlayerOption[] {
-        const ids = new Set(mpList.map((p) => p.id));
-        const extras = squadList.filter((p) => !ids.has(p.id));
-        return [...mpList, ...extras].sort((a, b) => {
-          const na = parseInt(a.number, 10), nb = parseInt(b.number, 10);
-          return (!isNaN(na) && !isNaN(nb)) ? na - nb : a.number.localeCompare(b.number);
-        });
-      }
-
-      const homeMpOpts = mp.filter((p) => !homeTeamId || p.team_id === homeTeamId).map(mpToOpt);
-      const awayMpOpts = awayTeamId ? mp.filter((p) => p.team_id === awayTeamId).map(mpToOpt) : [];
-
-      let homeSquad: PlayerOption[] = [];
-      let awaySquad: PlayerOption[] = [];
-      const sq: Promise<void>[] = [];
-      if (homeTeamId) sq.push(supabase.from("players").select("id, name, number").eq("team_id", homeTeamId).eq("is_active", true).order("number", { ascending: true })
-        .then(({ data }) => { if (data) homeSquad = (data as any[]).map(squadToOpt); }));
-      if (awayTeamId) sq.push(supabase.from("players").select("id, name, number").eq("team_id", awayTeamId).eq("is_active", true).order("number", { ascending: true })
-        .then(({ data }) => { if (data) awaySquad = (data as any[]).map(squadToOpt); }));
-      if (sq.length > 0) await Promise.all(sq);
 
       if (!cancelled) {
-        setHomePlayers(mergeOpts(homeMpOpts, homeSquad));
-        setAwayPlayers(mergeOpts(awayMpOpts, awaySquad));
+        setHomePlayers(mp.filter((p) => !homeTeamId || p.team_id === homeTeamId).map(toOpt));
+        setAwayPlayers(awayTeamId ? mp.filter((p) => p.team_id === awayTeamId).map(toOpt) : []);
       }
 
       setLoading(false);
