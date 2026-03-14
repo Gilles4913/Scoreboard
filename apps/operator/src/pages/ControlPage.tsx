@@ -686,8 +686,44 @@ export default function ControlPage() {
         const homeTeamId = currentMatch.home_team_id || currentMatch.team_id || null;
         const awayTeamId = currentMatch.away_team_id || null;
 
-        setHomePlayers(toPlayerStatRows(mp.filter((p) => !homeTeamId || p.team_id === homeTeamId)));
-        setAwayPlayers(awayTeamId ? toPlayerStatRows(mp.filter((p) => p.team_id === awayTeamId)) : []);
+        const homeMp = mp.filter((p) => !homeTeamId || p.team_id === homeTeamId);
+        const awayMp = awayTeamId ? mp.filter((p) => p.team_id === awayTeamId) : [];
+
+        let homeRows = toPlayerStatRows(homeMp);
+        let awayRows = toPlayerStatRows(awayMp);
+
+        /* fallback: si match_players vide, charger les joueurs depuis la table players de l'équipe */
+        const fallbackPromises: Promise<void>[] = [];
+        if (homeRows.length === 0 && homeTeamId) {
+          fallbackPromises.push(
+            supabase.from("players").select("id, name, number").eq("team_id", homeTeamId).order("number", { ascending: true })
+              .then(({ data }) => {
+                if (data && !cancelled) {
+                  homeRows = (data as { id: string; name: string; number: string }[]).map((p) => ({
+                    id: p.id, team_id: homeTeamId, name: p.name || "Joueur", number: p.number || "?", fouls: 0,
+                  }));
+                }
+              })
+          );
+        }
+        if (awayRows.length === 0 && awayTeamId) {
+          fallbackPromises.push(
+            supabase.from("players").select("id, name, number").eq("team_id", awayTeamId).order("number", { ascending: true })
+              .then(({ data }) => {
+                if (data && !cancelled) {
+                  awayRows = (data as { id: string; name: string; number: string }[]).map((p) => ({
+                    id: p.id, team_id: awayTeamId, name: p.name || "Joueur", number: p.number || "?", fouls: 0,
+                  }));
+                }
+              })
+          );
+        }
+        if (fallbackPromises.length > 0) await Promise.all(fallbackPromises);
+
+        if (!cancelled) {
+          setHomePlayers(homeRows);
+          setAwayPlayers(awayRows);
+        }
       }
 
       setLoading(false);

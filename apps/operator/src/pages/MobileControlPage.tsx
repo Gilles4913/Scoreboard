@@ -152,12 +152,30 @@ export default function MobileControlPage() {
       const homeTeamId = m.home_team_id || m.team_id || null;
       const awayTeamId = m.away_team_id || null;
       const toOpt = (row: any): PlayerOption => ({
-        id: row.player_id,
-        name: row.player?.name || "Joueur",
-        number: row.shirt_number || row.player?.number || "?",
+        id: row.player_id || row.id,
+        name: row.player?.name || row.name || "Joueur",
+        number: row.shirt_number || row.player?.number || row.number || "?",
       });
-      setHomePlayers(mp.filter((p) => !homeTeamId || p.team_id === homeTeamId).map(toOpt));
-      setAwayPlayers(awayTeamId ? mp.filter((p) => p.team_id === awayTeamId).map(toOpt) : []);
+
+      let homePl = mp.filter((p) => !homeTeamId || p.team_id === homeTeamId).map(toOpt);
+      let awayPl = awayTeamId ? mp.filter((p) => p.team_id === awayTeamId).map(toOpt) : [];
+
+      /* fallback: charger depuis la table players si match_players vide */
+      const fb: Promise<void>[] = [];
+      if (homePl.length === 0 && homeTeamId) {
+        fb.push(supabase.from("players").select("id, name, number").eq("team_id", homeTeamId).order("number", { ascending: true })
+          .then(({ data }) => { if (data && !cancelled) homePl = (data as any[]).map(toOpt); }));
+      }
+      if (awayPl.length === 0 && awayTeamId) {
+        fb.push(supabase.from("players").select("id, name, number").eq("team_id", awayTeamId).order("number", { ascending: true })
+          .then(({ data }) => { if (data && !cancelled) awayPl = (data as any[]).map(toOpt); }));
+      }
+      if (fb.length > 0) await Promise.all(fb);
+
+      if (!cancelled) {
+        setHomePlayers(homePl);
+        setAwayPlayers(awayPl);
+      }
 
       setLoading(false);
     }
