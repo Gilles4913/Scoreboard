@@ -83,7 +83,20 @@ function Landing() {
 
       const activeOrg = (localStorage.getItem(LS_ACTIVE_ORG_KEY) || "").trim();
       if (!activeOrg) {
-        redirectToLogin(window.location.origin + "/");
+        const userId = data.session?.user?.id;
+        if (userId) {
+          const { data: memberships } = await supabase
+            .from("org_members")
+            .select("orgs(id, slug, name, status, sport)")
+            .eq("user_id", userId);
+          const orgs = ((memberships || []) as any[]).map((r) => r.orgs).filter(Boolean);
+          if (orgs.length === 1) {
+            localStorage.setItem(LS_ACTIVE_ORG_KEY, orgs[0].slug);
+            nav("/teams", { replace: true });
+            return;
+          }
+        }
+        window.location.href = HOME_URL;
         return;
       }
 

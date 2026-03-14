@@ -62,6 +62,7 @@ export default function TeamsPage() {
   const [teams, setTeams] = useState<TeamRow[]>([]);
   const [matches, setMatches] = useState<MatchRow[]>([]);
   const [err, setErr] = useState("");
+  const [orgCount, setOrgCount] = useState(0);
 
   const activeOrgId = useMemo(() => (localStorage.getItem(LS_ACTIVE_ORG_ID) || "").trim(), []);
   const activeOrgSlug = useMemo(() => (localStorage.getItem(LS_ACTIVE_ORG_SLUG) || "").trim(), []);
@@ -79,6 +80,15 @@ export default function TeamsPage() {
         setLoading(false);
         return;
       }
+
+      const userId = sess.session.user.id;
+      supabase
+        .from("org_members")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .then(({ count }) => {
+          if (!cancelled) setOrgCount(count ?? 0);
+        });
 
       const orgQuery = supabase.from("orgs").select("id, slug, name, status, sport");
       const { data: orgRow, error: orgErr } = activeOrgId
@@ -181,16 +191,18 @@ export default function TeamsPage() {
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button
-              onClick={() => {
-                localStorage.removeItem(LS_ACTIVE_ORG_ID);
-                localStorage.removeItem(LS_ACTIVE_ORG_SLUG);
-                window.location.href = HOME_URL;
-              }}
-              style={styles.ghostBtn}
-            >
-              Changer d'organisation
-            </button>
+            {orgCount > 1 && (
+              <button
+                onClick={() => {
+                  localStorage.removeItem(LS_ACTIVE_ORG_ID);
+                  localStorage.removeItem(LS_ACTIVE_ORG_SLUG);
+                  window.location.href = HOME_URL;
+                }}
+                style={styles.ghostBtn}
+              >
+                Changer d'organisation
+              </button>
+            )}
             <button onClick={() => nav("/display-settings")} style={styles.ghostBtn}>Paramètres Display</button>
             <button onClick={logout} style={styles.ghostBtn}>Déconnexion</button>
           </div>
