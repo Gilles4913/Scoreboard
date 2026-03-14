@@ -738,6 +738,22 @@ export default function ControlPage() {
     }
   }, [handballSuspensions, isHandball]);
 
+  useEffect(() => {
+    const orgId = org?.id;
+    if (!orgId) return;
+    const ch = supabase
+      .channel(`org_ds:${orgId}`)
+      .on(
+        "postgres_changes" as any,
+        { event: "UPDATE", schema: "public", table: "org_display_settings", filter: `org_id=eq.${orgId}` },
+        (payload: any) => {
+          setDisplaySettings(payload.new as DisplaySettings);
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [org?.id]);
+
   function displayLink() {
     if (!DISPLAY_URL) return "";
     const base = DISPLAY_URL.replace(/\/$/, "");

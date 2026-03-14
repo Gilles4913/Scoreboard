@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
+import { sendTvBroadcast } from "../realtime";
 
 const LS_ACTIVE_ORG_ID = "scoreDisplay.activeOrgId";
 const LS_ACTIVE_ORG_SLUG = "scoreDisplay.activeOrgSlug";
@@ -488,6 +489,38 @@ export default function DisplaySettingsPage() {
     }
 
     flash("Paramètres sauvegardés.");
+
+    // Broadcast new settings to the display immediately (fire-and-forget)
+    if (org?.id) {
+      const { data: matchRow } = await supabase
+        .from("matches")
+        .select("id")
+        .eq("org_id", org.id)
+        .in("status", ["live", "scheduled", "paused"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (matchRow?.id) {
+        void sendTvBroadcast(matchRow.id, {
+          show_score:       displayForm.show_score,
+          show_clock:       displayForm.show_clock,
+          show_period:      displayForm.show_period,
+          show_status:      displayForm.show_status,
+          show_lower_third: displayForm.show_lower_third,
+          show_logos:       displayForm.show_logos,
+          show_sponsors:    displayForm.show_sponsors,
+          layout_mode:      displayForm.layout_mode,
+          show_team_fouls:  sportForm.show_team_fouls,
+          show_player_fouls: sportForm.show_player_fouls,
+          show_timeouts:    sportForm.show_timeouts,
+          show_bonus:       sportForm.show_bonus,
+          show_sets:        sportForm.show_sets,
+          show_cards:       sportForm.show_cards,
+          show_shot_clock:  sportForm.show_shot_clock,
+        });
+      }
+    }
   }
 
   if (loading || !displayForm || !sportForm) {
