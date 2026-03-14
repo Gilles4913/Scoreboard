@@ -913,6 +913,25 @@ export default function ControlPage() {
       },
     });
 
+    const nowMs = Date.now();
+    void sendTvBroadcast(match.id, {
+      live_seq: nowMs,
+      emitted_at: nowMs,
+      overlay: {
+        type: "substitution",
+        sport,
+        team_side: sub.teamSide,
+        team_name: sub.teamSide === "home" ? homeName : awayName,
+        player_out_name: sub.playerOut.name,
+        player_out_number: sub.playerOut.number,
+        player_in_name: sub.playerIn.name,
+        player_in_number: sub.playerIn.number,
+        duration_ms: 5000,
+        event_id: `sub-${nowMs}`,
+        emitted_at: nowMs,
+      },
+    });
+
     toast(`Remplacement enregistré : #${sub.playerOut.number} → #${sub.playerIn.number}`, "success");
   }
 

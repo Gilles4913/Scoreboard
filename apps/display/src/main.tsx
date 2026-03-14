@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
 import Scoreboard, { ScoreboardContext } from "./components/Scoreboard";
+import LiveOverlayBanner, { type LiveOverlay } from "./components/LiveOverlayBanner";
 
 function getEnv(name: string): string {
   const v = (import.meta as any).env?.[name];
@@ -216,6 +217,8 @@ function App() {
   const [err, setErr] = useState("");
 
   const [localTick, setLocalTick] = useState(0);
+  const [activeOverlay, setActiveOverlay] = useState<LiveOverlay | null>(null);
+  const overlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const lastBaseClockRef = useRef<number>(0);
   const lastBaseTsRef = useRef<number>(Date.now());
@@ -473,9 +476,20 @@ function App() {
       lastSeqRef.current = seq;
     }
 
+    if (patch.overlay?.type === "substitution") {
+      const ov = patch.overlay as LiveOverlay;
+      if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current);
+      setActiveOverlay(ov);
+      overlayTimerRef.current = setTimeout(
+        () => setActiveOverlay(null),
+        ov.duration_ms && ov.duration_ms > 0 ? ov.duration_ms : 5000,
+      );
+    }
+
+    const { overlay: _overlay, ...patchWithoutOverlay } = patch;
     setCtx((prev) => {
       if (!prev) return prev;
-      return mergeContext(prev, patch);
+      return mergeContext(prev, patchWithoutOverlay);
     });
   }
 
@@ -547,7 +561,12 @@ function App() {
     );
   }
 
-  return <Scoreboard context={computedContext} />;
+  return (
+    <div style={{ position: "relative" }}>
+      <Scoreboard context={computedContext} />
+      {activeOverlay && <LiveOverlayBanner overlay={activeOverlay} />}
+    </div>
+  );
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

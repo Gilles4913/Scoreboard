@@ -68,10 +68,20 @@ Merge order (lowest to highest priority):
 
 ## Substitutions (Rugby & Football)
 - **Dialog**: `apps/operator/src/components/SubstitutionDialog.tsx` — select player out / player in, reason, is_temporary, is_blood_substitution
-- **Handler**: `handleSubstitution()` in ControlPage — writes to `match_substitutions`, updates `match_players.is_on_field`, logs `rugby_substitution` / `football_substitution` to `match_events`
+- **Handler**: `handleSubstitution()` in ControlPage — writes to `match_substitutions`, updates `match_players.is_on_field`, logs `rugby_substitution` / `football_substitution` to `match_events`, broadcasts overlay via `sendTvBroadcast`
 - **Buttons**: Appear in "Mode rugby" and "Mode football" sections of ControlPage
 - **Event log**: Substitution events display as `#N1 PlayerOut → #N2 PlayerIn (reason)` in the journal
 - **is_on_field tracking**: `match_players` has `is_on_field`, `entered_at_clock_ms`, `left_at_clock_ms`, `minutes_played_s`. Default: `is_on_field = is_starter` (pre-migration fallback)
+
+## Live Overlay Banner (Display)
+- **Component**: `apps/display/src/components/LiveOverlayBanner.tsx` — bandeau bas d'écran contrasté, lisible LED
+- **Affichage** : équipe (badge bleu), SORTIE #N Nom ↓ | ENTRÉE #N Nom ↑ en gros texte blanc
+- **Déclenchement** : `patch.overlay.type === "substitution"` reçu via Realtime broadcast
+- **Durée** : `overlay.duration_ms` (défaut 5000 ms), timer auto-clear avec remplacement propre si rafale
+- **Sports** : rugby et football uniquement (configurable côté Operator)
+- **Non intrusif** : `position: fixed; bottom: 0` — score et chrono restent visibles
+- **Payload broadcast** : `{ overlay: { type, sport, team_side, team_name, player_out_name, player_out_number, player_in_name, player_in_number, duration_ms, event_id, emitted_at } }`
+- **Guard Display** : `overlay` est extrait du patch avant `mergeContext` — n'altère jamais le contexte score
 
 ## Team Statistics
 - **Page**: `apps/operator/src/pages/TeamStatsPage.tsx` at `/teams/:teamId/stats`

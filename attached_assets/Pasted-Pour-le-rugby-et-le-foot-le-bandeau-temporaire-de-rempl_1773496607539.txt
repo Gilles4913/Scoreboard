@@ -1,0 +1,322 @@
+Pour le rugby et le foot, le bandeau temporaire de remplacement sur le Display apporte une vraie valeur de démo :
+
+il rend l’action visible pour le public
+
+il valorise la régie live
+
+il exploite naturellement match_events et match_substitutions
+
+sans polluer l’affichage principal du score
+
+Je te donne ce qu’il faut ajouter au pack Replit.
+
+1) Règle produit à donner à Replit
+Ajouter un bandeau temporaire de remplacement sur le Display pour rugby et football.
+
+Objectif :
+- lorsqu’un remplacement est validé dans l’Operator, le Display doit pouvoir afficher un bandeau temporaire
+- ce bandeau ne doit pas casser la lisibilité du score principal
+- il doit disparaître automatiquement après quelques secondes
+- il doit être piloté par les événements match_events et/ou le broadcast live
+
+Sports concernés en priorité :
+- rugby
+- football
+
+Comportement attendu :
+- affichage pendant 4 à 6 secondes
+- texte lisible sur écran LED
+- pas de surcharge
+- ne pas bloquer le score / chrono
+2) Prompt Replit — implémentation du bandeau de remplacement
+Implémente un bandeau temporaire de remplacement sur le Display pour rugby et football.
+
+Contexte :
+- les remplacements sont saisis dans l’Operator
+- ils sont journalisés dans match_events
+- ils peuvent aussi être stockés dans match_substitutions
+- le Display principal doit rester lisible
+
+Objectif :
+- quand un événement rugby_substitution ou football_substitution est émis, afficher un bandeau temporaire sur le Display
+- le bandeau doit apparaître immédiatement
+- il doit disparaître automatiquement après un délai court
+
+Comportement attendu :
+1. le bandeau s’affiche lors de la réception d’un événement de remplacement
+2. il affiche :
+   - équipe concernée
+   - joueur sortant
+   - joueur entrant
+   - éventuellement numéro
+3. durée configurable simple, par exemple 5000 ms
+4. ne pas gêner le score principal
+5. ne pas rester bloqué si plusieurs événements arrivent
+6. si plusieurs remplacements arrivent rapidement, gérer une file simple ou remplacer le précédent proprement
+
+Je veux :
+- les fichiers complets à modifier
+- la logique Operator si nécessaire pour diffuser l’événement
+- la logique Display pour écouter et afficher le bandeau
+- la structure de données recommandée
+- un mini plan de test
+3) Payload recommandé pour le bandeau
+
+Quand l’Operator valide un remplacement, il faut diffuser un patch ou événement live clair.
+
+Événement match_events
+
+Type :
+
+rugby_substitution
+
+football_substitution
+
+Payload :
+
+{
+  "team_side": "home",
+  "player_out_id": "uuid-sortant",
+  "player_out_name": "Dupont",
+  "player_out_number": "12",
+  "player_in_id": "uuid-entrant",
+  "player_in_name": "Martin",
+  "player_in_number": "18",
+  "reason": "tactical",
+  "is_temporary": false,
+  "is_blood_substitution": false
+}
+Broadcast live recommandé
+
+En plus du journal, l’Operator peut pousser immédiatement un événement UI-friendly :
+
+{
+  "live_seq": 123,
+  "overlay": {
+    "type": "substitution",
+    "sport": "rugby",
+    "team_side": "home",
+    "team_name": "Racing Club",
+    "player_out_name": "Dupont",
+    "player_out_number": "12",
+    "player_in_name": "Martin",
+    "player_in_number": "18",
+    "duration_ms": 5000,
+    "event_id": "sub-uuid-001",
+    "emitted_at": 1730000000000
+  }
+}
+
+Ça évite au Display de reconstruire le bandeau à partir de plusieurs sources.
+
+4) Stratégie technique recommandée
+Côté Operator
+
+Au moment du remplacement :
+
+mise à jour match_players
+
+insert dans match_substitutions
+
+insert dans match_events
+
+pushPatch() avec un objet overlay
+
+Ordre recommandé :
+
+affichage live immédiat d’abord
+
+persistance juste après si tu cherches la latence minimale
+
+Côté Display
+
+Le Display doit :
+
+écouter overlay.type === "substitution"
+
+stocker un état local activeOverlay
+
+afficher le bandeau
+
+lancer un timer de disparition
+
+5) Structure frontend recommandée côté Display
+État local
+type LiveOverlay =
+  | {
+      type: "substitution";
+      sport: string;
+      team_side: "home" | "away";
+      team_name?: string;
+      player_out_name?: string;
+      player_out_number?: string;
+      player_in_name?: string;
+      player_in_number?: string;
+      duration_ms?: number;
+      event_id?: string;
+      emitted_at?: number;
+    }
+  | null;
+
+Dans main.tsx ou dans le composant racine du Display :
+
+const [overlay, setOverlay] = useState<LiveOverlay>(null);
+
+Quand un patch broadcast arrive :
+
+si patch.overlay?.type === "substitution" → setOverlay(...)
+
+timer setTimeout(() => setOverlay(null), duration_ms || 5000)
+
+6) Composant conseillé : LiveOverlayBanner.tsx
+
+Prompt Replit dédié :
+
+Crée un composant Display réutilisable LiveOverlayBanner.tsx.
+
+Objectif :
+- afficher un bandeau temporaire de remplacement pour rugby et football
+- composant très lisible sur écran LED
+- fond sombre ou contrasté
+- texte gros
+- hiérarchie claire :
+  - équipe
+  - sortant
+  - entrant
+
+Contraintes :
+- ne pas prendre trop de place
+- compatible avec score + chrono visibles
+- pas d’animation complexe
+- disparition automatique pilotée par le parent
+
+Je veux :
+- le fichier complet
+- styles inline ou simples
+- rendu compréhensible de loin
+7) Modèle visuel recommandé pour le bandeau
+
+Pour la démo, je recommande un bandeau horizontal bas ou haut, pas au centre.
+
+Variante simple
+[ RACING CLUB ]   Remplacement   12 Dupont sort   |   18 Martin entre
+Variante plus visuelle
+[ RACING CLUB ]
+SORTIE  #12 DUPONT
+ENTRÉE  #18 MARTIN
+Variante compacte LED
+RACING CLUB  |  #12 DUPONT  ↓   #18 MARTIN  ↑
+Conseil
+
+Pour le LED rugby/foot :
+
+équipe en premier
+
+sortant avec flèche descendante
+
+entrant avec flèche montante
+
+gros texte
+
+fond contrasté
+
+durée courte
+
+8) Intégration avec les modèles d’affichage
+
+Il faut prévoir que le bandeau puisse être :
+
+activé / désactivé par template
+
+activé / désactivé par paramètres Display
+
+Tu peux demander à Replit d’ajouter dans config_json des templates :
+
+{
+  "show_live_overlays": true,
+  "substitution_overlay_duration_ms": 5000,
+  "substitution_overlay_position": "bottom"
+}
+
+Et côté org_display_settings, plus tard si tu veux :
+
+show_live_overlays
+
+live_overlay_duration_ms
+
+Mais pour l’instant, le plus simple est :
+
+valeur par défaut dans le template
+
+fallback à 5000 ms
+
+9) Prompt Replit — liaison Operator + Display pour le bandeau
+Relie les remplacements saisis dans l’Operator au Display via un overlay live.
+
+Objectif :
+- quand un remplacement rugby ou football est validé :
+  - le Display affiche immédiatement un bandeau temporaire
+- le bandeau doit être porté par le broadcast live
+- le journal match_events reste la source historisée
+
+Je veux :
+1. le code Operator qui pousse overlay dans pushPatch
+2. le code Display qui lit overlay et l’affiche
+3. le composant de bandeau
+4. la logique de disparition automatique
+5. la prévention d’écrasement par un vieux patch
+10) Tests à demander à Replit
+Tests du bandeau de remplacement :
+
+1. Rugby
+- valider un remplacement
+- vérifier apparition immédiate du bandeau
+- vérifier disparition automatique
+- vérifier que le score reste lisible
+- vérifier journal match_events
+
+2. Football
+- même test
+
+3. Rafale de remplacements
+- deux remplacements rapides
+- vérifier comportement propre :
+  - soit remplacement du bandeau précédent
+  - soit file simple
+
+4. Robustesse
+- si aucun numéro n’est disponible, le bandeau reste lisible
+- si team_name absent, fallback sur home_name / away_name
+11) Prompt final pour actualiser la bible avec ce point
+Mets à jour la bible du projet pour intégrer le bandeau de remplacement sur Display.
+
+À documenter :
+- sports concernés : rugby et football
+- événement match_events :
+  - rugby_substitution
+  - football_substitution
+- usage de match_substitutions
+- possibilité d’un overlay temporaire Display
+- objectif UX :
+  - bandeau court
+  - lisible LED
+  - non intrusif
+- préciser que le bandeau est un enrichissement visuel, pas une donnée principale du score
+
+Je veux :
+- les blocs exacts à ajouter ou remplacer dans la bible
+12) Ma recommandation produit
+
+Pour éviter de trop ouvrir le chantier :
+
+v1 : un seul type d’overlay = substitution
+
+v2 plus tard :
+
+essai / but / pénalité
+
+carton rouge
+
+début / fin de période
+
+Comme ça, tu gardes une logique d’overlay simple et utile.
