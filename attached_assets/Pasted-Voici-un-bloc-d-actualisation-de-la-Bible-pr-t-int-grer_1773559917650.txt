@@ -1,0 +1,458 @@
+Voici un bloc d’actualisation de la Bible prêt à intégrer, pour figer proprement :
+
+la matrice d’affichage par sport
+
+la bibliothèque de templates
+
+le modèle par défaut par équipe
+
+les remplacements rugby / football
+
+le bandeau de remplacement sur Display
+
+les statistiques équipe calculables
+
+l’abandon définitif du mode token match
+
+Tu peux l’ajouter comme nouvelle section structurante, puis remplacer les anciens passages contradictoires.
+
+Bloc Bible à ajouter
+# Architecture d’affichage V2 — matrice sport, templates, remplacements et statistiques
+
+## 1. Principes consolidés
+
+scoreDisplay V2 repose sur les principes suivants :
+
+- le mode public officiel est l’URL stable par équipe
+- le paramètre public principal est `teamSlug`
+- le mode public par token match est supprimé
+- les anciennes colonnes `matches.display_token` et `matches.public_display` sont supprimées
+- le Display est résolu à partir de l’équipe, puis du match pertinent
+- le fallback serveur de sélection de match est :
+  - `live`
+  - `paused`
+  - `scheduled`
+  - dernier `finished` / `archived` si nécessaire
+
+---
+
+## 2. Sources de configuration du Display
+
+Le Display ne dépend plus d’une seule source de configuration.
+
+Il repose désormais sur la combinaison de :
+
+1. `org_display_settings`
+2. `org_sport_settings`
+3. `org_display_sport_profiles`
+4. `display_templates`
+5. `team_display_settings`
+
+### 2.1 `org_display_settings`
+Cette table porte le **tronc commun d’affichage** :
+- thème
+- logos
+- sponsors
+- lower third
+- langues
+- overlays globaux
+- densité générale
+- options transverses d’habillage
+
+### 2.2 `org_sport_settings`
+Cette table porte les **règles métier du sport** :
+- nombre de périodes
+- durée des périodes
+- shot clock
+- bonus
+- fautes
+- temps morts
+- sets
+- cartes
+- etc.
+
+Elle décrit la logique sportive, pas la forme visuelle.
+
+### 2.3 `org_display_sport_profiles`
+Cette table porte la **matrice d’affichage par sport au niveau organisation**.
+
+Elle permet de définir, pour un sport donné :
+- les blocs visuels activés
+- la densité d’affichage
+- la stratégie de lisibilité LED
+- la position et durée des overlays
+- le template d’affichage par défaut pour ce sport
+
+### 2.4 `display_templates`
+Cette table porte la **bibliothèque système des modèles d’affichage**.
+
+Chaque template possède :
+- un `code`
+- un `sport`
+- un `layout_mode`
+- une `config_json`
+- un indicateur `is_default_system`
+
+### 2.5 `team_display_settings`
+Cette table permet à une équipe de définir son **modèle d’affichage par défaut**.
+
+Elle permet de surcharger le choix par défaut de l’organisation.
+
+---
+
+## 3. Résolution finale de la configuration Display
+
+La configuration finale du Display est résolue dans cet ordre :
+
+1. `org_display_settings`
+2. `org_sport_settings`
+3. `org_display_sport_profiles`
+4. `display_templates.config_json`
+5. `team_display_settings` (override éventuel)
+
+### 3.1 Priorité de résolution du template
+Le template final est choisi dans cet ordre :
+
+1. `team_display_settings.default_display_template_id`
+2. `org_display_sport_profiles.default_display_template_id`
+3. template système par défaut pour le sport
+
+---
+
+## 4. Matrice d’affichage par sport
+
+Chaque sport possède des blocs d’affichage spécifiques.
+
+### 4.1 Tronc commun — tous sports
+- `show_score`
+- `show_clock`
+- `show_period`
+- `show_status`
+- `show_logos`
+- `show_sponsors`
+- `show_lower_third`
+- `show_live_overlays`
+- `overlay_position`
+- `overlay_duration_ms`
+- `density_mode`
+- `score_scale`
+- `clock_scale`
+- `team_name_mode`
+- `use_short_team_names`
+- `show_separator_score`
+
+### 4.2 Basket
+- `show_team_fouls`
+- `show_player_fouls`
+- `show_timeouts`
+- `show_bonus`
+- `show_shot_clock`
+- `show_possession_arrow`
+
+Templates conseillés :
+- `basket_arena`
+- `basket_compact`
+- `basket_shotclock_focus`
+
+### 4.3 Rugby
+- `show_cards`
+- `show_substitutions`
+- `show_sin_bin`
+- `show_rugby_score_breakdown`
+- `show_rugby_tries`
+- `show_rugby_conversions`
+- `show_rugby_penalties`
+- `show_rugby_drop_goals`
+
+Templates conseillés :
+- `rugby_stade`
+- `rugby_score_central`
+- `rugby_expert`
+- `rugby_club`
+
+### 4.4 Football
+- `show_cards`
+- `show_substitutions`
+- `show_added_time`
+- `show_penalty_shootout`
+- `show_match_phase`
+
+Templates conseillés :
+- `football_stade`
+- `football_tv`
+- `football_penalties`
+
+### 4.5 Handball
+- `show_timeouts`
+- `show_cards`
+- `show_two_min_suspensions`
+- `show_disqualifications`
+- `show_warnings`
+
+Templates conseillés :
+- `handball_classic`
+- `handball_sanctions`
+
+### 4.6 Volleyball
+- `show_sets`
+- `show_set_points`
+- `show_service`
+- `show_current_set`
+- `show_tiebreak`
+
+Templates conseillés :
+- `volley_sets`
+- `volley_compact`
+
+---
+
+## 5. Sport pilote prioritaire : Rugby
+
+Le Rugby est le sport pilote prioritaire pour l’affichage LED club.
+
+### 5.1 Objectif produit
+Sur un panneau LED paysage, un spectateur doit comprendre en moins de 2 secondes :
+- qui joue
+- le score
+- le temps
+- la période
+- les sanctions importantes
+
+### 5.2 Template par défaut recommandé
+Le template par défaut recommandé pour une équipe rugby est :
+
+- `rugby_stade`
+
+### 5.3 Templates Rugby
+#### `rugby_stade`
+Affichage principal très lisible :
+- équipes
+- score dominant
+- chrono
+- période
+- cartons
+- éventuellement sin bin
+- très peu d’informations secondaires
+
+#### `rugby_expert`
+Affichage enrichi :
+- score
+- chrono
+- période
+- essais
+- transformations
+- pénalités
+- drops
+- cartons
+
+### 5.4 Règles de lisibilité LED Rugby
+- score dominant
+- noms d’équipes courts
+- peu de texte
+- couleurs limitées
+- zones visuelles stables
+- cartons affichés de manière compréhensible
+- les détails rugby ne doivent pas gêner la lecture du score
+
+---
+
+## 6. Remplacements Rugby / Football
+
+Le logiciel supporte les remplacements en Rugby et Football.
+
+### 6.1 Objectifs
+- gérer les remplacements depuis l’Operator
+- journaliser ces remplacements
+- permettre des statistiques d’équipe et de joueur
+- alimenter éventuellement un bandeau Display
+
+### 6.2 Tables concernées
+#### `match_players`
+La feuille de match est enrichie avec :
+- `is_on_field`
+- `entered_at_clock_ms`
+- `left_at_clock_ms`
+- `minutes_played_s`
+
+#### `match_substitutions`
+Cette table journalise structurellement les remplacements :
+- équipe concernée
+- joueur sortant
+- joueur entrant
+- période
+- horloge match
+- raison éventuelle
+- flags temporaires
+
+### 6.3 Journal d’événements
+Chaque remplacement est aussi journalisé dans `match_events` avec :
+- `rugby_substitution`
+- `football_substitution`
+
+Payload attendu :
+- joueur sortant
+- joueur entrant
+- numéros
+- raison
+- `is_temporary`
+- `is_blood_substitution`
+
+---
+
+## 7. Bandeau de remplacement sur Display
+
+Le Display peut afficher un **bandeau temporaire de remplacement** pour Rugby et Football.
+
+### 7.1 Objectif UX
+- rendre visible l’événement au public
+- valoriser la régie live
+- ne pas gêner la lecture du score principal
+
+### 7.2 Règles
+- affichage temporaire court
+- non bloquant
+- lisible sur LED
+- priorité au score principal
+- disparition automatique
+
+### 7.3 Données recommandées
+Le bandeau s’appuie sur :
+- les événements `rugby_substitution` / `football_substitution`
+- un éventuel `overlay` diffusé en broadcast live
+
+---
+
+## 8. Statistiques équipe calculables
+
+Les statistiques équipe doivent être construites uniquement à partir de données fiables réellement présentes dans la base.
+
+### 8.1 Statistiques fiables immédiatement
+#### Bilan global
+- matchs joués
+- victoires
+- nuls
+- défaites
+- points marqués
+- points encaissés
+- différence de points
+- moyenne de points marqués / match
+- moyenne de points encaissés / match
+
+#### Discipline
+- total cartons jaunes
+- total cartons rouges
+- moyenne de cartons / match
+- nombre de matchs avec au moins un carton
+
+#### Joueurs
+- sélections
+- titularisations
+- total points
+- total fautes
+- total cartons jaunes
+- total cartons rouges
+
+#### Remplacements
+- nombre total de remplacements
+- joueurs les plus souvent remplacés
+- joueurs entrants les plus fréquents
+
+### 8.2 Statistiques non garanties à ce stade
+- temps de jeu réel précis
+- joueur du match
+- composition type robuste
+- efficacité individuelle avancée
+- impact exact des remplacements
+
+Ces statistiques nécessitent un niveau d’instrumentation supplémentaire.
+
+---
+
+## 9. Edge Functions et données Display
+
+### 9.1 `get-display-context`
+Cette Edge Function est la source principale du contexte public Display.
+
+Elle doit :
+- supporter `teamSlug`
+- supporter `teamId`
+- supporter éventuellement `matchId` pour usage technique interne
+- ne jamais supporter `token`
+- utiliser `SUPABASE_SERVICE_ROLE_KEY`
+- charger :
+  - le match sélectionné
+  - l’organisation
+  - les équipes
+  - `org_display_settings`
+  - `org_sport_settings`
+  - `org_display_sport_profiles`
+  - `team_display_settings`
+  - `display_templates`
+- résoudre le template final
+- retourner une config finale résolue pour le frontend
+
+---
+
+## 10. Décisions produit consolidées
+
+Les décisions suivantes sont désormais considérées comme figées :
+
+- le mode public officiel est l’URL stable par équipe
+- le mode public par token match est supprimé
+- `orgs.sport` est le champ valide pour le sport
+- les réglages du Display sont structurés par couches :
+  - `org_display_settings`
+  - `org_sport_settings`
+  - `org_display_sport_profiles`
+  - `display_templates`
+  - `team_display_settings`
+- Rugby est le sport pilote prioritaire pour les démonstrations LED
+Remplacements courts à faire dans la Bible existante
+1. Remplacer toute mention du mode public token
+
+Remplace les phrases du type :
+
+- affichage public d’un match par token
+- token match
+- display_token
+- public_display
+
+par :
+
+- affichage public stable par équipe via `teamSlug`
+2. Remplacer toute vision trop simple du Display
+
+Si tu as une phrase du type :
+
+Le Display dépend de `org_display_settings`.
+
+remplace-la par :
+
+Le Display dépend désormais d’une résolution multi-couches :
+- `org_display_settings`
+- `org_sport_settings`
+- `org_display_sport_profiles`
+- `display_templates`
+- `team_display_settings`
+3. Ajouter un rappel de priorité produit
+
+Ajoute cette phrase dans la roadmap / bible si nécessaire :
+
+La priorité visuelle actuelle est l’amélioration de la lisibilité LED, avec Rugby comme sport pilote.
+Ce que tu peux considérer comme la nouvelle vérité projet
+
+À partir de maintenant, la Bible doit raconter ceci :
+
+1 équipe = 1 URL publique
+
+chaque sport a sa matrice
+
+chaque équipe a un modèle par défaut
+
+Rugby et Football gèrent les remplacements
+
+les remplacements alimentent le journal et les stats
+
+le Display peut afficher un bandeau temporaire de remplacement
+
+les stats équipe reposent sur des données réellement disponibles
