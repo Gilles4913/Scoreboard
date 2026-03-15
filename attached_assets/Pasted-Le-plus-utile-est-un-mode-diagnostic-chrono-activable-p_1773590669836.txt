@@ -1,0 +1,252 @@
+Le plus utile est un mode diagnostic chrono activable par URL, visible sur :
+
+console principale
+
+QR Console
+
+Display
+
+Objectif :
+
+comparer en direct live_seq
+
+vérifier clock_ms
+
+vérifier clock_running
+
+vérifier clock_anchor_epoch
+
+vérifier clock_anchor_ms
+
+voir quel écran est en retard ou applique un vieux patch
+
+Je te propose un mode simple, sans toucher au produit normal :
+
+activation par query param : ?debugClock=1
+
+petit panneau discret en bas à gauche
+
+aucune dépendance backend supplémentaire
+
+1) Convention d’activation
+
+On active le mode diagnostic avec :
+
+?debugClock=1
+
+Exemples :
+
+Display :
+https://scoreboard-display-pi.vercel.app/?teamSlug=seniors-hommes-50000000&debugClock=1
+
+console principale :
+/matches/<id>/control?debugClock=1
+
+QR Console :
+/mobile-control/<id>?debugClock=1
+
+2) apps/display/src/main.tsx
+A. Ajoute ce helper en haut du fichier
+function isDebugClockEnabled() {
+  try {
+    const u = new URL(window.location.href);
+    return u.searchParams.get("debugClock") === "1";
+  } catch {
+    return false;
+  }
+}
+B. Dans App(), ajoute cet état juste après les useState(...)
+const debugClock = isDebugClockEnabled();
+C. Ajoute ces refs si elles n’existent pas déjà
+const lastSeqRef = useRef<number>(0);
+const lastPatchAtRef = useRef<number>(0);
+D. Dans applyLivePatch(rawPatch: any), ajoute ceci juste après la gestion de seq
+lastPatchAtRef.current = Date.now();
+E. Remplace le return <Scoreboard ... /> final par ceci
+return (
+  <>
+    <Scoreboard context={computedContext} />
+
+    {debugClock ? (
+      <div
+        style={{
+          position: "fixed",
+          left: 12,
+          bottom: 12,
+          zIndex: 9999,
+          background: "rgba(0,0,0,.82)",
+          color: "#d1fae5",
+          border: "1px solid rgba(255,255,255,.15)",
+          borderRadius: 10,
+          padding: 10,
+          fontFamily: "monospace",
+          fontSize: 12,
+          lineHeight: 1.45,
+          minWidth: 250,
+        }}
+      >
+        <div style={{ fontWeight: 800, marginBottom: 6 }}>DEBUG CLOCK — DISPLAY</div>
+        <div>match_id: {String(computedContext.match_id ?? "")}</div>
+        <div>status: {String(computedContext.status ?? "")}</div>
+        <div>clock_running: {String(!!computedContext.clock_running)}</div>
+        <div>clock_ms: {Math.round(Number(computedContext.clock_ms ?? 0))}</div>
+        <div>anchor_ms: {Math.round(Number(lastBaseClockRef.current ?? 0))}</div>
+        <div>anchor_epoch: {Math.round(Number(lastBaseTsRef.current ?? 0))}</div>
+        <div>last_seq: {lastSeqRef.current}</div>
+        <div>last_patch_at: {lastPatchAtRef.current || 0}</div>
+        <div>now: {Date.now()}</div>
+      </div>
+    ) : null}
+  </>
+);
+3) apps/operator/src/pages/ControlPage.tsx
+A. Ajoute ce helper en haut du fichier
+function isDebugClockEnabled() {
+  try {
+    const u = new URL(window.location.href);
+    return u.searchParams.get("debugClock") === "1";
+  } catch {
+    return false;
+  }
+}
+B. Dans le composant, ajoute :
+const debugClock = isDebugClockEnabled();
+const lastPatchAtRef = useRef<number>(0);
+C. Dans applyIncomingLivePatch(...), ajoute juste après la gestion de seq :
+lastPatchAtRef.current = Date.now();
+D. Tout en bas du rendu principal, juste avant les fermetures finales, ajoute :
+{debugClock ? (
+  <div
+    style={{
+      position: "fixed",
+      left: 12,
+      bottom: 12,
+      zIndex: 9999,
+      background: "rgba(0,0,0,.82)",
+      color: "#dbeafe",
+      border: "1px solid rgba(255,255,255,.15)",
+      borderRadius: 10,
+      padding: 10,
+      fontFamily: "monospace",
+      fontSize: 12,
+      lineHeight: 1.45,
+      minWidth: 260,
+    }}
+  >
+    <div style={{ fontWeight: 800, marginBottom: 6 }}>DEBUG CLOCK — CONTROL</div>
+    <div>match_id: {match?.id || ""}</div>
+    <div>status: {status}</div>
+    <div>clock_running: {String(clockRunning)}</div>
+    <div>clock_ms: {Math.round(Number(clockMs || 0))}</div>
+    <div>anchor_ms: {Math.round(Number(clockAnchorRef.current?.ms || 0))}</div>
+    <div>anchor_epoch: {Math.round(Number(clockAnchorRef.current?.epoch || 0))}</div>
+    <div>local_seq: {liveSeqRef.current}</div>
+    <div>last_applied_seq: {lastAppliedSeqRef.current}</div>
+    <div>last_patch_at: {lastPatchAtRef.current || 0}</div>
+    <div>now: {Date.now()}</div>
+  </div>
+) : null}
+4) apps/operator/src/pages/MobileControlPage.tsx
+A. Ajoute le helper
+function isDebugClockEnabled() {
+  try {
+    const u = new URL(window.location.href);
+    return u.searchParams.get("debugClock") === "1";
+  } catch {
+    return false;
+  }
+}
+B. Dans le composant, ajoute :
+const debugClock = isDebugClockEnabled();
+const lastPatchAtRef = useRef<number>(0);
+C. Dans applyIncomingLivePatch(...), ajoute :
+lastPatchAtRef.current = Date.now();
+D. Dans le rendu, ajoute le panneau :
+{debugClock ? (
+  <div
+    style={{
+      position: "fixed",
+      left: 12,
+      bottom: 12,
+      zIndex: 9999,
+      background: "rgba(0,0,0,.82)",
+      color: "#fef3c7",
+      border: "1px solid rgba(255,255,255,.15)",
+      borderRadius: 10,
+      padding: 10,
+      fontFamily: "monospace",
+      fontSize: 12,
+      lineHeight: 1.45,
+      minWidth: 260,
+    }}
+  >
+    <div style={{ fontWeight: 800, marginBottom: 6 }}>DEBUG CLOCK — MOBILE</div>
+    <div>match_id: {matchId || ""}</div>
+    <div>status: {status}</div>
+    <div>clock_running: {String(clockRunning)}</div>
+    <div>clock_ms: {Math.round(Number(clockMs || 0))}</div>
+    <div>anchor_ms: {Math.round(Number(clockAnchorRef.current?.ms || 0))}</div>
+    <div>anchor_epoch: {Math.round(Number(clockAnchorRef.current?.epoch || 0))}</div>
+    <div>local_seq: {liveSeqRef.current}</div>
+    <div>last_applied_seq: {lastAppliedSeqRef.current}</div>
+    <div>last_patch_at: {lastPatchAtRef.current || 0}</div>
+    <div>now: {Date.now()}</div>
+  </div>
+) : null}
+5) Ce que tu dois observer pendant les tests
+Cas nominal
+
+Tu lances debugClock=1 sur les 3 surfaces.
+
+Quand tu fais Start
+
+Tu dois voir :
+
+status = live partout
+
+clock_running = true partout
+
+local_seq / last_applied_seq converger
+
+anchor_ms identique ou très proche
+
+anchor_epoch très proche
+
+Quand tu fais Pause
+
+Tu dois voir :
+
+status = paused
+
+clock_running = false
+
+clock_ms figé quasiment à la même valeur
+
+aucun écran ne repart ensuite tout seul
+
+Quand tu fais Reset
+
+Tu dois voir :
+
+clock_ms remis à la valeur de base
+
+clock_running = false
+
+même live_seq logique partout
+
+6) Comment interpréter les écarts
+Si le Display a un last_seq plus faible
+
+Ça veut dire qu’il reçoit ou applique un vieux patch, ou qu’un patch n’est pas arrivé.
+
+Si anchor_epoch diverge beaucoup
+
+La source qui a émis le chrono n’a pas envoyé une bonne ancre, ou une surface n’a pas recalé correctement.
+
+Si clock_ms diverge mais pas anchor_ms
+
+Alors le calcul local du tick est mauvais sur une des surfaces.
+
+Si status diverge
+
+Alors la DB ou un vieux patch écrase un état plus récent.

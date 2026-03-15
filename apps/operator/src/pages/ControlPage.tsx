@@ -380,6 +380,15 @@ function recomputeRugbyScore(parts: {
   return parts.tries * 5 + parts.conversions * 2 + parts.penalties * 3 + parts.drops * 3;
 }
 
+function isDebugClockEnabled() {
+  try {
+    const u = new URL(window.location.href);
+    return u.searchParams.get("debugClock") === "1";
+  } catch {
+    return false;
+  }
+}
+
 export default function ControlPage() {
   const nav = useNavigate();
   const { matchId = "" } = useParams();
@@ -486,6 +495,8 @@ export default function ControlPage() {
   const timerRef = useRef<number | null>(null);
   const liveSeqRef = useRef<number>(0);
   const lastAppliedSeqRef = useRef<number>(0);
+  const lastPatchAtRef = useRef<number>(0);
+  const debugClock = isDebugClockEnabled();
   const eventSeqRef = useRef<number>(0);
   const clockMsRef = useRef<number>(0);
   const clockRunningRef = useRef<boolean>(false);
@@ -876,6 +887,7 @@ export default function ControlPage() {
     if (seq && seq < lastAppliedSeqRef.current) return;
     if (seq) {
       lastAppliedSeqRef.current = seq;
+    lastPatchAtRef.current = Date.now();
       if (seq > liveSeqRef.current) liveSeqRef.current = seq;
     }
 
@@ -3125,6 +3137,38 @@ export default function ControlPage() {
           onClose={() => setSubstitutionDialog(null)}
         />
       )}
+
+      {debugClock ? (
+        <div
+          style={{
+            position: "fixed",
+            left: 12,
+            bottom: 12,
+            zIndex: 9999,
+            background: "rgba(0,0,0,.82)",
+            color: "#dbeafe",
+            border: "1px solid rgba(255,255,255,.15)",
+            borderRadius: 10,
+            padding: 10,
+            fontFamily: "monospace",
+            fontSize: 12,
+            lineHeight: 1.45,
+            minWidth: 260,
+          }}
+        >
+          <div style={{ fontWeight: 800, marginBottom: 6 }}>DEBUG CLOCK — CONTROL</div>
+          <div>match_id: {match?.id || ""}</div>
+          <div>status: {status}</div>
+          <div>clock_running: {String(clockRunning)}</div>
+          <div>clock_ms: {Math.round(Number(clockMs || 0))}</div>
+          <div>anchor_ms: {Math.round(Number(clockAnchorRef.current?.ms || 0))}</div>
+          <div>anchor_epoch: {Math.round(Number(clockAnchorRef.current?.epoch || 0))}</div>
+          <div>local_seq: {liveSeqRef.current}</div>
+          <div>last_applied_seq: {lastAppliedSeqRef.current}</div>
+          <div>last_patch_at: {lastPatchAtRef.current || 0}</div>
+          <div>now: {Date.now()}</div>
+        </div>
+      ) : null}
     </div>
   );
 }

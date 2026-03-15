@@ -239,6 +239,15 @@ function buildPatchFromMatchRow(row: any): Partial<ScoreboardContext> {
   };
 }
 
+function isDebugClockEnabled() {
+  try {
+    const u = new URL(window.location.href);
+    return u.searchParams.get('debugClock') === '1';
+  } catch {
+    return false;
+  }
+}
+
 function App() {
   const matchIdFromUrl = getSearchParam("matchId");
   const teamSlug = getSearchParam("teamSlug");
@@ -261,6 +270,8 @@ function App() {
   const lastRunningRef = useRef<boolean>(false);
   const lastMatchIdRef = useRef<string>("");
   const lastSeqRef = useRef<number>(0);
+  const lastPatchAtRef = useRef<number>(0);
+  const debugClock = isDebugClockEnabled();
 
   useEffect(() => {
     const t = window.setInterval(() => setLocalTick((v) => v + 1), 100);
@@ -333,6 +344,7 @@ function App() {
     const seq = Number(rawPatch?.live_seq || 0);
     if (seq && seq < lastSeqRef.current) return;
     if (seq) lastSeqRef.current = seq;
+    lastPatchAtRef.current = Date.now();
 
     if (rawPatch.overlay?.type === "substitution") {
       const ov = rawPatch.overlay as LiveOverlay;
@@ -530,7 +542,42 @@ function App() {
     );
   }
 
-  return <Scoreboard context={computedContext} activeOverlay={activeOverlay} />;
+  return (
+    <>
+      <Scoreboard context={computedContext} activeOverlay={activeOverlay} />
+
+      {debugClock ? (
+        <div
+          style={{
+            position: 'fixed',
+            left: 12,
+            bottom: 12,
+            zIndex: 9999,
+            background: 'rgba(0,0,0,.82)',
+            color: '#d1fae5',
+            border: '1px solid rgba(255,255,255,.15)',
+            borderRadius: 10,
+            padding: 10,
+            fontFamily: 'monospace',
+            fontSize: 12,
+            lineHeight: 1.45,
+            minWidth: 250,
+          }}
+        >
+          <div style={{ fontWeight: 800, marginBottom: 6 }}>DEBUG CLOCK — DISPLAY</div>
+          <div>match_id: {String(computedContext.match_id ?? '')}</div>
+          <div>status: {String(computedContext.status ?? '')}</div>
+          <div>clock_running: {String(!!computedContext.clock_running)}</div>
+          <div>clock_ms: {Math.round(Number(computedContext.clock_ms ?? 0))}</div>
+          <div>anchor_ms: {Math.round(Number(lastBaseClockRef.current ?? 0))}</div>
+          <div>anchor_epoch: {Math.round(Number(lastBaseTsRef.current ?? 0))}</div>
+          <div>last_seq: {lastSeqRef.current}</div>
+          <div>last_patch_at: {lastPatchAtRef.current || 0}</div>
+          <div>now: {Date.now()}</div>
+        </div>
+      ) : null}
+    </>
+  );
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

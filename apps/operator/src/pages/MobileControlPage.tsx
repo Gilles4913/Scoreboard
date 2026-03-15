@@ -42,6 +42,15 @@ function clamp(n: number, min = 0) { return Math.max(min, n); }
 interface MatchRow { [key: string]: any }
 
 /* ─── component ──────────────────────────────────────────────────────────────── */
+function isDebugClockEnabled() {
+  try {
+    const u = new URL(window.location.href);
+    return u.searchParams.get('debugClock') === '1';
+  } catch {
+    return false;
+  }
+}
+
 export default function MobileControlPage() {
   const { matchId = "" } = useParams();
   const nav = useNavigate();
@@ -84,6 +93,8 @@ export default function MobileControlPage() {
   const clockAnchorRef = useRef<{ epoch: number; ms: number }>({ epoch: Date.now(), ms: 0 });
   const liveSeqRef = useRef(0);
   const lastAppliedSeqRef = useRef(0);
+  const lastPatchAtRef = useRef<number>(0);
+  const debugClock = isDebugClockEnabled();
 
   const isRugby = normalizeSport(sport) === "rugby";
   const canScore = status === "live";
@@ -227,6 +238,7 @@ export default function MobileControlPage() {
     if (seq && seq < lastAppliedSeqRef.current) return;
     if (seq) {
       lastAppliedSeqRef.current = seq;
+    lastPatchAtRef.current = Date.now();
       if (seq > liveSeqRef.current) liveSeqRef.current = seq;
     }
 
@@ -610,6 +622,38 @@ export default function MobileControlPage() {
       <button style={s.fullRegieLink} onClick={() => nav(`/matches/${matchId}/control`)}>
         Ouvrir la régie complète →
       </button>
+
+      {debugClock ? (
+        <div
+          style={{
+            position: 'fixed',
+            left: 12,
+            bottom: 12,
+            zIndex: 9999,
+            background: 'rgba(0,0,0,.82)',
+            color: '#fef3c7',
+            border: '1px solid rgba(255,255,255,.15)',
+            borderRadius: 10,
+            padding: 10,
+            fontFamily: 'monospace',
+            fontSize: 12,
+            lineHeight: 1.45,
+            minWidth: 260,
+          }}
+        >
+          <div style={{ fontWeight: 800, marginBottom: 6 }}>DEBUG CLOCK — MOBILE</div>
+          <div>match_id: {matchId || ''}</div>
+          <div>status: {status}</div>
+          <div>clock_running: {String(clockRunning)}</div>
+          <div>clock_ms: {Math.round(Number(clockMs || 0))}</div>
+          <div>anchor_ms: {Math.round(Number(clockAnchorRef.current?.ms || 0))}</div>
+          <div>anchor_epoch: {Math.round(Number(clockAnchorRef.current?.epoch || 0))}</div>
+          <div>local_seq: {liveSeqRef.current}</div>
+          <div>last_applied_seq: {lastAppliedSeqRef.current}</div>
+          <div>last_patch_at: {lastPatchAtRef.current || 0}</div>
+          <div>now: {Date.now()}</div>
+        </div>
+      ) : null}
 
       <PlayerPickerDialog state={pickerState} onClose={handlePickerClose} />
     </div>
