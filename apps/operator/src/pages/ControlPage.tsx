@@ -485,6 +485,7 @@ export default function ControlPage() {
 
   const timerRef = useRef<number | null>(null);
   const liveSeqRef = useRef<number>(0);
+  const lastAppliedSeqRef = useRef<number>(0);
   const eventSeqRef = useRef<number>(0);
   const clockMsRef = useRef<number>(0);
   const clockRunningRef = useRef<boolean>(false);
@@ -812,6 +813,45 @@ export default function ControlPage() {
     return () => { supabase.removeChannel(ch); };
   }, [matchId]);
 
+  // Écoute les broadcasts et postgres_changes du match (ex: actions QR Console)
+  useEffect(() => {
+    if (!matchId) return;
+    const ch = supabase
+      .channel(`match-ctrl:${matchId}`)
+      .on('broadcast', { event: '*' }, (message: any) => {
+        const patch = message?.payload?.patch || message?.payload || message;
+        if (!patch || typeof patch !== 'object') return;
+        applyIncomingLivePatch(patch);
+      })
+      .on(
+        'postgres_changes' as any,
+        { event: 'UPDATE', schema: 'public', table: 'matches', filter: `id=eq.${matchId}` },
+        (payload: any) => {
+          const row = payload?.new;
+          if (!row) return;
+          applyIncomingLivePatch({
+            live_seq: row.last_event_seq ?? 0,
+            status: row.status,
+            period_label: row.period_label,
+            home_score: row.home_score,
+            away_score: row.away_score,
+            clock_ms: row.clock_ms,
+            clock_running: row.clock_running,
+            home_team_fouls: row.home_team_fouls,
+            away_team_fouls: row.away_team_fouls,
+            home_timeouts: row.home_timeouts,
+            away_timeouts: row.away_timeouts,
+            home_bonus: row.home_bonus,
+            away_bonus: row.away_bonus,
+            shot_clock_s: row.shot_clock_s,
+            possession_arrow: row.possession_arrow,
+          });
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [matchId]);
+
   function displayLink() {
     if (!DISPLAY_URL) return "";
     const base = DISPLAY_URL.replace(/\/$/, "");
@@ -828,6 +868,42 @@ export default function ControlPage() {
     liveSeqRef.current += 1;
     return liveSeqRef.current;
   }
+
+  function applyIncomingLivePatch(patch: Record<string, any>) {
+    if (!patch || typeof patch !== "object") return;
+
+    const seq = Number(patch.live_seq || 0);
+    if (seq && seq < lastAppliedSeqRef.current) return;
+    if (seq) {
+      lastAppliedSeqRef.current = seq;
+      if (seq > liveSeqRef.current) liveSeqRef.current = seq;
+    }
+
+    if (typeof patch.status === "string")             setStatus(patch.status);
+    if (typeof patch.period_label === "string")       setPeriodLabel(patch.period_label);
+    if (typeof patch.home_score === "number")         setHomeScore(patch.home_score);
+    if (typeof patch.away_score === "number")         setAwayScore(patch.away_score);
+    if (typeof patch.home_team_fouls === "number")    setHomeTeamFouls(patch.home_team_fouls);
+    if (typeof patch.away_team_fouls === "number")    setAwayTeamFouls(patch.away_team_fouls);
+    if (typeof patch.home_timeouts === "number")      setHomeTimeouts(patch.home_timeouts);
+    if (typeof patch.away_timeouts === "number")      setAwayTimeouts(patch.away_timeouts);
+    if (typeof patch.home_bonus === "boolean")        setHomeBonus(patch.home_bonus);
+    if (typeof patch.away_bonus === "boolean")        setAwayBonus(patch.away_bonus);
+    if (typeof patch.shot_clock_s === "number")       setShotClockS(patch.shot_clock_s);
+    if (typeof patch.possession_arrow === "string" || patch.possession_arrow === null) setPossessionArrow(patch.possession_arrow as any);
+
+    const hasAnchorEpoch  = typeof patch.clock_anchor_epoch === "number";
+    const hasAnchorMs     = typeof patch.clock_anchor_ms    === "number";
+    const hasClockMs      = typeof patch.clock_ms           === "number";
+    const hasClockRunning = typeof patch.clock_running === "boolean";
+
+    if (hasAnchorEpoch && hasAnchorMs) {
+      clockAnchorRef.current = { epoch: patch.clock_anchor_epoch, ms: patch.clock_anchor_ms };
+    }
+    if (hasClockMs)      { clockMsRef.current = patch.clock_ms;          setClockMs(patch.clock_ms); }
+    if (hasClockRunning) { clockRunningRef.current = !!patch.clock_running; setClockRunning(!!patch.clock_running); }
+  }
+
 
   async function persistLiveState(patch: Partial<MatchRow>) {
     if (!match) return;
@@ -972,6 +1048,7 @@ export default function ControlPage() {
   async function pushPatch(extra: Record<string, any>) {
     if (!match) return;
 
+    const seq = nextLiveSeq();
     const payload = {
       match_id: match.id,
       match_name: matchName,
@@ -1078,12 +1155,13 @@ export default function ControlPage() {
       football_added_time_extra_2: footballAddedEx2,
 
       ...extra,
-      live_seq: nextLiveSeq(),
+      live_seq: seq,
       clock_anchor_epoch: clockAnchorRef.current.epoch,
       clock_anchor_ms: clockAnchorRef.current.ms,
       emitted_at: Date.now(),
     };
 
+    lastAppliedSeqRef.current = seq;
     await sendTvBroadcast(match.id, payload);
   }
 
@@ -1202,53 +1280,84 @@ export default function ControlPage() {
   async function startClock() {
     const nextClockMs =
       clockMsRef.current > 0 ? clockMsRef.current : defaultClockMsBySport(sport, sportSettings?.period_duration_s);
+    const now = Date.now();
+    const seq = nextLiveSeq();
 
     clockMsRef.current = nextClockMs;
     clockRunningRef.current = true;
-    clockAnchorRef.current = { epoch: Date.now(), ms: nextClockMs };
+    clockAnchorRef.current = { epoch: now, ms: nextClockMs };
     setClockMs(nextClockMs);
     setClockRunning(true);
     setStatus("live");
 
+    lastAppliedSeqRef.current = seq;
+
     try {
-      const pushP = autoLive
-        ? pushPatch({ clock_ms: nextClockMs, clock_running: true, status: "live" })
-        : Promise.resolve(null);
-      void persistLiveState({ clock_ms: nextClockMs, clock_running: true, status: "live" });
-      await pushP;
+      await sendTvBroadcast(match!.id, {
+        match_id: match!.id,
+        clock_ms: nextClockMs,
+        clock_running: true,
+        status: "live",
+        live_seq: seq,
+        clock_anchor_epoch: now,
+        clock_anchor_ms: nextClockMs,
+        emitted_at: now,
+      });
+      void persistLiveState({ clock_ms: nextClockMs, clock_running: true, status: "live", last_event_seq: seq });
     } catch {}
   }
 
   async function pauseClock() {
     const capturedClockMs = clockMsRef.current;
+    const now = Date.now();
+    const seq = nextLiveSeq();
+
     clockRunningRef.current = false;
+    clockAnchorRef.current = { epoch: now, ms: capturedClockMs };
     setClockRunning(false);
     setStatus("paused");
 
+    lastAppliedSeqRef.current = seq;
+
     try {
-      const pushP = autoLive
-        ? pushPatch({ clock_running: false, status: "paused", clock_ms: capturedClockMs })
-        : Promise.resolve(null);
-      void persistLiveState({ clock_running: false, status: "paused", clock_ms: capturedClockMs });
-      await pushP;
+      await sendTvBroadcast(match!.id, {
+        match_id: match!.id,
+        clock_running: false,
+        clock_ms: capturedClockMs,
+        status: "paused",
+        live_seq: seq,
+        clock_anchor_epoch: now,
+        clock_anchor_ms: capturedClockMs,
+        emitted_at: now,
+      });
+      void persistLiveState({ clock_running: false, clock_ms: capturedClockMs, status: "paused", last_event_seq: seq });
     } catch {}
   }
 
   async function resetClock() {
     const next = defaultClockMsBySport(sport, sportSettings?.period_duration_s);
+    const now = Date.now();
+    const seq = nextLiveSeq();
 
     clockMsRef.current = next;
     clockRunningRef.current = false;
-    clockAnchorRef.current = { epoch: Date.now(), ms: next };
+    clockAnchorRef.current = { epoch: now, ms: next };
     setClockMs(next);
     setClockRunning(false);
 
+    lastAppliedSeqRef.current = seq;
+
     try {
-      const pushP = autoLive
-        ? pushPatch({ clock_ms: next, clock_running: false })
-        : Promise.resolve(null);
-      void persistLiveState({ clock_ms: next, clock_running: false });
-      await pushP;
+      await sendTvBroadcast(match!.id, {
+        match_id: match!.id,
+        clock_ms: next,
+        clock_running: false,
+        live_seq: seq,
+        clock_anchor_epoch: now,
+        clock_anchor_ms: next,
+        emitted_at: now,
+      });
+      void persistLiveState({ clock_ms: next, clock_running: false, last_event_seq: seq });
     } catch {}
   }
 

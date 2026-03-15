@@ -1,0 +1,414 @@
+C’est la bonne fin de chantier pour le chrono.
+
+Il faut que les 3 surfaces appliquent exactement la même règle :
+
+émettre live_seq
+
+mémoriser lastAppliedSeq
+
+ignorer tout patch plus ancien
+
+recaler l’horloge uniquement depuis une ancre valide
+
+Voici ce qu’il faut faire sur la console principale dans apps/operator/src/pages/ControlPage.tsx.
+
+1) Ajouter les refs live_seq
+
+Ajoute avec les autres useRef(...) :
+
+const liveSeqRef = useRef<number>(0);
+const lastAppliedSeqRef = useRef<number>(0);
+
+function nextLiveSeq() {
+  liveSeqRef.current += 1;
+  return liveSeqRef.current;
+}
+2) Ajouter un helper pour appliquer un patch entrant
+
+Ajoute cette fonction dans le composant :
+
+function applyIncomingLivePatch(patch: Record<string, any>) {
+  if (!patch || typeof patch !== "object") return;
+
+  const seq = Number(patch.live_seq || 0);
+
+  if (seq && seq < lastAppliedSeqRef.current) {
+    return;
+  }
+
+  if (seq) {
+    lastAppliedSeqRef.current = seq;
+    if (seq > liveSeqRef.current) {
+      liveSeqRef.current = seq;
+    }
+  }
+
+  if (typeof patch.status === "string") {
+    setStatus(patch.status);
+  }
+
+  if (typeof patch.period_label === "string") {
+    setPeriodLabel(patch.period_label);
+  }
+
+  if (typeof patch.home_score === "number") {
+    setHomeScore(patch.home_score);
+  }
+
+  if (typeof patch.away_score === "number") {
+    setAwayScore(patch.away_score);
+  }
+
+  if (typeof patch.home_team_fouls === "number") {
+    setHomeTeamFouls(patch.home_team_fouls);
+  }
+
+  if (typeof patch.away_team_fouls === "number") {
+    setAwayTeamFouls(patch.away_team_fouls);
+  }
+
+  if (typeof patch.home_timeouts === "number") {
+    setHomeTimeouts(patch.home_timeouts);
+  }
+
+  if (typeof patch.away_timeouts === "number") {
+    setAwayTimeouts(patch.away_timeouts);
+  }
+
+  if (typeof patch.home_bonus === "boolean") {
+    setHomeBonus(patch.home_bonus);
+  }
+
+  if (typeof patch.away_bonus === "boolean") {
+    setAwayBonus(patch.away_bonus);
+  }
+
+  if (typeof patch.shot_clock_s === "number") {
+    setShotClockS(patch.shot_clock_s);
+  }
+
+  if (typeof patch.possession_arrow === "string" || patch.possession_arrow === null) {
+    setPossessionArrow(patch.possession_arrow);
+  }
+
+  const hasAnchorEpoch = typeof patch.clock_anchor_epoch === "number";
+  const hasAnchorMs = typeof patch.clock_anchor_ms === "number";
+  const hasClockMs = typeof patch.clock_ms === "number";
+  const hasClockRunning = typeof patch.clock_running === "boolean";
+
+  if (hasAnchorEpoch && hasAnchorMs) {
+    clockAnchorRef.current = {
+      epoch: patch.clock_anchor_epoch,
+      ms: patch.clock_anchor_ms,
+    };
+  }
+
+  if (hasClockMs) {
+    clockMsRef.current = patch.clock_ms;
+    setClockMs(patch.clock_ms);
+  }
+
+  if (hasClockRunning) {
+    clockRunningRef.current = !!patch.clock_running;
+    setClockRunning(!!patch.clock_running);
+  }
+}
+3) Modifier pushPatch(...) pour inclure live_seq
+
+Remplace entièrement la fonction pushPatch(...) par ceci :
+
+async function pushPatch(extra: Record<string, any>) {
+  if (!match) return;
+
+  const seq = nextLiveSeq();
+
+  const payload = {
+    match_id: match.id,
+    match_name: matchName,
+    venue: org?.name || "",
+    sport,
+    status,
+    home_name: homeName,
+    away_name: awayName,
+    home_score: homeScore,
+    away_score: awayScore,
+    clock_ms: clockMs,
+    clock_running: clockRunning,
+    period_label: periodLabel,
+
+    show_score: displaySettings?.show_score ?? true,
+    show_clock: displaySettings?.show_clock ?? true,
+    show_period: displaySettings?.show_period ?? true,
+    show_status: displaySettings?.show_status ?? true,
+    show_lower_third: displaySettings?.show_lower_third ?? true,
+    show_logos: displaySettings?.show_logos ?? true,
+    show_sponsors: displaySettings?.show_sponsors ?? true,
+
+    show_team_fouls: sportSettings?.show_team_fouls ?? false,
+    show_player_fouls: sportSettings?.show_player_fouls ?? false,
+    show_timeouts: sportSettings?.show_timeouts ?? false,
+    show_bonus: sportSettings?.show_bonus ?? false,
+    show_sets: sportSettings?.show_sets ?? false,
+    show_cards: sportSettings?.show_cards ?? false,
+    show_shot_clock: sportSettings?.show_shot_clock ?? false,
+
+    layout_mode: displaySettings?.layout_mode ?? "stadium",
+
+    home: { name: homeName },
+    away: { name: awayName },
+
+    home_team_fouls: homeTeamFouls,
+    away_team_fouls: awayTeamFouls,
+    home_timeouts: isHandball ? handballHomeTimeouts : isVolleyball ? volleyHomeTimeouts : homeTimeouts,
+    away_timeouts: isHandball ? handballAwayTimeouts : isVolleyball ? volleyAwayTimeouts : awayTimeouts,
+    home_bonus: homeBonus,
+    away_bonus: awayBonus,
+    shot_clock_s: shotClockS,
+    home_sets_won: homeSetsWon,
+    away_sets_won: awaySetsWon,
+    home_yellow_cards: isFootball ? footballHomeYellows : homeYellowCards,
+    away_yellow_cards: isFootball ? footballAwayYellows : awayYellowCards,
+    home_red_cards: isFootball ? footballHomeReds : homeRedCards,
+    away_red_cards: isFootball ? footballAwayReds : awayRedCards,
+    home_players: homePlayers,
+    away_players: awayPlayers,
+
+    possession_arrow: possessionArrow,
+    current_period_index: currentPeriodIndex,
+    is_overtime: isOvertime,
+
+    rugby_home_tries: rugbyHomeTries,
+    rugby_away_tries: rugbyAwayTries,
+    rugby_home_conversions: rugbyHomeConversions,
+    rugby_away_conversions: rugbyAwayConversions,
+    rugby_home_penalties: rugbyHomePenalties,
+    rugby_away_penalties: rugbyAwayPenalties,
+    rugby_home_drop_goals: rugbyHomeDrops,
+    rugby_away_drop_goals: rugbyAwayDrops,
+    rugby_home_yellow_sin_bin: rugbyHomeYellowSinBin,
+    rugby_away_yellow_sin_bin: rugbyAwayYellowSinBin,
+    rugby_home_sin_bin_active: rugbyHomeSinBinActive,
+    rugby_away_sin_bin_active: rugbyAwaySinBinActive,
+    rugby_extra_time: rugbyExtraTime,
+    rugby_tiebreak_mode: rugbyTiebreakMode,
+
+    handball_home_2min: handballHome2Min,
+    handball_away_2min: handballAway2Min,
+    handball_home_2min_active: handballHome2MinActive,
+    handball_away_2min_active: handballAway2MinActive,
+    handball_home_team_timeouts: handballHomeTimeouts,
+    handball_away_team_timeouts: handballAwayTimeouts,
+    handball_home_warnings: handballHomeWarnings,
+    handball_away_warnings: handballAwayWarnings,
+    handball_home_disqualifications: handballHomeDisq,
+    handball_away_disqualifications: handballAwayDisq,
+    handball_extra_time: handballExtraTime,
+    handball_shootout_mode: handballShootoutMode,
+
+    volleyball_home_timeouts: volleyHomeTimeouts,
+    volleyball_away_timeouts: volleyAwayTimeouts,
+    volleyball_home_set_points: volleyHomeSetPoints,
+    volleyball_away_set_points: volleyAwaySetPoints,
+    volleyball_home_serving: volleyHomeServing,
+    volleyball_away_serving: volleyAwayServing,
+    volleyball_current_set: volleyCurrentSet,
+    volleyball_is_tiebreak: volleyIsTiebreak,
+
+    football_home_yellow_cards: footballHomeYellows,
+    football_away_yellow_cards: footballAwayYellows,
+    football_home_red_cards: footballHomeReds,
+    football_away_red_cards: footballAwayReds,
+    football_home_penalty_shootout: footballHomePens,
+    football_away_penalty_shootout: footballAwayPens,
+    football_extra_time: footballExtraTime,
+    football_added_time_first_half: footballAdded1,
+    football_added_time_second_half: footballAdded2,
+    football_added_time_extra_1: footballAddedEx1,
+    football_added_time_extra_2: footballAddedEx2,
+
+    live_seq: seq,
+    clock_anchor_epoch: clockAnchorRef.current.epoch,
+    clock_anchor_ms: clockAnchorRef.current.ms,
+    emitted_at: Date.now(),
+
+    ...extra,
+  };
+
+  lastAppliedSeqRef.current = seq;
+  await sendTvBroadcast(match.id, payload);
+}
+4) Faire suivre last_event_seq à la persistance DB
+
+Dans toutes les actions critiques (startClock, pauseClock, resetClock, changeScore, etc.), quand tu fais persistLiveState(...), passe aussi last_event_seq.
+
+Exemple pour pauseClock()
+
+Remplace entièrement pauseClock() par ceci :
+
+async function pauseClock() {
+  const nextClockMs = clockMs;
+  const now = Date.now();
+  const seq = nextLiveSeq();
+
+  clockAnchorRef.current = { epoch: now, ms: nextClockMs };
+  setClockRunning(false);
+  setStatus("paused");
+
+  const patch = {
+    clock_running: false,
+    clock_ms: nextClockMs,
+    status: "paused",
+    live_seq: seq,
+    clock_anchor_epoch: now,
+    clock_anchor_ms: nextClockMs,
+    emitted_at: now,
+  };
+
+  lastAppliedSeqRef.current = seq;
+
+  try {
+    await sendTvBroadcast(match!.id, {
+      match_id: match!.id,
+      ...patch,
+    });
+
+    void persistLiveState({
+      clock_running: false,
+      clock_ms: nextClockMs,
+      status: "paused",
+      last_event_seq: seq,
+    });
+  } catch {}
+}
+Exemple pour startClock()
+
+Remplace entièrement startClock() par ceci :
+
+async function startClock() {
+  const nextClockMs =
+    clockMs > 0 ? clockMs : defaultClockMsBySport(sport, sportSettings?.period_duration_s);
+
+  const now = Date.now();
+  const seq = nextLiveSeq();
+
+  clockAnchorRef.current = { epoch: now, ms: nextClockMs };
+  setClockMs(nextClockMs);
+  setClockRunning(true);
+  setStatus("live");
+
+  lastAppliedSeqRef.current = seq;
+
+  try {
+    await sendTvBroadcast(match!.id, {
+      match_id: match!.id,
+      clock_ms: nextClockMs,
+      clock_running: true,
+      status: "live",
+      live_seq: seq,
+      clock_anchor_epoch: now,
+      clock_anchor_ms: nextClockMs,
+      emitted_at: now,
+    });
+
+    void persistLiveState({
+      clock_ms: nextClockMs,
+      clock_running: true,
+      status: "live",
+      last_event_seq: seq,
+    });
+  } catch {}
+}
+Exemple pour resetClock()
+
+Remplace entièrement resetClock() par ceci :
+
+async function resetClock() {
+  const next = defaultClockMsBySport(sport, sportSettings?.period_duration_s);
+  const now = Date.now();
+  const seq = nextLiveSeq();
+
+  clockAnchorRef.current = { epoch: now, ms: next };
+  setClockMs(next);
+  setClockRunning(false);
+
+  lastAppliedSeqRef.current = seq;
+
+  try {
+    await sendTvBroadcast(match!.id, {
+      match_id: match!.id,
+      clock_ms: next,
+      clock_running: false,
+      live_seq: seq,
+      clock_anchor_epoch: now,
+      clock_anchor_ms: next,
+      emitted_at: now,
+    });
+
+    void persistLiveState({
+      clock_ms: next,
+      clock_running: false,
+      last_event_seq: seq,
+    });
+  } catch {}
+}
+5) Si ControlPage reçoit des patches entrants, filtrer aussi par live_seq
+
+Si tu as un channel.on("broadcast"... ou un postgres_changes dans ControlPage.tsx, fais passer les messages par applyIncomingLivePatch(...).
+
+Broadcast
+.on("broadcast", { event: "*" }, (message) => {
+  const patch = message?.payload?.patch || message?.payload || message;
+  if (!patch || typeof patch !== "object") return;
+  applyIncomingLivePatch(patch);
+})
+Postgres changes
+.on(
+  "postgres_changes",
+  {
+    event: "UPDATE",
+    schema: "public",
+    table: "matches",
+    filter: `id=eq.${match.id}`,
+  },
+  (payload: any) => {
+    const row = payload?.new;
+    if (!row) return;
+
+    applyIncomingLivePatch({
+      live_seq: row.last_event_seq ?? 0,
+      status: row.status,
+      period_label: row.period_label,
+      home_score: row.home_score,
+      away_score: row.away_score,
+      clock_ms: row.clock_ms,
+      clock_running: row.clock_running,
+      home_team_fouls: row.home_team_fouls,
+      away_team_fouls: row.away_team_fouls,
+      home_timeouts: row.home_timeouts,
+      away_timeouts: row.away_timeouts,
+      home_bonus: row.home_bonus,
+      away_bonus: row.away_bonus,
+      shot_clock_s: row.shot_clock_s,
+      possession_arrow: row.possession_arrow,
+    });
+  },
+)
+6) Résultat attendu
+
+Après ça :
+
+console principale
+
+QR Console
+
+Display
+
+appliqueront la même discipline temps :
+
+ancre temps
+
+séquence monotone
+
+rejet des vieux patches
+
+Et c’est ce qui permet d’avoir un chrono vraiment propre.
