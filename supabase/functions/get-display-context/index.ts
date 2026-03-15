@@ -585,14 +585,28 @@ serve(async (req) => {
       show_status: true,
       show_sponsors: true,
       show_substitution_banner: true,
+      show_live_badge: false,
       layout_mode: "stadium",
     };
+
+    // Explicit 3-level resolution for show_live_badge:
+    // 1. display_templates.config_json.show_live_badge
+    // 2. org_display_sport_profiles.show_live_badge
+    // 3. org_display_settings.show_live_badge (default false)
+    const resolvedTplConfig = ((resolvedTemplate?.config_json ?? {}) as Record<string, unknown>);
+    const showLiveBadge: boolean =
+      typeof resolvedTplConfig.show_live_badge === "boolean"
+        ? resolvedTplConfig.show_live_badge
+        : typeof (sport_profile as any)?.show_live_badge === "boolean"
+        ? (sport_profile as any).show_live_badge
+        : (orgDisplaySettings as any)?.show_live_badge ?? false;
 
     const display_settings = {
       ...baseDisplayDefaults,
       ...(orgDisplaySettings ?? {}),
       ...(resolvedTemplate?.config_json ?? {}),
       ...(resolvedTemplate?.layout_mode ? { layout_mode: resolvedTemplate.layout_mode } : {}),
+      show_live_badge: showLiveBadge,
     };
 
     // Build clean sport_profile for payload (remove nested display_templates object)

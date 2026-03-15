@@ -63,6 +63,7 @@ function buildContextFromResponse(json: any): ScoreboardContext {
     show_sponsors: displaySettings.show_sponsors ?? true,
     layout_mode: displaySettings.layout_mode ?? "stadium",
     show_substitution_banner: displaySettings.show_substitution_banner ?? true,
+    show_live_badge:          displaySettings.show_live_badge          ?? false,
 
     // sport_profile matrix: merge with sport_settings for backward compat
     show_team_fouls:   sp.show_team_fouls   ?? sportSettings.show_team_fouls   ?? false,

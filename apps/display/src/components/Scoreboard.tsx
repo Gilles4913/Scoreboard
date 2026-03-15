@@ -127,6 +127,7 @@ export type ScoreboardContext = {
   football_added_time_extra_2?: number;
 
   show_substitution_banner?: boolean;
+  show_live_badge?: boolean;
 
   // Sport profile matrix fields
   show_live_overlays?: boolean;
@@ -718,17 +719,19 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
           >
             {clockText}
           </div>
-          <div
-            style={{
-              fontSize: "clamp(11px,1.2vw,16px)",
-              fontWeight: 800,
-              opacity: 0.6,
-              letterSpacing: 2,
-              textTransform: "uppercase",
-            }}
-          >
-            {status}
-          </div>
+          {context.show_live_badge && ["live", "paused"].includes(context.status || "") ? (
+            <div
+              style={{
+                fontSize: "clamp(11px,1.2vw,16px)",
+                fontWeight: 800,
+                opacity: 0.6,
+                letterSpacing: 2,
+                textTransform: "uppercase",
+              }}
+            >
+              {status}
+            </div>
+          ) : null}
         </div>
 
         <div style={{ display: "flex", justifyContent: "center" }}>
@@ -999,17 +1002,19 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
           >
             {clockText}
           </div>
-          <div
-            style={{
-              fontSize: "clamp(10px,1vw,14px)",
-              fontWeight: 800,
-              opacity: 0.6,
-              letterSpacing: 2,
-              textTransform: "uppercase",
-            }}
-          >
-            {status}
-          </div>
+          {context.show_live_badge && ["live", "paused"].includes(context.status || "") ? (
+            <div
+              style={{
+                fontSize: "clamp(10px,1vw,14px)",
+                fontWeight: 800,
+                opacity: 0.6,
+                letterSpacing: 2,
+                textTransform: "uppercase",
+              }}
+            >
+              {status}
+            </div>
+          ) : null}
         </div>
 
         <div style={{ display: "flex", justifyContent: "center" }}>
@@ -1137,6 +1142,7 @@ export default function Scoreboard({ context, activeOverlay }: Props) {
   const showClock = context.show_clock !== false;
   const showPeriod = context.show_period !== false;
   const showStatus = context.show_status !== false;
+  const showLiveBadge = !!context.show_live_badge;
   const showSponsors = context.show_sponsors !== false;
 
   const showTeamFouls = !!context.show_team_fouls;
@@ -1441,7 +1447,7 @@ export default function Scoreboard({ context, activeOverlay }: Props) {
                 </div>
               ) : null}
 
-              {showStatus ? (
+              {showStatus && showLiveBadge && ["live", "paused"].includes(context.status || "") ? (
                 <div
                   style={{
                     padding: "8px 14px",

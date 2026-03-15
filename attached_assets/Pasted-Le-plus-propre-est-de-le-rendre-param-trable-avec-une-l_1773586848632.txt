@@ -1,0 +1,151 @@
+Le plus propre est de le rendre paramétrable, avec une logique simple :
+
+Règle recommandée
+
+show_live_badge = false par défaut pour les écrans publics LED
+
+possibilité de l’activer sur certains templates / sports / écrans debug
+
+Bonne hiérarchie de config
+
+Je te conseille :
+
+niveau organisation commun
+
+org_display_settings.show_live_badge
+
+niveau profil sport
+
+org_display_sport_profiles.show_live_badge
+
+niveau template
+
+display_templates.config_json.show_live_badge
+
+Puis résolution finale :
+
+template override
+
+sinon profil sport
+
+sinon réglage org
+
+1) Migration SQL
+begin;
+
+alter table public.org_display_settings
+  add column if not exists show_live_badge boolean not null default false;
+
+alter table public.org_display_sport_profiles
+  add column if not exists show_live_badge boolean null;
+
+update public.org_display_sport_profiles
+set show_live_badge = false
+where sport in ('rugby', 'football')
+  and show_live_badge is null;
+
+commit;
+
+Ça te donne :
+
+un défaut global
+
+un override par sport
+
+2) Règle de résolution backend
+
+Dans get-display-context, dans l’objet final résolu, ajoute :
+
+show_live_badge:
+  typeof resolvedTemplateConfig?.show_live_badge === "boolean"
+    ? resolvedTemplateConfig.show_live_badge
+    : typeof displayProfile?.show_live_badge === "boolean"
+    ? displayProfile.show_live_badge
+    : displaySettings?.show_live_badge ?? false,
+
+Donc :
+
+template d’abord
+
+profil sport ensuite
+
+org_display_settings en fallback
+
+3) Champ à exposer au frontend
+
+Dans le contexte Display final, ajoute :
+
+show_live_badge: resolvedConfig.show_live_badge ?? false,
+4) Côté Display / Scoreboard
+
+Le rendu doit devenir :
+
+{context.show_live_badge && context.status === "live" ? (
+  <div style={styles.liveBadge}>LIVE</div>
+) : null}
+
+ou si tu veux aussi l’utiliser pour paused :
+
+{context.show_live_badge && ["live", "paused"].includes(context.status) ? (
+  <div style={styles.liveBadge}>
+    {context.status === "live" ? "LIVE" : "PAUSE"}
+  </div>
+) : null}
+5) Recommandation produit
+
+Pour le rugby et le football sur écran LED :
+
+show_live_badge = false
+
+Pour des templates debug / techniques :
+
+show_live_badge = true
+
+6) Version template
+
+Dans display_templates.config_json, tu peux prévoir :
+
+{
+  "show_live_badge": false
+}
+
+Exemple :
+
+rugby_stade → false
+
+rugby_expert → false
+
+template debug → true
+
+7) Prompt Replit prêt à coller
+Rends le badge LIVE du Display paramétrable.
+
+Objectif :
+- ne plus afficher systématiquement le petit fanion vert LIVE
+- permettre de l’activer ou non selon la configuration
+
+À faire :
+1. SQL
+- ajouter org_display_settings.show_live_badge boolean not null default false
+- ajouter org_display_sport_profiles.show_live_badge boolean null
+
+2. Backend
+- dans get-display-context, intégrer show_live_badge dans la config résolue
+- priorité :
+  - display_templates.config_json.show_live_badge
+  - org_display_sport_profiles.show_live_badge
+  - org_display_settings.show_live_badge
+
+3. Frontend Display
+- dans le composant d’affichage, n’afficher le badge LIVE que si context.show_live_badge === true
+- sinon ne rien afficher
+
+4. Valeurs recommandées
+- rugby : false
+- football : false
+- templates debug : true
+
+Je veux :
+- SQL complet
+- fichiers complets modifiés
+- pas de régression sur le reste du Display

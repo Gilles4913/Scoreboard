@@ -46,6 +46,7 @@ export type SportProfile = {
   show_two_min_suspensions: boolean;
   show_disqualifications: boolean;
   show_warnings: boolean;
+  show_live_badge: boolean;
   show_sets: boolean;
   show_set_points: boolean;
   show_service: boolean;

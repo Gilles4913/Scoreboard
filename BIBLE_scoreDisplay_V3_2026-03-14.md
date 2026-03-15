@@ -337,7 +337,31 @@ Le Display ne dépend plus d'une seule source. Il repose sur la combinaison de c
 
 ### 6.1 Tronc commun — tous sports
 
-`show_score`, `show_clock`, `show_period`, `show_status`, `show_logos`, `show_sponsors`, `show_lower_third`, `show_live_overlays`, `overlay_position`, `overlay_duration_ms`, `density_mode`, `score_scale`, `clock_scale`, `team_name_mode`, `use_short_team_names`, `show_separator_score`
+`show_score`, `show_clock`, `show_period`, `show_status`, `show_logos`, `show_sponsors`, `show_lower_third`, `show_live_overlays`, `show_live_badge`, `overlay_position`, `overlay_duration_ms`, `density_mode`, `score_scale`, `clock_scale`, `team_name_mode`, `use_short_team_names`, `show_separator_score`
+
+#### `show_live_badge` — badge LIVE paramétrable
+
+Contrôle l'affichage du badge "EN COURS" / "PAUSE" sur l'écran Display.
+
+**Défaut : `false`** — badge masqué pour tous les écrans LED (rugby, football).
+
+Résolution 3 niveaux (haute → basse) :
+1. `display_templates.config_json.show_live_badge` — override template
+2. `org_display_sport_profiles.show_live_badge` — défaut par sport
+3. `org_display_settings.show_live_badge` — défaut global org
+
+| Contexte | Valeur recommandée |
+|----------|--------------------|
+| Rugby LED | `false` |
+| Football LED | `false` |
+| Tous sports (défaut) | `false` |
+| Template debug / technique | `true` |
+
+Tables DB concernées :
+- `org_display_settings.show_live_badge BOOLEAN NOT NULL DEFAULT false`
+- `org_display_sport_profiles.show_live_badge BOOLEAN NULL`
+
+Migration : `20260314000005_show_live_badge.sql`
 
 ### 6.2 Basket
 
@@ -349,7 +373,7 @@ Labels UI : affiche tout (timeouts, fautes, shot clock, bonus)
 
 ### 6.3 Rugby (sport pilote)
 
-Flags spécifiques : `show_cards`, `show_substitutions`, `show_sin_bin`, `show_rugby_score_breakdown`, `show_rugby_tries`, `show_rugby_conversions`, `show_rugby_penalties`, `show_rugby_drop_goals`
+Flags spécifiques : `show_cards`, `show_substitutions`, `show_sin_bin`, `show_rugby_score_breakdown`, `show_rugby_tries`, `show_rugby_conversions`, `show_rugby_penalties`, `show_rugby_drop_goals`, `show_live_badge`
 
 Templates conseillés : `rugby_stade` (défaut recommandé), `rugby_expert`, `rugby_club`, `rugby_score_central`
 
@@ -750,6 +774,7 @@ Migrations dans `supabase/migrations/` :
 | `20260314000002_team_stats_rpc.sql` | Crée 4 RPC pour statistiques équipe |
 | `20260314000003_substitution_banner_setting.sql` | Ajoute `show_substitution_banner BOOLEAN DEFAULT TRUE` à `org_display_settings` |
 | `20260314000004_display_matrix.sql` | Crée `org_display_sport_profiles` ; seed templates système ; pré-remplit profils depuis `orgs.sport` |
+| `20260314000005_show_live_badge.sql` | Ajoute `show_live_badge BOOLEAN DEFAULT false` à `org_display_settings` et `org_display_sport_profiles` |
 
 > **Actions manuelles requises Supabase** : exécuter `20260314000003` et `20260314000004` dans l'éditeur SQL, puis redéployer `supabase functions deploy get-display-context`.
 
