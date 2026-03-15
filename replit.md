@@ -1,7 +1,7 @@
-# scoreDisplay — Bible Projet v2.0
+# scoreDisplay — Notes Techniques Replit
 
-> Version 2.0 — figée le 14 mars 2026.
-> Ce document est la source de vérité du projet. En cas de contradiction entre ce fichier et tout autre document, ce fichier fait foi.
+> Ce fichier contient les notes techniques propres à l'environnement Replit.
+> **La Bible projet officielle est `BIBLE_scoreDisplay_V3_2026-03-14.md`** — c'est elle qui fait foi sur l'architecture, les décisions produit et le modèle de données.
 
 ---
 
