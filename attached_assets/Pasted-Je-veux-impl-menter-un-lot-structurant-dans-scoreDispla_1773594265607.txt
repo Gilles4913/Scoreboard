@@ -1,0 +1,205 @@
+Je veux implémenter un lot structurant dans scoreDisplay V2 : le CONTRAT LIVE GLOBAL.
+
+Objectif produit :
+toute information live diffusée entre Operator, QR Console et Display doit être protégée par live_seq.
+Le chrono, en plus, doit être reconstruit à partir d’une ancre persistée.
+
+Contexte existant :
+- stack : React + TypeScript + Supabase
+- 3 surfaces concernées :
+  1. console principale Operator
+  2. QR Console / MobileControlPage
+  3. Display public
+- des progrès ont déjà été faits sur le chrono :
+  - live_seq existe à certains endroits
+  - clock_anchor_epoch_ms / clock_anchor_clock_ms existent en DB
+  - le Display et la QR Console savent déjà partiellement reconstruire le chrono à froid
+- mais le contrat live n’est pas encore homogène sur toutes les informations :
+  - score
+  - statut
+  - période
+  - fautes
+  - temps morts
+  - bonus
+  - shot clock
+  - possession
+  - cartons
+  - sets
+  - sanctions
+  - remplacements
+  - overlays
+
+Règle à faire respecter désormais :
+- toute mutation live doit :
+  1. générer un live_seq monotone
+  2. diffuser un patch live avec live_seq
+  3. persister l’état en DB
+  4. persister matches.last_event_seq = live_seq
+  5. si la mutation concerne le chrono :
+     - persister aussi clock_anchor_epoch_ms
+     - persister aussi clock_anchor_clock_ms
+- toute surface réceptrice doit :
+  1. charger last_event_seq au démarrage
+  2. ignorer tout patch avec live_seq < lastAppliedSeq
+  3. appliquer uniquement les patches les plus récents
+  4. reconstruire le chrono depuis l’ancre persistée si nécessaire
+
+Je veux un vrai durcissement, pas une explication théorique.
+
+TRAVAIL ATTENDU
+
+A. Audit et consolidation de l’existant
+1. auditer toutes les mutations live dans :
+- apps/operator/src/pages/ControlPage.tsx
+- apps/operator/src/pages/MobileControlPage.tsx
+- apps/display/src/main.tsx
+- toute fonction utilitaire liée au broadcast live
+2. identifier toutes les actions qui modifient le live :
+- score
+- chrono
+- période
+- fautes
+- bonus
+- temps morts
+- shot clock
+- possession
+- sets
+- cartons
+- sanctions
+- remplacements
+- overlays
+3. vérifier si chaque action :
+- génère un live_seq
+- diffuse un patch live
+- persiste last_event_seq
+- persiste l’ancre si chrono
+
+B. Refactor central : helper unique de mutation live
+Je veux la création d’une helper centrale, ou d’un petit module utilitaire, par exemple :
+- emitLiveMutation(...)
+ou
+- applyAndBroadcastLiveMutation(...)
+
+Cette helper doit gérer systématiquement :
+1. génération du live_seq monotone
+2. construction du patch live
+3. envoi broadcast immédiat
+4. persistance DB
+5. mise à jour matches.last_event_seq
+6. persistance éventuelle de l’ancre chrono
+7. possibilité d’ajouter :
+   - event log
+   - overlay
+8. valeur de retour claire pour l’appelant
+
+Le but est que toutes les actions live passent par cette helper, pour arrêter d’avoir des logiques divergentes.
+
+C. Console principale
+Refactorer ControlPage.tsx pour que les actions suivantes passent par le contrat live global :
+- startClock
+- pauseClock
+- resetClock
+- ajustement manuel chrono
+- score + / -
+- changement de période
+- fautes équipe
+- temps morts
+- bonus
+- shot clock
+- possession
+- cartons
+- sets
+- sanctions rugby / handball / football / volley
+- remplacements
+- overlays si déjà existants
+
+Règles :
+- plus aucune action live ne doit bypasser le contrat live
+- last_event_seq doit être mis à jour à chaque mutation live pertinente
+- pushPatch / persistLiveState / appendEvent doivent être réorganisés si nécessaire
+- si une ancienne logique devient redondante, simplifie-la proprement
+
+D. QR Console
+Refactorer MobileControlPage.tsx pour qu’elle applique le même contrat live :
+- chargement initial avec last_event_seq
+- filtre live_seq
+- reconstruction chrono à froid depuis l’ancre DB
+- émissions live avec live_seq et ancre si mutation chrono
+- cohérence avec la console principale
+
+E. Display
+Vérifier et compléter apps/display/src/main.tsx pour que :
+- le Display charge last_event_seq au démarrage
+- filtre correctement les vieux patches
+- continue à utiliser le broadcast comme voie prioritaire
+- utilise postgres_changes comme rattrapage
+- utilise le refresh HTTP uniquement pour le changement de match / resync
+- applique la logique de contrat live sur toutes les données, pas seulement le chrono
+
+F. Unification de séquence
+Je veux que tu clarifies et simplifies la gestion des séquences.
+S’il existe aujourd’hui :
+- liveSeqRef
+- eventSeqRef
+- last_event_seq
+- autres compteurs
+je veux une logique claire.
+
+But recherché :
+- une séquence dominante unique pour les mutations live du match
+- matches.last_event_seq = dernière mutation live persistée
+- éviter les doubles compteurs concurrents si possible
+
+G. Journal d’événements et overlays
+Le contrat live doit pouvoir continuer à alimenter :
+- match_events
+- match_substitutions
+- overlays live (par exemple substitution)
+mais sans casser la logique de séquence.
+Si un événement ou un overlay est diffusé, il doit lui aussi être rattaché au bon live_seq quand c’est pertinent.
+
+H. Sortie attendue
+Je veux :
+1. la liste des fichiers modifiés
+2. les fichiers complets pour tous les fichiers structurants modifiés
+3. le code complet des helpers créées
+4. le SQL complet seulement si une migration supplémentaire est nécessaire
+5. un résumé clair des choix
+6. un mini plan de test manuel
+
+CONTRAINTES
+- toujours partir de l’existant
+- ne pas réintroduire token / display_token / public_display
+- ne pas casser le mode public stable par équipe via teamSlug
+- ne pas faire une refonte gratuite
+- rester compatible avec Supabase
+- garder la lisibilité LED comme priorité sur le Display
+- corriger réellement, pas seulement commenter
+
+CHECKLIST DE VALIDATION À PRODUIRE
+Je veux qu’à la fin tu me proposes cette checklist de validation :
+
+1. Score
+- + score depuis console principale
+- + score depuis QR Console
+- vérifier synchro sur Display et autre console
+- vérifier qu’un nouveau client ouvert à froid récupère le bon état
+
+2. Chrono
+- Start / Pause / Reset depuis console principale
+- Start / Pause / Reset depuis QR Console
+- vérifier synchro sur Display
+- vérifier reprise à froid
+
+3. Période / statut
+- changement de période
+- changement de statut
+- vérifier qu’aucun vieux patch ne réécrit l’état
+
+4. Basket / Rugby / Football / Handball / Volley
+- tester au moins un bloc live propre à chaque sport
+
+5. Remplacements / overlays
+- vérifier que le bandeau et le journal restent cohérents
+
+Le résultat attendu est un CONTRAT LIVE GLOBAL cohérent, homogène et robuste entre les 3 surfaces.

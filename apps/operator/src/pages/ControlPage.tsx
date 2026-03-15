@@ -928,8 +928,10 @@ export default function ControlPage() {
     if (!match) return;
 
     const dbPatch: Partial<MatchRow> = { ...patch };
-    // Note : paused est désormais persisté réellement en base (pas de transformation).
-    // Cela permet à postgres_changes de renvoyer le bon état aux listeners.
+    // Auto-inclure last_event_seq si non déjà fourni (contrat live global)
+    if (!("last_event_seq" in dbPatch)) {
+      dbPatch.last_event_seq = liveSeqRef.current;
+    }
 
     const { error } = await supabase
       .from("matches")
@@ -1043,8 +1045,9 @@ export default function ControlPage() {
     });
 
     const nowMs = Date.now();
+    const substSeq = nextLiveSeq();
     void sendTvBroadcast(match.id, {
-      live_seq: nowMs,
+      live_seq: substSeq,
       emitted_at: nowMs,
       overlay: {
         type: "substitution",
@@ -1542,7 +1545,11 @@ export default function ControlPage() {
 
     try {
       const pushP = autoLive ? pushPatch({ clock_ms: next }) : Promise.resolve(null);
-      void persistLiveState({ clock_ms: next });
+      void persistLiveState({
+        clock_ms: next,
+        clock_anchor_epoch_ms: clockAnchorRef.current.epoch,
+        clock_anchor_clock_ms: clockAnchorRef.current.ms,
+      });
       await pushP;
     } catch {}
   }
@@ -1718,6 +1725,8 @@ export default function ControlPage() {
         period_label: label,
         clock_ms: nextClock,
         clock_running: false,
+        clock_anchor_epoch_ms: clockAnchorRef.current.epoch,
+        clock_anchor_clock_ms: nextClock,
         team_fouls_period_home: 0,
         team_fouls_period_away: 0,
         home_team_fouls: 0,

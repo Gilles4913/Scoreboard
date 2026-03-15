@@ -333,7 +333,11 @@ export default function MobileControlPage() {
 
   const persist = useCallback(async (patch: Record<string, any>) => {
     if (!matchId) return;
-    await supabase.from("matches").update(patch).eq("id", matchId);
+    // Auto-inclure last_event_seq si non fourni (contrat live global)
+    const dbPatch = "last_event_seq" in patch
+      ? patch
+      : { ...patch, last_event_seq: liveSeqRef.current };
+    await supabase.from("matches").update(dbPatch).eq("id", matchId);
   }, [matchId]);
 
   /* ── clock controls ──────────────────────────────────────────────────────── */
