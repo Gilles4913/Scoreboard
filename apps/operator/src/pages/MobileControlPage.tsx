@@ -122,6 +122,11 @@ export default function MobileControlPage() {
       if (mErr || !m) { setErr(mErr?.message || "Match introuvable."); setLoading(false); return; }
       setMatch(m);
 
+      // Initialise les planchers de séquence depuis la DB
+      const initialSeq = Number(m.last_event_seq || 0);
+      lastAppliedSeqRef.current = initialSeq;
+      if (initialSeq > liveSeqRef.current) liveSeqRef.current = initialSeq;
+
       const sportVal = normalizeSport(m.home_name ? (m.sport || null) : null);
       const [{ data: orgRow }, { data: ssRow }, { data: mpData }] = await Promise.all([
         supabase.from("orgs").select("sport").eq("id", m.org_id).maybeSingle(),

@@ -1,0 +1,231 @@
+Le dernier durcissement consiste à faire en sorte qu’un nouveau client ouvert en cours de match récupère aussi le dernier live_seq depuis la DB.
+
+Pourquoi c’est utile :
+
+un nouveau client ne doit pas accepter ensuite un vieux patch broadcast qui arriverait en retard
+
+il doit démarrer avec un plancher de séquence
+
+ensuite il n’accepte que live_seq >= last_event_seq
+
+Objectif
+
+Quand un client s’ouvre :
+
+il charge le contexte initial
+
+il récupère last_event_seq
+
+il initialise son lastAppliedSeqRef
+
+il ignore tout patch plus ancien
+
+Il faut le faire sur :
+
+Display
+
+QR Console
+
+et idéalement aussi console principale
+
+1) supabase/functions/get-display-context/index.ts
+
+Tu renvoies déjà last_event_seq dans MATCH_SELECT.
+Il faut juste t’assurer qu’il est bien présent dans le payload match.
+
+Vérifie que dans le payload match, tu as bien :
+last_event_seq: match.last_event_seq ?? 0,
+
+Place-le dans le bloc match: { ... }, près des autres champs centraux.
+
+2) apps/display/src/main.tsx
+A. Dans buildContextFromResponse(json), ajoute :
+last_event_seq: match.last_event_seq ?? 0,
+
+Donc dans l’objet retourné par buildContextFromResponse, ajoute ce champ.
+
+B. Dans le chargement initial, initialise lastSeqRef
+
+Dans l’effet de chargement initial, juste après :
+
+const nextCtx = buildContextFromResponse(json);
+
+ajoute :
+
+lastSeqRef.current = Number((nextCtx as any).last_event_seq || 0);
+
+Donc le bloc devient :
+
+const nextCtx = buildContextFromResponse(json);
+const nextMatchId = json?.match?.id || matchIdFromUrl || "";
+
+lastSeqRef.current = Number((nextCtx as any).last_event_seq || 0);
+
+setResolvedMatchId(nextMatchId);
+setCtx(nextCtx);
+C. Quand le refresh stable équipe change de match, recaler aussi lastSeqRef
+
+Dans le polling teamSlug, dans le bloc où tu détectes un nouveau match :
+
+Remplace :
+
+if (nextMatchId && nextMatchId !== resolvedMatchId) {
+  setResolvedMatchId(nextMatchId);
+}
+
+par :
+
+if (nextMatchId && nextMatchId !== resolvedMatchId) {
+  lastSeqRef.current = Number((nextCtx as any).last_event_seq || 0);
+  setResolvedMatchId(nextMatchId);
+}
+D. Mets aussi last_event_seq dans buildPatchFromMatchRow(row)
+
+Ajoute :
+
+last_event_seq: row.last_event_seq ?? undefined,
+
+Même si tu ne l’affiches pas, c’est utile pour diagnostic et cohérence.
+
+3) apps/operator/src/pages/MobileControlPage.tsx
+A. Au chargement initial du match mobile
+
+Après récupération de matchRow, initialise les séquences :
+
+const initialSeq = Number(matchRow.last_event_seq || 0);
+lastAppliedSeqRef.current = initialSeq;
+if (initialSeq > liveSeqRef.current) {
+  liveSeqRef.current = initialSeq;
+}
+
+Place ça juste après l’initialisation principale du match.
+
+B. Dans le handler postgres_changes, tu utilises déjà :
+live_seq: row.last_event_seq ?? 0
+
+C’est bien. Rien d’autre à changer ici si c’est déjà en place.
+
+4) apps/operator/src/pages/ControlPage.tsx
+A. Après chargement initial du match
+
+Quand tu charges currentMatch, initialise les refs :
+
+const initialSeq = Number(currentMatch.last_event_seq || 0);
+lastAppliedSeqRef.current = initialSeq;
+if (initialSeq > liveSeqRef.current) {
+  liveSeqRef.current = initialSeq;
+}
+
+Place ça juste après setMatch(currentMatch);
+
+B. Quand tu fais appendEvent(...)
+
+Tu mets déjà à jour last_event_seq.
+C’est bien, mais garde cette discipline partout :
+
+actions chrono
+
+score
+
+fautes
+
+sanctions
+
+remplacements
+
+overlays importants
+
+L’idée est que matches.last_event_seq reste le meilleur snapshot seq du match.
+
+5) Option utile : enrichir le type ScoreboardContext
+
+Si tu as un type central côté Display, ajoute :
+
+last_event_seq?: number;
+clock_anchor_epoch_ms?: number | null;
+clock_anchor_clock_ms?: number | null;
+6) Pourquoi ce durcissement termine vraiment le sujet
+
+Après ça :
+
+un client ouvert à froid charge :
+
+clock_ms
+
+clock_running
+
+clock_anchor_epoch_ms
+
+clock_anchor_clock_ms
+
+last_event_seq
+
+Donc il a :
+
+la bonne base chrono
+
+la bonne ancre
+
+le bon seuil de séquence
+
+Puis il ignore :
+
+tout vieux patch broadcast
+
+tout vieux postgres_changes
+
+C’est ce qui rend la reprise vraiment propre.
+
+7) Checklist finale chrono
+
+Après implémentation, fais ce test :
+
+ouvrir console principale
+
+démarrer le chrono
+
+attendre 45 secondes
+
+ouvrir :
+
+un nouveau Display
+
+une nouvelle QR Console
+
+vérifier qu’ils arrivent immédiatement au bon temps
+
+faire Pause depuis mobile
+
+vérifier que tout se fige pareil
+
+faire Start depuis principale
+
+vérifier que tout repart pareil
+
+recharger un écran au milieu du match
+
+vérifier qu’il ne repart pas d’un temps ancien
+
+8) Résultat attendu final
+
+À la fin de ce durcissement, tu auras :
+
+console principale
+
+QR Console
+
+Display déjà ouvert
+
+Display nouvellement ouvert
+
+QR Console nouvellement ouverte
+
+tous alignés sur :
+
+ancre temps persistée
+
+séquence monotone
+
+rejet des vieux patches
+
+C’est le niveau de robustesse qu’il faut pour une vraie démo terrain.

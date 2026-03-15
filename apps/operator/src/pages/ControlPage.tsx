@@ -543,6 +543,11 @@ export default function ControlPage() {
       const currentMatch = matchRow as MatchRow;
       setMatch(currentMatch);
 
+      // Initialise les planchers de séquence depuis la DB
+      const initialSeq = Number(currentMatch.last_event_seq || 0);
+      lastAppliedSeqRef.current = initialSeq;
+      if (initialSeq > liveSeqRef.current) liveSeqRef.current = initialSeq;
+
       const [
         { data: orgRow },
         { data: teamRow },

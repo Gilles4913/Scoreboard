@@ -191,6 +191,7 @@ function buildContextFromResponse(json: any): ScoreboardContext {
 
     clock_anchor_epoch_ms: match.clock_anchor_epoch_ms ?? null,
     clock_anchor_clock_ms: match.clock_anchor_clock_ms ?? null,
+    last_event_seq: match.last_event_seq ?? 0,
   } as any;
 }
 
@@ -209,6 +210,7 @@ function buildPatchFromMatchRow(row: any): Partial<ScoreboardContext> {
     clock_running: row.clock_running ?? undefined,
     clock_anchor_epoch_ms: row.clock_anchor_epoch_ms ?? undefined,
     clock_anchor_clock_ms: row.clock_anchor_clock_ms ?? undefined,
+    last_event_seq: row.last_event_seq ?? undefined,
     period_label: row.period_label ?? undefined,
 
     home_team_fouls: row.home_team_fouls ?? undefined,
@@ -462,6 +464,7 @@ function App() {
         const nextCtx = buildContextFromResponse(json);
         const nextMatchId = json?.match?.id || matchIdFromUrl || "";
 
+        lastSeqRef.current = Number((nextCtx as any).last_event_seq || 0);
         setResolvedMatchId(nextMatchId);
         setCtx(nextCtx);
       } catch (e: any) {
@@ -488,6 +491,7 @@ function App() {
         const nextCtx = buildContextFromResponse(json);
 
         if (nextMatchId && nextMatchId !== resolvedMatchId) {
+          lastSeqRef.current = Number((nextCtx as any).last_event_seq || 0);
           setResolvedMatchId(nextMatchId);
         }
 

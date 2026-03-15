@@ -673,6 +673,7 @@ serve(async (req) => {
         clock_running: match.clock_running ?? false,
         clock_anchor_epoch_ms: match.clock_anchor_epoch_ms ?? null,
         clock_anchor_clock_ms: match.clock_anchor_clock_ms ?? null,
+        last_event_seq: match.last_event_seq ?? 0,
         period_label: match.period_label ?? "",
         home_team_fouls: match.home_team_fouls ?? 0,
         away_team_fouls: match.away_team_fouls ?? 0,
