@@ -1,0 +1,161 @@
+Je veux terminer complètement le chantier “séquence dominante unique + contrat live global” dans scoreDisplay V2.
+
+Contexte :
+- une architecture de contrat live global existe déjà
+- une helper centrale existe déjà :
+  - apps/operator/src/live/liveMutation.ts
+- une séquence dominante existe déjà :
+  - matchSeqRef
+- le chrono est déjà bien durci :
+  - ancre persistée en DB
+  - reprise à froid correcte
+  - last_event_seq chargé au démarrage
+- Display et QR Console filtrent déjà les vieux patches via live_seq
+
+Le problème restant :
+- le code est encore hybride
+- toutes les mutations live ne passent pas encore par emitLiveMutation(...)
+- ControlPage.tsx contient encore beaucoup d’anciennes mutations qui utilisent directement :
+  - pushPatch(...)
+  - persistLiveState(...)
+  - appendEvent(...)
+- certains cas spéciaux comme handleSubstitution(...) restent gérés à la main
+
+Objectif final :
+TOUTES les mutations live du match doivent passer par la helper centrale emitLiveMutation(...)
+
+Règle cible à atteindre :
+1. une mutation live génère un seq unique via la séquence dominante du match
+2. le patch live est diffusé avec live_seq = seq
+3. la DB persiste last_event_seq = seq
+4. si la mutation concerne le chrono :
+   - persister clock_anchor_epoch_ms
+   - persister clock_anchor_clock_ms
+5. si un événement métier doit être journalisé :
+   - match_events.seq = seq
+6. si un overlay doit être diffusé :
+   - il doit porter le même live_seq
+7. plus aucune logique dispersée ne doit contourner ce contrat
+
+TRAVAIL DEMANDÉ
+
+A. Audit final des mutations restantes
+Je veux que tu identifies dans ControlPage.tsx toutes les mutations live qui ne passent pas encore par emitLiveMutation(...)
+
+Familles attendues :
+- changeScore
+- changeTeamFouls
+- changeSetsWon
+- toggleBonus
+- adjustClock
+- changeShotClock
+- togglePossessionArrow
+- setBasketPeriod
+- resetAll
+- issueCard
+- applyRugbyScoring
+- handleSubstitution
+- autres handlers inline si présents
+- tout autre bloc sport métier
+
+B. Refactor complet ControlPage.tsx
+Je veux que toutes ces mutations soient converties vers emitLiveMutation(...)
+
+Exigences :
+- le code doit rester lisible
+- éviter le copier/coller inutile
+- supprimer ou réduire fortement les appels directs à :
+  - pushPatch(...)
+  - persistLiveState(...)
+  - appendEvent(...)
+- si ces fonctions deviennent redondantes après refactor, simplifie-les ou supprime-les proprement
+- toute mutation live doit avoir :
+  - une séquence dominante
+  - un patch broadcast
+  - un dbPatch avec last_event_seq
+  - un event si nécessaire
+  - un overlay si nécessaire
+
+C. Cas particulier : handleSubstitution(...)
+Je veux que handleSubstitution(...) passe aussi par emitLiveMutation(...)
+
+Exigences :
+- la substitution doit garder :
+  - insertion match_substitutions
+  - mise à jour match_players
+  - journal match_events
+  - overlay Display
+- mais la séquence dominante doit être centralisée et cohérente
+- éviter toute gestion “manuelle parallèle” de seq si la helper peut la porter
+- si nécessaire, fais évoluer emitLiveMutation(...) pour supporter :
+  - custom async side effects
+  - insertion match_substitutions
+  - update match_players
+  avant ou après le persist principal, mais sans casser le contrat
+
+D. Unification de l’émission live
+Je veux qu’à la fin :
+- pushPatch(...) ne soit plus la voie d’émission métier principale
+- emitLiveMutation(...) soit la voie métier principale
+- pushPatch(...) puisse devenir un détail technique interne ou disparaître si pertinent
+
+E. QR Console
+Vérifie si MobileControlPage.tsx est déjà totalement alignée.
+Si ce n’est pas le cas, harmonise-la aussi sur la helper centrale ou sur le même contrat exact.
+Je ne veux pas deux philosophies différentes entre console principale et QR Console.
+
+F. Display
+Vérifie que le Display n’a pas besoin de modification supplémentaire après ce refactor.
+Si une adaptation mineure est nécessaire pour suivre le contrat final, applique-la.
+
+G. Sortie attendue
+Je veux :
+1. la liste précise des mutations qui contournaient encore le contrat
+2. la liste des fichiers modifiés
+3. les fichiers complets modifiés
+4. la version finale de emitLiveMutation(...)
+5. la logique finale résumée en quelques points
+6. un mini plan de test manuel
+
+CONTRAINTES
+- partir du code existant
+- ne pas faire une refonte gratuite
+- ne pas casser l’existant multi-sport
+- ne pas réintroduire token / display_token / public_display
+- garder teamSlug comme mode public stable
+- rester compatible avec Supabase
+- garder la robustesse chrono déjà acquise
+- corriger réellement, pas seulement expliquer
+
+CHECKLIST DE VALIDATION À PRODUIRE
+Je veux qu’à la fin tu me proposes cette validation :
+
+1. Score
+- mutation depuis ControlPage
+- mutation depuis QR Console
+- synchro immédiate sur Display
+- ouverture à froid d’un nouveau client = état correct
+
+2. Chrono
+- Start / Pause / Reset / adjustClock
+- synchro sur les 3 surfaces
+- reprise à froid correcte
+
+3. Période / statut
+- changement de période
+- changement de statut
+- aucun vieux patch ne réécrit l’état
+
+4. Par sport
+- Basket : shot clock / possession / fautes
+- Rugby : scoring / cartons / substitution
+- Football : carton / substitution / temps additionnel si concerné
+- Handball : sanctions / timeouts
+- Volley : sets / service / set points
+
+5. Overlays / journal
+- bandeau substitution
+- match_events.seq cohérent
+- match_substitutions.seq cohérent si présent
+
+Je veux une base propre où le CONTRAT LIVE GLOBAL est enfin TOTAL, pas hybride.

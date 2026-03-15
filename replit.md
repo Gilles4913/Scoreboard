@@ -375,3 +375,36 @@ Nouveaux champs dans `ScoreboardContext` :
 |-----|--------|
 | `scoreDisplay.activeOrgId` | UUID organisation active |
 | `scoreDisplay.activeOrgSlug` | Slug organisation active |
+
+---
+
+## 17. CONTRAT LIVE GLOBAL — Architecture mutations (2026-03-15)
+
+### Point d'entrée unique : `dispatch(dbPatch, opts?)`
+
+Toutes les mutations d'état live dans `ControlPage.tsx` passent par `dispatch()`.
+
+```ts
+async function dispatch(dbPatch, opts?: { event?, clock?, overlay? })
+```
+
+- **`autoLive=true`** → `emitLiveMutation()` : seq++ + broadcast snapshot + persist DB + journal événement
+- **`autoLive=false`** → `nextMatchSeq()` + `persistLiveState()` uniquement (pas de broadcast)
+
+### Fonctions internes
+
+| Fonction | Rôle |
+|----------|------|
+| `buildBroadcastPayload(extra)` | Pure — construit le snapshot 80+ champs pour broadcast |
+| `dispatch(dbPatch, opts?)` | POINT D'ENTRÉE UNIQUE — 45 call sites |
+| `pushPatch(extra)` | Admin uniquement (`saveMatch` / `archiveMatch`) — appelle `dispatch` |
+| `emitLiveMutation(ctx, args)` | Dans `apps/operator/src/live/liveMutation.ts` |
+
+### Migrations requises (Supabase SQL Editor)
+
+| Fichier | Description |
+|---------|-------------|
+| `20260315000001_clock_anchors.sql` | `clock_anchor_epoch_ms` + `clock_anchor_clock_ms` dans `matches` |
+| `20260315000002_live_seq_events.sql` | Index `match_events(match_id, seq)` + `match_substitutions.seq` |
+
+> **Actions manuelles** : exécuter les 2 migrations dans le SQL Editor Supabase, puis `supabase functions deploy get-display-context`.

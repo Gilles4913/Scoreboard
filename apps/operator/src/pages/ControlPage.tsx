@@ -1013,6 +1013,7 @@ export default function ControlPage() {
 
     const substSeq = nextMatchSeq();
     lastAppliedSeqRef.current = substSeq;
+    void persistLiveState({ last_event_seq: substSeq });
     await supabase.from("match_substitutions").insert({
       org_id: match.org_id,
       match_id: match.id,
@@ -1091,12 +1092,10 @@ export default function ControlPage() {
     toast(`Remplacement enregistré : #${sub.playerOut.number} → #${sub.playerIn.number}`, "success");
   }
 
-  async function pushPatch(extra: Record<string, any>) {
-    if (!match) return;
-
-    const seq = nextMatchSeq();
-    const payload = {
-      match_id: match.id,
+  /** Construit le payload broadcast complet (snapshot d'état + extra). Pas de seq — géré par emitLiveMutation. */
+  function buildBroadcastPayload(extra: Record<string, any>): Record<string, any> {
+    return {
+      match_id: match!.id,
       match_name: matchName,
       venue: org?.name || "",
       sport,
@@ -1201,14 +1200,44 @@ export default function ControlPage() {
       football_added_time_extra_2: footballAddedEx2,
 
       ...extra,
-      live_seq: seq,
       clock_anchor_epoch: clockAnchorRef.current.epoch,
       clock_anchor_ms: clockAnchorRef.current.ms,
-      emitted_at: Date.now(),
     };
+  }
 
-    lastAppliedSeqRef.current = seq;
-    await sendTvBroadcast(match.id, payload);
+  /**
+   * CONTRAT LIVE GLOBAL — point d'entrée unique pour toute mutation d'état live.
+   * - autoLive=true  → emitLiveMutation (seq + broadcast snapshot + persist DB + event)
+   * - autoLive=false → nextMatchSeq() + persistLiveState seul (pas de broadcast)
+   */
+  async function dispatch(
+    dbPatch: Record<string, any>,
+    opts?: {
+      event?: { event_type: string; team_side?: "home" | "away" | null; player_id?: string | null; payload?: Record<string, any> };
+      clock?: { anchorEpochMs: number; anchorClockMs: number };
+      overlay?: Record<string, any>;
+    },
+  ) {
+    if (!match) return;
+    if (!autoLive) {
+      nextMatchSeq();
+      void persistLiveState(dbPatch);
+      if (opts?.event) void appendEvent(opts.event);
+      return;
+    }
+    await emitLiveMutation(getLiveMutCtx(), {
+      livePatch: buildBroadcastPayload(dbPatch),
+      dbPatch,
+      clock: opts?.clock,
+      event: opts?.event,
+      overlay: opts?.overlay,
+    });
+  }
+
+  /** Conservé pour saveMatch / archiveMatch (admin broadcast). Ne pas utiliser pour les mutations live métier. */
+  async function pushPatch(extra: Record<string, any>) {
+    if (!match) return;
+    await dispatch(extra);
   }
 
   async function saveMatch() {
@@ -1518,8 +1547,10 @@ export default function ControlPage() {
     setAwayPlayers((prev) => resetPlayers(prev));
 
     try {
-      const pushP = autoLive ? pushPatch(resetPatch) : Promise.resolve(null);
-      void persistLiveState(resetPatch as any);
+      await dispatch(
+        resetPatch as Record<string, any>,
+        { clock: { anchorEpochMs: clockAnchorRef.current.epoch, anchorClockMs: clockAnchorRef.current.ms } },
+      );
 
       if (match) {
         const mid = match.id;
@@ -1531,7 +1562,6 @@ export default function ControlPage() {
         ]);
       }
 
-      await pushP;
       toast("Régie réinitialisée.", "success");
     } catch {
       toast("Réinitialisation persistée, envoi à l'écran échoué.", "warning");
@@ -1545,13 +1575,10 @@ export default function ControlPage() {
     setClockMs(next);
 
     try {
-      const pushP = autoLive ? pushPatch({ clock_ms: next }) : Promise.resolve(null);
-      void persistLiveState({
-        clock_ms: next,
-        clock_anchor_epoch_ms: clockAnchorRef.current.epoch,
-        clock_anchor_clock_ms: clockAnchorRef.current.ms,
-      });
-      await pushP;
+      await dispatch(
+        { clock_ms: next },
+        { clock: { anchorEpochMs: clockAnchorRef.current.epoch, anchorClockMs: clockAnchorRef.current.ms } },
+      );
     } catch {}
   }
 
@@ -1564,16 +1591,10 @@ export default function ControlPage() {
     setAwayScore(nextAway);
 
     try {
-      const pushP = autoLive
-        ? pushPatch({ home_score: nextHome, away_score: nextAway })
-        : Promise.resolve(null);
-      void persistLiveState({ home_score: nextHome, away_score: nextAway });
-      await pushP;
-      void appendEvent({
-        event_type: `${sport}_score`,
-        team_side: side,
-        payload: { delta, home_score: nextHome, away_score: nextAway },
-      });
+      await dispatch(
+        { home_score: nextHome, away_score: nextAway },
+        { event: { event_type: `${sport}_score`, team_side: side, payload: { delta, home_score: nextHome, away_score: nextAway } } },
+      );
     } catch {}
   }
 
@@ -1585,16 +1606,10 @@ export default function ControlPage() {
     setAwayTeamFouls(nextAway);
 
     try {
-      const pushP = autoLive
-        ? pushPatch({ home_team_fouls: nextHome, away_team_fouls: nextAway })
-        : Promise.resolve(null);
-      void persistLiveState({ home_team_fouls: nextHome, away_team_fouls: nextAway });
-      await pushP;
-      void appendEvent({
-        event_type: `${sport}_team_foul`,
-        team_side: side,
-        payload: { home_team_fouls: nextHome, away_team_fouls: nextAway, delta },
-      });
+      await dispatch(
+        { home_team_fouls: nextHome, away_team_fouls: nextAway },
+        { event: { event_type: `${sport}_team_foul`, team_side: side, payload: { home_team_fouls: nextHome, away_team_fouls: nextAway, delta } } },
+      );
     } catch {}
   }
 
@@ -1606,16 +1621,10 @@ export default function ControlPage() {
     setAwaySetsWon(nextAway);
 
     try {
-      const pushP = autoLive
-        ? pushPatch({ home_sets_won: nextHome, away_sets_won: nextAway })
-        : Promise.resolve(null);
-      void persistLiveState({ home_sets_won: nextHome, away_sets_won: nextAway });
-      await pushP;
-      void appendEvent({
-        event_type: `${sport}_sets`,
-        team_side: side,
-        payload: { home_sets_won: nextHome, away_sets_won: nextAway, delta },
-      });
+      await dispatch(
+        { home_sets_won: nextHome, away_sets_won: nextAway },
+        { event: { event_type: `${sport}_sets`, team_side: side, payload: { home_sets_won: nextHome, away_sets_won: nextAway, delta } } },
+      );
     } catch {}
   }
 
@@ -1627,16 +1636,10 @@ export default function ControlPage() {
     setAwayBonus(nextAway);
 
     try {
-      const pushP = autoLive
-        ? pushPatch({ home_bonus: nextHome, away_bonus: nextAway })
-        : Promise.resolve(null);
-      void persistLiveState({ home_bonus: nextHome, away_bonus: nextAway });
-      await pushP;
-      void appendEvent({
-        event_type: `${sport}_bonus`,
-        team_side: side,
-        payload: { home_bonus: nextHome, away_bonus: nextAway },
-      });
+      await dispatch(
+        { home_bonus: nextHome, away_bonus: nextAway },
+        { event: { event_type: `${sport}_bonus`, team_side: side, payload: { home_bonus: nextHome, away_bonus: nextAway } } },
+      );
     } catch {}
   }
 
@@ -1689,11 +1692,9 @@ export default function ControlPage() {
       return;
     }
 
-    if (autoLive) {
-      try {
-        await pushPatch({ [side === "home" ? "home_players" : "away_players"]: next });
-      } catch {}
-    }
+    try {
+      await dispatch({ [side === "home" ? "home_players" : "away_players"]: next });
+    } catch {}
 
     await appendEvent({
       event_type: `${sport}_player_${field}`,
@@ -1720,26 +1721,23 @@ export default function ControlPage() {
     setAwayTeamFouls(0);
 
     try {
-      const periodPatch = {
-        current_period_index: nextIndex,
-        is_overtime: ot,
-        period_label: label,
-        clock_ms: nextClock,
-        clock_running: false,
-        clock_anchor_epoch_ms: clockAnchorRef.current.epoch,
-        clock_anchor_clock_ms: nextClock,
-        team_fouls_period_home: 0,
-        team_fouls_period_away: 0,
-        home_team_fouls: 0,
-        away_team_fouls: 0,
-      };
-      const pushP = autoLive ? pushPatch(periodPatch) : Promise.resolve(null);
-      void persistLiveState(periodPatch);
-      await pushP;
-      void appendEvent({
-        event_type: "basket_period_change",
-        payload: { current_period_index: nextIndex, period_label: label, is_overtime: ot },
-      });
+      await dispatch(
+        {
+          current_period_index: nextIndex,
+          is_overtime: ot,
+          period_label: label,
+          clock_ms: nextClock,
+          clock_running: false,
+          team_fouls_period_home: 0,
+          team_fouls_period_away: 0,
+          home_team_fouls: 0,
+          away_team_fouls: 0,
+        },
+        {
+          clock: { anchorEpochMs: clockAnchorRef.current.epoch, anchorClockMs: nextClock },
+          event: { event_type: "basket_period_change", payload: { current_period_index: nextIndex, period_label: label, is_overtime: ot } },
+        },
+      );
     } catch {}
   }
 
@@ -1747,10 +1745,10 @@ export default function ControlPage() {
     const next = possessionArrow === "home" ? "away" : "home";
     setPossessionArrow(next);
     try {
-      const pushP = autoLive ? pushPatch({ possession_arrow: next }) : Promise.resolve(null);
-      void persistLiveState({ possession_arrow: next });
-      await pushP;
-      void appendEvent({ event_type: "basket_possession_arrow", team_side: next, payload: { possession_arrow: next } });
+      await dispatch(
+        { possession_arrow: next },
+        { event: { event_type: "basket_possession_arrow", team_side: next, payload: { possession_arrow: next } } },
+      );
     } catch {}
   }
 
@@ -1763,9 +1761,7 @@ export default function ControlPage() {
         : Math.max(0, shotClockS + (delta || 0));
     setShotClockS(next);
     try {
-      const pushP = autoLive ? pushPatch({ shot_clock_s: next }) : Promise.resolve(null);
-      void persistLiveState({ shot_clock_s: next });
-      await pushP;
+      await dispatch({ shot_clock_s: next });
     } catch {}
   }
 
@@ -1825,14 +1821,10 @@ export default function ControlPage() {
     };
 
     try {
-      const pushP = autoLive ? pushPatch(patch) : Promise.resolve(null);
-      void persistLiveState(patch);
-      await pushP;
-      void appendEvent({
-        event_type: `rugby_${field}`,
-        team_side: side,
-        payload: { delta, home: nextHome, away: nextAway, home_score: nextHomeScore, away_score: nextAwayScore },
-      });
+      await dispatch(
+        patch as Record<string, any>,
+        { event: { event_type: `rugby_${field}`, team_side: side, payload: { delta, home: nextHome, away: nextAway, home_score: nextHomeScore, away_score: nextAwayScore } } },
+      );
     } catch {}
   }
 
@@ -1855,8 +1847,10 @@ export default function ControlPage() {
     };
 
     try {
-      const pushP = autoLive ? pushPatch(patch) : Promise.resolve(null);
-      void persistLiveState(patch);
+      await dispatch(
+        patch as Record<string, any>,
+        { event: { event_type: "rugby_yellow_card", team_side: side, player_id: player?.id || null, payload: { player_name: player?.name || null, shirt_number: player?.number || null, duration_s: 600 } } },
+      );
 
       const { data } = await supabase
         .from("match_sin_bins")
@@ -1886,13 +1880,6 @@ export default function ControlPage() {
         void supabase.from("match_players").update({ yellow_cards: (player.yellow_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", player.id);
       }
 
-      await pushP;
-      void appendEvent({
-        event_type: "rugby_yellow_card",
-        team_side: side,
-        player_id: player?.id || null,
-        payload: { player_name: player?.name || null, shirt_number: player?.number || null, duration_s: 600 },
-      });
     } catch {}
   }
 
@@ -1916,19 +1903,10 @@ export default function ControlPage() {
     setRugbyAwaySinBinActive(nextAwayActive);
 
     try {
-      const sinBinPatch = {
-        rugby_home_sin_bin_active: nextHomeActive,
-        rugby_away_sin_bin_active: nextAwayActive,
-      };
-      const pushP = autoLive ? pushPatch(sinBinPatch) : Promise.resolve(null);
-      void persistLiveState(sinBinPatch);
-      await pushP;
-      void appendEvent({
-        event_type: "rugby_sin_bin_end",
-        team_side: row.team_side,
-        player_id: row.player_id,
-        payload: { player_name: row.player_name_snapshot, shirt_number: row.shirt_number_snapshot },
-      });
+      await dispatch(
+        { rugby_home_sin_bin_active: nextHomeActive, rugby_away_sin_bin_active: nextAwayActive },
+        { event: { event_type: "rugby_sin_bin_end", team_side: row.team_side, player_id: row.player_id, payload: { player_name: row.player_name_snapshot, shirt_number: row.shirt_number_snapshot } } },
+      );
     } catch {}
   }
 
@@ -1939,11 +1917,10 @@ export default function ControlPage() {
     setAwayRedCards(nextAway);
 
     try {
-      const pushP = autoLive
-        ? pushPatch({ home_red_cards: nextHome, away_red_cards: nextAway })
-        : Promise.resolve(null);
-      void persistLiveState({ home_red_cards: nextHome, away_red_cards: nextAway });
-      await pushP;
+      await dispatch(
+        { home_red_cards: nextHome, away_red_cards: nextAway },
+        { event: { event_type: "rugby_red_card", team_side: side, player_id: player?.id || null, payload: { player_name: player?.name || null, shirt_number: player?.number || null } } },
+      );
       // Also update player.red_cards in local state + DB
       if (player?.id) {
         const updatePlayersR = (rows: PlayerStatRow[]) =>
@@ -1952,13 +1929,6 @@ export default function ControlPage() {
         else setAwayPlayers(updatePlayersR);
         void supabase.from("match_players").update({ red_cards: (player!.red_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", player!.id);
       }
-
-            void appendEvent({
-        event_type: "rugby_red_card",
-        team_side: side,
-        player_id: player?.id || null,
-        payload: { player_name: player?.name || null, shirt_number: player?.number || null },
-      });
     } catch {}
   }
 
@@ -1981,8 +1951,10 @@ export default function ControlPage() {
     };
 
     try {
-      const pushP = autoLive ? pushPatch(patch) : Promise.resolve(null);
-      void persistLiveState(patch);
+      await dispatch(
+        patch as Record<string, any>,
+        { event: { event_type: "handball_2min", team_side: side, player_id: player?.id || null, payload: { player_name: player?.name || null, shirt_number: player?.number || null, duration_s: 120 } } },
+      );
 
       const { data } = await supabase
         .from("match_two_min_suspensions")
@@ -2003,13 +1975,6 @@ export default function ControlPage() {
 
       if (data) setHandballSuspensions((prev) => [data as SuspensionRow, ...prev]);
 
-      await pushP;
-      void appendEvent({
-        event_type: "handball_2min",
-        team_side: side,
-        player_id: player?.id || null,
-        payload: { player_name: player?.name || null, shirt_number: player?.number || null, duration_s: 120 },
-      });
     } catch {}
   }
 
@@ -2033,19 +1998,10 @@ export default function ControlPage() {
     setHandballAway2MinActive(nextAwayActive);
 
     try {
-      const h2mEndPatch = {
-        handball_home_2min_active: nextHomeActive,
-        handball_away_2min_active: nextAwayActive,
-      };
-      const pushP = autoLive ? pushPatch(h2mEndPatch) : Promise.resolve(null);
-      void persistLiveState(h2mEndPatch);
-      await pushP;
-      void appendEvent({
-        event_type: "handball_2min_end",
-        team_side: row.team_side,
-        player_id: row.player_id,
-        payload: { player_name: row.player_name_snapshot, shirt_number: row.shirt_number_snapshot },
-      });
+      await dispatch(
+        { handball_home_2min_active: nextHomeActive, handball_away_2min_active: nextAwayActive },
+        { event: { event_type: "handball_2min_end", team_side: row.team_side, player_id: row.player_id, payload: { player_name: row.player_name_snapshot, shirt_number: row.shirt_number_snapshot } } },
+      );
     } catch {}
   }
 
@@ -2056,16 +2012,10 @@ export default function ControlPage() {
     setHandballAwayWarnings(nextAway);
 
     try {
-      const warnPatch = { handball_home_warnings: nextHome, handball_away_warnings: nextAway };
-      const pushP = autoLive ? pushPatch(warnPatch) : Promise.resolve(null);
-      void persistLiveState(warnPatch);
-      await pushP;
-      void appendEvent({
-        event_type: "handball_warning",
-        team_side: side,
-        player_id: player?.id || null,
-        payload: { player_name: player?.name || null, shirt_number: player?.number || null },
-      });
+      await dispatch(
+        { handball_home_warnings: nextHome, handball_away_warnings: nextAway },
+        { event: { event_type: "handball_warning", team_side: side, player_id: player?.id || null, payload: { player_name: player?.name || null, shirt_number: player?.number || null } } },
+      );
     } catch {}
   }
 
@@ -2076,34 +2026,28 @@ export default function ControlPage() {
     setHandballAwayDisq(nextAway);
 
     try {
-      const disqPatch = { handball_home_disqualifications: nextHome, handball_away_disqualifications: nextAway };
-      const pushP = autoLive ? pushPatch(disqPatch) : Promise.resolve(null);
-      void persistLiveState(disqPatch);
-      await pushP;
-      void appendEvent({
-        event_type: "handball_disqualification",
-        team_side: side,
-        player_id: player?.id || null,
-        payload: { player_name: player?.name || null, shirt_number: player?.number || null },
-      });
+      await dispatch(
+        { handball_home_disqualifications: nextHome, handball_away_disqualifications: nextAway },
+        { event: { event_type: "handball_disqualification", team_side: side, player_id: player?.id || null, payload: { player_name: player?.name || null, shirt_number: player?.number || null } } },
+      );
     } catch {}
   }
 
   async function updateVolleyPatch(patch: Partial<MatchRow>, eventType?: string, teamSide?: "home" | "away") {
     try {
-      const pushP = autoLive ? pushPatch(patch as any) : Promise.resolve(null);
-      void persistLiveState(patch);
-      await pushP;
-      if (eventType) void appendEvent({ event_type: eventType, team_side: teamSide || null, payload: patch as any });
+      await dispatch(
+        patch as Record<string, any>,
+        eventType ? { event: { event_type: eventType, team_side: teamSide || null, payload: patch as any } } : undefined,
+      );
     } catch {}
   }
 
   async function updateFootballPatch(patch: Partial<MatchRow>, eventType?: string, teamSide?: "home" | "away") {
     try {
-      const pushP = autoLive ? pushPatch(patch as any) : Promise.resolve(null);
-      void persistLiveState(patch);
-      await pushP;
-      if (eventType) void appendEvent({ event_type: eventType, team_side: teamSide || null, payload: patch as any });
+      await dispatch(
+        patch as Record<string, any>,
+        eventType ? { event: { event_type: eventType, team_side: teamSide || null, payload: patch as Record<string, any> } } : undefined,
+      );
     } catch {}
   }
 
@@ -2433,10 +2377,10 @@ export default function ControlPage() {
                         const next = homeTimeouts + 1;
                         setHomeTimeouts(next);
                         try {
-                          const pushP = autoLive ? pushPatch({ home_timeouts: next }) : Promise.resolve(null);
-                          void persistLiveState({ home_timeouts: next });
-                          await pushP;
-                          void appendEvent({ event_type: "basket_timeout", team_side: "home", payload: { value: next } });
+                          await dispatch(
+                            { home_timeouts: next },
+                            { event: { event_type: "basket_timeout", team_side: "home", payload: { value: next } } },
+                          );
                         } catch {}
                       }}
                       style={styles.ghostBtnSmall}
@@ -2448,10 +2392,10 @@ export default function ControlPage() {
                         const next = awayTimeouts + 1;
                         setAwayTimeouts(next);
                         try {
-                          const pushP = autoLive ? pushPatch({ away_timeouts: next }) : Promise.resolve(null);
-                          void persistLiveState({ away_timeouts: next });
-                          await pushP;
-                          void appendEvent({ event_type: "basket_timeout", team_side: "away", payload: { value: next } });
+                          await dispatch(
+                            { away_timeouts: next },
+                            { event: { event_type: "basket_timeout", team_side: "away", payload: { value: next } } },
+                          );
                         } catch {}
                       }}
                       style={styles.ghostBtnSmall}
@@ -2536,11 +2480,10 @@ export default function ControlPage() {
                         const next = handballHomeTimeouts + 1;
                         setHandballHomeTimeouts(next);
                         try {
-                          const tmPatch = { handball_home_team_timeouts: next, home_timeouts: next };
-                          const pushP = autoLive ? pushPatch(tmPatch) : Promise.resolve(null);
-                          void persistLiveState(tmPatch);
-                          await pushP;
-                          void appendEvent({ event_type: "handball_timeout", team_side: "home", payload: { value: next } });
+                          await dispatch(
+                            { handball_home_team_timeouts: next, home_timeouts: next },
+                            { event: { event_type: "handball_timeout", team_side: "home", payload: { value: next } } },
+                          );
                         } catch {}
                       }}
                       style={styles.ghostBtnSmall}
@@ -2552,11 +2495,10 @@ export default function ControlPage() {
                         const next = handballAwayTimeouts + 1;
                         setHandballAwayTimeouts(next);
                         try {
-                          const tmPatch = { handball_away_team_timeouts: next, away_timeouts: next };
-                          const pushP = autoLive ? pushPatch(tmPatch) : Promise.resolve(null);
-                          void persistLiveState(tmPatch);
-                          await pushP;
-                          void appendEvent({ event_type: "handball_timeout", team_side: "away", payload: { value: next } });
+                          await dispatch(
+                            { handball_away_team_timeouts: next, away_timeouts: next },
+                            { event: { event_type: "handball_timeout", team_side: "away", payload: { value: next } } },
+                          );
                         } catch {}
                       }}
                       style={styles.ghostBtnSmall}
@@ -2589,9 +2531,7 @@ export default function ControlPage() {
                           const next = e.target.checked;
                           setHandballExtraTime(next);
                           try {
-                            const pushP = autoLive ? pushPatch({ handball_extra_time: next }) : Promise.resolve(null);
-                            void persistLiveState({ handball_extra_time: next });
-                            await pushP;
+                            await dispatch({ handball_extra_time: next });
                           } catch {}
                         }}
                       />
@@ -2603,10 +2543,7 @@ export default function ControlPage() {
                         onChange={(e) => setHandballShootoutMode(e.target.value)}
                         onBlur={async () => {
                           try {
-                            const smPatch = { handball_shootout_mode: handballShootoutMode || null };
-                            const pushP = autoLive ? pushPatch(smPatch) : Promise.resolve(null);
-                            void persistLiveState(smPatch);
-                            await pushP;
+                            await dispatch({ handball_shootout_mode: handballShootoutMode || null });
                           } catch {}
                         }}
                         style={styles.input}
@@ -2951,26 +2888,26 @@ export default function ControlPage() {
                       <MiniStat
                         title={`${homeName} • Cartons jaunes`}
                         value={isRugby ? rugbyHomeYellowSinBin : isFootball ? footballHomeYellows : homeYellowCards}
-                        onPlus={isRugby ? async () => { const p = await pick({ title: `Carton jaune — ${homeName}`, players: homePlayers }); if (p !== undefined) issueRugbyYellow("home", p ? { id: p.id, team_id: "", name: p.name, number: p.number, fouls: 0 } : null); } : isFootball ? async () => { const picked = await pick({ title: `Carton jaune — ${homeName}`, players: homePlayers }); if (picked === undefined) return; const n = footballHomeYellows + 1; setFootballHomeYellows(n); if (picked?.id) { setHomePlayers((rows) => rows.map((p) => p.id === picked.id ? { ...p, yellow_cards: (p.yellow_cards || 0) + 1 } : p)); void supabase.from("match_players").update({ yellow_cards: (homePlayers.find((p) => p.id === picked.id)?.yellow_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", picked.id); } try { const pp = autoLive ? pushPatch({ football_home_yellow_cards: n, home_yellow_cards: n }) : null; void persistLiveState({ football_home_yellow_cards: n, home_yellow_cards: n }); await pp; } catch {} } : async () => { const picked = await pick({ title: `Carton jaune — ${homeName}`, players: homePlayers }); if (picked === undefined) return; const n = homeYellowCards + 1; setHomeYellowCards(n); if (picked?.id) { setHomePlayers((rows) => rows.map((p) => p.id === picked.id ? { ...p, yellow_cards: (p.yellow_cards || 0) + 1 } : p)); void supabase.from("match_players").update({ yellow_cards: (homePlayers.find((p) => p.id === picked.id)?.yellow_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", picked.id); } try { const pp = autoLive ? pushPatch({ home_yellow_cards: n }) : null; void persistLiveState({ home_yellow_cards: n }); await pp; } catch {} }}
-                        onMinus={async () => { if (isRugby) { const n = Math.max(0, rugbyHomeYellowSinBin - 1); const na = Math.max(0, rugbyHomeSinBinActive - 1); setRugbyHomeYellowSinBin(n); setRugbyHomeSinBinActive(na); try { const patch = { rugby_home_yellow_sin_bin: n, rugby_home_sin_bin_active: na }; const p = autoLive ? pushPatch(patch) : null; void persistLiveState(patch); await p; } catch {} } else if (isFootball) { const n = Math.max(0, footballHomeYellows - 1); setFootballHomeYellows(n); try { const p = autoLive ? pushPatch({ football_home_yellow_cards: n, home_yellow_cards: n }) : null; void persistLiveState({ football_home_yellow_cards: n, home_yellow_cards: n }); await p; } catch {} } else { const n = Math.max(0, homeYellowCards - 1); setHomeYellowCards(n); try { const p = autoLive ? pushPatch({ home_yellow_cards: n }) : null; void persistLiveState({ home_yellow_cards: n }); await p; } catch {} } }}
+                        onPlus={isRugby ? async () => { const p = await pick({ title: `Carton jaune — ${homeName}`, players: homePlayers }); if (p !== undefined) issueRugbyYellow("home", p ? { id: p.id, team_id: "", name: p.name, number: p.number, fouls: 0 } : null); } : isFootball ? async () => { const picked = await pick({ title: `Carton jaune — ${homeName}`, players: homePlayers }); if (picked === undefined) return; const n = footballHomeYellows + 1; setFootballHomeYellows(n); if (picked?.id) { setHomePlayers((rows) => rows.map((p) => p.id === picked.id ? { ...p, yellow_cards: (p.yellow_cards || 0) + 1 } : p)); void supabase.from("match_players").update({ yellow_cards: (homePlayers.find((p) => p.id === picked.id)?.yellow_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", picked.id); } try { await dispatch({ football_home_yellow_cards: n, home_yellow_cards: n }); } catch {} } : async () => { const picked = await pick({ title: `Carton jaune — ${homeName}`, players: homePlayers }); if (picked === undefined) return; const n = homeYellowCards + 1; setHomeYellowCards(n); if (picked?.id) { setHomePlayers((rows) => rows.map((p) => p.id === picked.id ? { ...p, yellow_cards: (p.yellow_cards || 0) + 1 } : p)); void supabase.from("match_players").update({ yellow_cards: (homePlayers.find((p) => p.id === picked.id)?.yellow_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", picked.id); } try { await dispatch({ home_yellow_cards: n }); } catch {} }}
+                        onMinus={async () => { if (isRugby) { const n = Math.max(0, rugbyHomeYellowSinBin - 1); const na = Math.max(0, rugbyHomeSinBinActive - 1); setRugbyHomeYellowSinBin(n); setRugbyHomeSinBinActive(na); try { await dispatch({ rugby_home_yellow_sin_bin: n, rugby_home_sin_bin_active: na }); } catch {} } else if (isFootball) { const n = Math.max(0, footballHomeYellows - 1); setFootballHomeYellows(n); try { await dispatch({ football_home_yellow_cards: n, home_yellow_cards: n }); } catch {} } else { const n = Math.max(0, homeYellowCards - 1); setHomeYellowCards(n); try { await dispatch({ home_yellow_cards: n }); } catch {} } }}
                       />
                       <MiniStat
                         title={`${awayName} • Cartons jaunes`}
                         value={isRugby ? rugbyAwayYellowSinBin : isFootball ? footballAwayYellows : awayYellowCards}
-                        onPlus={isRugby ? async () => { const p = await pick({ title: `Carton jaune — ${awayName}`, players: awayPlayers }); if (p !== undefined) issueRugbyYellow("away", p ? { id: p.id, team_id: "", name: p.name, number: p.number, fouls: 0 } : null); } : isFootball ? async () => { const picked = await pick({ title: `Carton jaune — ${awayName}`, players: awayPlayers }); if (picked === undefined) return; const n = footballAwayYellows + 1; setFootballAwayYellows(n); if (picked?.id) { setAwayPlayers((rows) => rows.map((p) => p.id === picked.id ? { ...p, yellow_cards: (p.yellow_cards || 0) + 1 } : p)); void supabase.from("match_players").update({ yellow_cards: (awayPlayers.find((p) => p.id === picked.id)?.yellow_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", picked.id); } try { const pp = autoLive ? pushPatch({ football_away_yellow_cards: n, away_yellow_cards: n }) : null; void persistLiveState({ football_away_yellow_cards: n, away_yellow_cards: n }); await pp; } catch {} } : async () => { const picked = await pick({ title: `Carton jaune — ${awayName}`, players: awayPlayers }); if (picked === undefined) return; const n = awayYellowCards + 1; setAwayYellowCards(n); if (picked?.id) { setAwayPlayers((rows) => rows.map((p) => p.id === picked.id ? { ...p, yellow_cards: (p.yellow_cards || 0) + 1 } : p)); void supabase.from("match_players").update({ yellow_cards: (awayPlayers.find((p) => p.id === picked.id)?.yellow_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", picked.id); } try { const pp = autoLive ? pushPatch({ away_yellow_cards: n }) : null; void persistLiveState({ away_yellow_cards: n }); await pp; } catch {} }}
-                        onMinus={async () => { if (isRugby) { const n = Math.max(0, rugbyAwayYellowSinBin - 1); const na = Math.max(0, rugbyAwaySinBinActive - 1); setRugbyAwayYellowSinBin(n); setRugbyAwaySinBinActive(na); try { const patch = { rugby_away_yellow_sin_bin: n, rugby_away_sin_bin_active: na }; const p = autoLive ? pushPatch(patch) : null; void persistLiveState(patch); await p; } catch {} } else if (isFootball) { const n = Math.max(0, footballAwayYellows - 1); setFootballAwayYellows(n); try { const p = autoLive ? pushPatch({ football_away_yellow_cards: n, away_yellow_cards: n }) : null; void persistLiveState({ football_away_yellow_cards: n, away_yellow_cards: n }); await p; } catch {} } else { const n = Math.max(0, awayYellowCards - 1); setAwayYellowCards(n); try { const p = autoLive ? pushPatch({ away_yellow_cards: n }) : null; void persistLiveState({ away_yellow_cards: n }); await p; } catch {} } }}
+                        onPlus={isRugby ? async () => { const p = await pick({ title: `Carton jaune — ${awayName}`, players: awayPlayers }); if (p !== undefined) issueRugbyYellow("away", p ? { id: p.id, team_id: "", name: p.name, number: p.number, fouls: 0 } : null); } : isFootball ? async () => { const picked = await pick({ title: `Carton jaune — ${awayName}`, players: awayPlayers }); if (picked === undefined) return; const n = footballAwayYellows + 1; setFootballAwayYellows(n); if (picked?.id) { setAwayPlayers((rows) => rows.map((p) => p.id === picked.id ? { ...p, yellow_cards: (p.yellow_cards || 0) + 1 } : p)); void supabase.from("match_players").update({ yellow_cards: (awayPlayers.find((p) => p.id === picked.id)?.yellow_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", picked.id); } try { await dispatch({ football_away_yellow_cards: n, away_yellow_cards: n }); } catch {} } : async () => { const picked = await pick({ title: `Carton jaune — ${awayName}`, players: awayPlayers }); if (picked === undefined) return; const n = awayYellowCards + 1; setAwayYellowCards(n); if (picked?.id) { setAwayPlayers((rows) => rows.map((p) => p.id === picked.id ? { ...p, yellow_cards: (p.yellow_cards || 0) + 1 } : p)); void supabase.from("match_players").update({ yellow_cards: (awayPlayers.find((p) => p.id === picked.id)?.yellow_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", picked.id); } try { await dispatch({ away_yellow_cards: n }); } catch {} }}
+                        onMinus={async () => { if (isRugby) { const n = Math.max(0, rugbyAwayYellowSinBin - 1); const na = Math.max(0, rugbyAwaySinBinActive - 1); setRugbyAwayYellowSinBin(n); setRugbyAwaySinBinActive(na); try { await dispatch({ rugby_away_yellow_sin_bin: n, rugby_away_sin_bin_active: na }); } catch {} } else if (isFootball) { const n = Math.max(0, footballAwayYellows - 1); setFootballAwayYellows(n); try { await dispatch({ football_away_yellow_cards: n, away_yellow_cards: n }); } catch {} } else { const n = Math.max(0, awayYellowCards - 1); setAwayYellowCards(n); try { await dispatch({ away_yellow_cards: n }); } catch {} } }}
                       />
                       <MiniStat
                         title={`${homeName} • Cartons rouges`}
                         value={isFootball ? footballHomeReds : homeRedCards}
-                        onPlus={isRugby ? async () => { const p = await pick({ title: `Carton rouge — ${homeName}`, players: homePlayers }); if (p !== undefined) issueRugbyRed("home", p ? { id: p.id, team_id: "", name: p.name, number: p.number, fouls: 0 } : null); } : isFootball ? async () => { const picked = await pick({ title: `Carton rouge — ${homeName}`, players: homePlayers }); if (picked === undefined) return; const n = footballHomeReds + 1; setFootballHomeReds(n); if (picked?.id) { setHomePlayers((rows) => rows.map((p) => p.id === picked.id ? { ...p, red_cards: (p.red_cards || 0) + 1 } : p)); void supabase.from("match_players").update({ red_cards: (homePlayers.find((p) => p.id === picked.id)?.red_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", picked.id); } try { const pp = autoLive ? pushPatch({ football_home_red_cards: n, home_red_cards: n }) : null; void persistLiveState({ football_home_red_cards: n, home_red_cards: n }); await pp; } catch {} } : async () => { const picked = await pick({ title: `Carton rouge — ${homeName}`, players: homePlayers }); if (picked === undefined) return; const n = homeRedCards + 1; setHomeRedCards(n); if (picked?.id) { setHomePlayers((rows) => rows.map((p) => p.id === picked.id ? { ...p, red_cards: (p.red_cards || 0) + 1 } : p)); void supabase.from("match_players").update({ red_cards: (homePlayers.find((p) => p.id === picked.id)?.red_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", picked.id); } try { const pp = autoLive ? pushPatch({ home_red_cards: n }) : null; void persistLiveState({ home_red_cards: n }); await pp; } catch {} }}
-                        onMinus={async () => { if (isFootball) { const n = Math.max(0, footballHomeReds - 1); setFootballHomeReds(n); try { const p = autoLive ? pushPatch({ football_home_red_cards: n, home_red_cards: n }) : null; void persistLiveState({ football_home_red_cards: n, home_red_cards: n }); await p; } catch {} } else { const n = Math.max(0, homeRedCards - 1); setHomeRedCards(n); try { const p = autoLive ? pushPatch({ home_red_cards: n }) : null; void persistLiveState({ home_red_cards: n }); await p; } catch {} } }}
+                        onPlus={isRugby ? async () => { const p = await pick({ title: `Carton rouge — ${homeName}`, players: homePlayers }); if (p !== undefined) issueRugbyRed("home", p ? { id: p.id, team_id: "", name: p.name, number: p.number, fouls: 0 } : null); } : isFootball ? async () => { const picked = await pick({ title: `Carton rouge — ${homeName}`, players: homePlayers }); if (picked === undefined) return; const n = footballHomeReds + 1; setFootballHomeReds(n); if (picked?.id) { setHomePlayers((rows) => rows.map((p) => p.id === picked.id ? { ...p, red_cards: (p.red_cards || 0) + 1 } : p)); void supabase.from("match_players").update({ red_cards: (homePlayers.find((p) => p.id === picked.id)?.red_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", picked.id); } try { await dispatch({ football_home_red_cards: n, home_red_cards: n }); } catch {} } : async () => { const picked = await pick({ title: `Carton rouge — ${homeName}`, players: homePlayers }); if (picked === undefined) return; const n = homeRedCards + 1; setHomeRedCards(n); if (picked?.id) { setHomePlayers((rows) => rows.map((p) => p.id === picked.id ? { ...p, red_cards: (p.red_cards || 0) + 1 } : p)); void supabase.from("match_players").update({ red_cards: (homePlayers.find((p) => p.id === picked.id)?.red_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", picked.id); } try { await dispatch({ home_red_cards: n }); } catch {} }}
+                        onMinus={async () => { if (isFootball) { const n = Math.max(0, footballHomeReds - 1); setFootballHomeReds(n); try { await dispatch({ football_home_red_cards: n, home_red_cards: n }); } catch {} } else { const n = Math.max(0, homeRedCards - 1); setHomeRedCards(n); try { await dispatch({ home_red_cards: n }); } catch {} } }}
                       />
                       <MiniStat
                         title={`${awayName} • Cartons rouges`}
                         value={isFootball ? footballAwayReds : awayRedCards}
-                        onPlus={isRugby ? async () => { const p = await pick({ title: `Carton rouge — ${awayName}`, players: awayPlayers }); if (p !== undefined) issueRugbyRed("away", p ? { id: p.id, team_id: "", name: p.name, number: p.number, fouls: 0 } : null); } : isFootball ? async () => { const picked = await pick({ title: `Carton rouge — ${awayName}`, players: awayPlayers }); if (picked === undefined) return; const n = footballAwayReds + 1; setFootballAwayReds(n); if (picked?.id) { setAwayPlayers((rows) => rows.map((p) => p.id === picked.id ? { ...p, red_cards: (p.red_cards || 0) + 1 } : p)); void supabase.from("match_players").update({ red_cards: (awayPlayers.find((p) => p.id === picked.id)?.red_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", picked.id); } try { const pp = autoLive ? pushPatch({ football_away_red_cards: n, away_red_cards: n }) : null; void persistLiveState({ football_away_red_cards: n, away_red_cards: n }); await pp; } catch {} } : async () => { const picked = await pick({ title: `Carton rouge — ${awayName}`, players: awayPlayers }); if (picked === undefined) return; const n = awayRedCards + 1; setAwayRedCards(n); if (picked?.id) { setAwayPlayers((rows) => rows.map((p) => p.id === picked.id ? { ...p, red_cards: (p.red_cards || 0) + 1 } : p)); void supabase.from("match_players").update({ red_cards: (awayPlayers.find((p) => p.id === picked.id)?.red_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", picked.id); } try { const pp = autoLive ? pushPatch({ away_red_cards: n }) : null; void persistLiveState({ away_red_cards: n }); await pp; } catch {} }}
-                        onMinus={async () => { if (isFootball) { const n = Math.max(0, footballAwayReds - 1); setFootballAwayReds(n); try { const p = autoLive ? pushPatch({ football_away_red_cards: n, away_red_cards: n }) : null; void persistLiveState({ football_away_red_cards: n, away_red_cards: n }); await p; } catch {} } else { const n = Math.max(0, awayRedCards - 1); setAwayRedCards(n); try { const p = autoLive ? pushPatch({ away_red_cards: n }) : null; void persistLiveState({ away_red_cards: n }); await p; } catch {} } }}
+                        onPlus={isRugby ? async () => { const p = await pick({ title: `Carton rouge — ${awayName}`, players: awayPlayers }); if (p !== undefined) issueRugbyRed("away", p ? { id: p.id, team_id: "", name: p.name, number: p.number, fouls: 0 } : null); } : isFootball ? async () => { const picked = await pick({ title: `Carton rouge — ${awayName}`, players: awayPlayers }); if (picked === undefined) return; const n = footballAwayReds + 1; setFootballAwayReds(n); if (picked?.id) { setAwayPlayers((rows) => rows.map((p) => p.id === picked.id ? { ...p, red_cards: (p.red_cards || 0) + 1 } : p)); void supabase.from("match_players").update({ red_cards: (awayPlayers.find((p) => p.id === picked.id)?.red_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", picked.id); } try { await dispatch({ football_away_red_cards: n, away_red_cards: n }); } catch {} } : async () => { const picked = await pick({ title: `Carton rouge — ${awayName}`, players: awayPlayers }); if (picked === undefined) return; const n = awayRedCards + 1; setAwayRedCards(n); if (picked?.id) { setAwayPlayers((rows) => rows.map((p) => p.id === picked.id ? { ...p, red_cards: (p.red_cards || 0) + 1 } : p)); void supabase.from("match_players").update({ red_cards: (awayPlayers.find((p) => p.id === picked.id)?.red_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", picked.id); } try { await dispatch({ away_red_cards: n }); } catch {} }}
+                        onMinus={async () => { if (isFootball) { const n = Math.max(0, footballAwayReds - 1); setFootballAwayReds(n); try { await dispatch({ football_away_red_cards: n, away_red_cards: n }); } catch {} } else { const n = Math.max(0, awayRedCards - 1); setAwayRedCards(n); try { await dispatch({ away_red_cards: n }); } catch {} } }}
                       />
                     </div>
                   </div>
