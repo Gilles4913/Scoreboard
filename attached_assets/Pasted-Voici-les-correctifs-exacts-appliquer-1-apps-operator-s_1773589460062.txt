@@ -1,0 +1,155 @@
+Voici les correctifs exacts à appliquer.
+
+1) apps/operator/src/pages/ControlPage.tsx
+A. Supprimer la persistance forcée de paused -> live
+Remplace entièrement la fonction persistLiveState(...) par ceci :
+async function persistLiveState(patch: Partial<MatchRow>) {
+  if (!match) return;
+
+  const dbPatch: Partial<MatchRow> = { ...patch };
+
+  const { error } = await supabase
+    .from("matches")
+    .update(dbPatch)
+    .eq("id", match.id);
+
+  if (error) {
+    toast(`Erreur persistance match : ${error.message}`, "error");
+    throw error;
+  }
+
+  setMatch((prev) => (prev ? { ...prev, ...patch } : prev));
+}
+Ce que ça corrige
+
+paused est désormais vraiment persisté en base
+
+postgres_changes ne renverra plus live alors que la régie affiche paused
+
+la pause devient cohérente entre :
+
+console principale
+
+Display
+
+QR Console
+
+B. Option conseillée dans saveMatch()
+
+Aujourd’hui ton saveMatch() attend persist avant push.
+Pour la sensation live, inverse l’ordre.
+
+Remplace ce bloc :
+const pushP = pushPatch(payload);
+const persistP = persistLiveState(payload);
+// Also persist org sport if it was changed
+if (org?.id && org?.sport) {
+  void supabase.from("orgs").update({ sport: org.sport }).eq("id", org.id);
+}
+await persistP;
+await pushP;
+toast("Match sauvegardé.", "success");
+par :
+const pushP = pushPatch(payload);
+const persistP = persistLiveState(payload);
+// Also persist org sport if it was changed
+if (org?.id && org?.sport) {
+  void supabase.from("orgs").update({ sport: org.sport }).eq("id", org.id);
+}
+await pushP;
+void persistP;
+toast("Match sauvegardé.", "success");
+
+Ce n’est pas obligatoire pour la pause, mais c’est mieux pour la latence.
+
+2) apps/operator/src/pages/MobileControlPage.tsx
+
+La QR Console doit émettre la même ancre temps que la console principale.
+
+A. Remplace entièrement la fonction push par ceci :
+const push = useCallback(async (patch: Record<string, any>) => {
+  if (!matchId) return;
+  const seq = nextSeq();
+  void sendTvBroadcast(matchId, {
+    ...patch,
+    match_id: matchId,
+    live_seq: seq,
+    clock_anchor_epoch: clockAnchorRef.current.epoch,
+    clock_anchor_ms: clockAnchorRef.current.ms,
+    emitted_at: Date.now(),
+  });
+}, [matchId]);
+Ce que ça change
+
+Tous les patches live émis par la QR Console contiendront :
+
+clock_anchor_epoch
+
+clock_anchor_ms
+
+live_seq
+
+emitted_at
+
+Donc :
+
+le Display peut interpoler correctement
+
+la QR Console devient une source live fiable
+
+la console principale et la QR Console parlent le même “langage temps”
+
+B. Remplace entièrement startClock() par ceci :
+async function startClock() {
+  const ms = clockMsRef.current > 0 ? clockMsRef.current : defaultClockMs(sport, periodDurationS);
+  const now = Date.now();
+
+  clockMsRef.current = ms;
+  clockRunningRef.current = true;
+  clockAnchorRef.current = { epoch: now, ms };
+
+  setClockMs(ms);
+  setClockRunning(true);
+  setStatus("live");
+
+  try {
+    void push({
+      clock_ms: ms,
+      clock_running: true,
+      status: "live",
+      clock_anchor_epoch: now,
+      clock_anchor_ms: ms,
+    });
+    void persist({ clock_ms: ms, clock_running: true, status: "live" });
+  } catch {}
+}
+C. Remplace entièrement pauseClock() par ceci :
+async function pauseClock() {
+  const ms = clockMsRef.current;
+  const now = Date.now();
+
+  clockRunningRef.current = false;
+  clockAnchorRef.current = { epoch: now, ms };
+
+  setClockMs(ms);
+  setClockRunning(false);
+  setStatus("paused");
+
+  try {
+    void push({
+      clock_running: false,
+      status: "paused",
+      clock_ms: ms,
+      clock_anchor_epoch: now,
+      clock_anchor_ms: ms,
+    });
+    void persist({ clock_running: false, status: "paused", clock_ms: ms });
+  } catch {}
+}
+Ce que ça corrige
+
+la QR Console émet maintenant une pause ancrée correctement
+
+le Display reçoit une valeur figée fiable au moment du clic
+
+la base persiste bien paused
