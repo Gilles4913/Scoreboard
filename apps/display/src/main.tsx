@@ -480,10 +480,16 @@ function App() {
           if (!prev) return nextCtx;
 
           if (prev.match_id && nextCtx.match_id && prev.match_id !== nextCtx.match_id) {
+            // Nouveau match → on accepte tout le contexte frais
             return nextCtx;
           }
 
-          return mergeContext(prev, nextCtx);
+          // Même match : le realtime est la source autoritaire pour l'horloge.
+          // On ne doit JAMAIS réécrire clock_ms / clock_running depuis le polling HTTP
+          // (la valeur en base est figée, pas mise à jour en continu).
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { clock_ms: _cm, clock_running: _cr, ...stableFields } = nextCtx;
+          return mergeContext(prev, stableFields as Partial<ScoreboardContext>);
         });
       } catch (e) {
         console.error("[display] stable team refresh failed", e);

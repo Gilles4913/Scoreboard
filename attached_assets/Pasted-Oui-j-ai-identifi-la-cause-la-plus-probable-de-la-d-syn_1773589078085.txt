@@ -1,0 +1,150 @@
+Oui, j’ai identifié la cause la plus probable de la désynchronisation, et elle touche surtout le Display, pas la QR Console.
+
+Diagnostic
+1) Le Display se resynchronise périodiquement avec une horloge DB “figée”
+
+Dans apps/display/src/main.tsx, le mode équipe fait un fetchContext() toutes les 3 secondes.
+Le problème : ce contexte rechargé contient clock_ms, mais pas clock_anchor_epoch, clock_anchor_ms, ni emitted_at. Et comme clock_ms en base n’est pas mis à jour en continu pendant que le chrono tourne, ce refresh réinjecte une valeur de chrono plus ancienne dans le Display.
+
+Résultat :
+
+le Display repart régulièrement d’une base temps moins bonne
+
+il “saute” ou dérive
+
+la console principale et le Display se désynchronisent progressivement
+
+2) La console principale, elle, tourne sur une vraie ancre locale
+
+Dans ControlPage.tsx, le chrono utilise :
+
+clockAnchorRef.current = { epoch, ms }
+
+un tick local à 100 ms
+
+Donc la régie principale est cohérente localement.
+
+3) La QR Console est probablement moins touchée que le Display
+
+Dans MobileControlPage.tsx, la QR Console :
+
+reçoit les patches realtime
+
+sait utiliser clock_anchor_epoch / clock_anchor_ms si présents
+
+ticke aussi à 100 ms
+
+n’a pas le polling périodique destructeur du Display
+
+Donc :
+
+oui, il faut vérifier
+
+mais a priori la QR Console devrait être plus proche de la console principale que le Display
+
+4) Il y a aussi un second problème latent : la Pause persiste “live” en base
+
+Dans ControlPage.tsx, persistLiveState() transforme :
+
+if ((dbPatch as any).status === "paused") {
+  (dbPatch as any).status = "live";
+}
+
+Donc :
+
+le broadcast dit paused
+
+mais la DB enregistre live
+
+puis postgres_changes peut renvoyer un état contradictoire
+
+Ça n’aide ni la synchro, ni la pause.
+
+Réponse directe à ta question
+Est-ce aussi vrai sur la remote console (QR Console) ?
+
+Probablement moins, voire pas dans les mêmes proportions, parce que la QR Console :
+
+n’a pas le refresh équipe toutes les 3 secondes
+
+applique les ancres de temps distantes
+
+tourne à 100 ms comme la console principale
+
+En revanche, si la QR Console est elle-même la source de l’action (startClock, pauseClock depuis mobile), elle diffuse actuellement des patches sans clock_anchor_epoch / clock_anchor_ms, seulement avec clock_ms + emitted_at. Donc elle est moins robuste que la console principale comme émetteur.
+
+Ce qu’il faut corriger
+A. Sur le Display
+
+Le polling teamSlug ne doit plus écraser l’horloge en cours.
+
+Il faut faire une de ces deux choses :
+
+soit ignorer clock_ms / clock_running venant du refresh HTTP quand le match n’a pas changé
+
+soit ne les accepter que si le refresh apporte aussi une ancre temps fiable
+
+soit réserver le refresh HTTP au changement de match uniquement
+
+La meilleure option ici :
+
+si prev.match_id === nextCtx.match_id
+
+alors ne pas fusionner depuis le refresh :
+
+clock_ms
+
+clock_running
+
+period_label seulement si tu veux être prudent
+
+garder le realtime comme source prioritaire de l’horloge
+
+B. Sur ControlPage.tsx
+
+Il faut supprimer cette transformation :
+
+if ((dbPatch as any).status === "paused") {
+  (dbPatch as any).status = "live";
+}
+
+La base doit pouvoir persister paused réellement.
+
+C. Sur MobileControlPage.tsx
+
+Quand la QR Console fait startClock() ou pauseClock(), elle doit aussi envoyer :
+
+clock_anchor_epoch
+
+clock_anchor_ms
+
+comme le fait déjà ControlPage.tsx.
+
+Aujourd’hui, la QR Console pousse :
+
+clock_ms
+
+clock_running
+
+status
+
+mais pas l’ancre.
+
+Conclusion opérationnelle
+Ce que je pense à ce stade
+
+la désynchro principale est bien réelle sur le Display
+
+elle vient surtout du polling HTTP stable équipe qui réinjecte un clock_ms obsolète
+
+la QR Console est probablement plus proche de la console principale
+
+mais elle n’est pas parfaite si elle pilote elle-même l’horloge, car elle n’émet pas encore les ancres temps
+
+Priorité de correction
+
+empêcher le refresh HTTP du Display d’écraser le chrono live
+
+persister paused réellement en base
+
+faire émettre les ancres temps aussi par la QR Console

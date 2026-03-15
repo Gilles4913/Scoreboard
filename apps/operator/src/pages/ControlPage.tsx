@@ -833,9 +833,8 @@ export default function ControlPage() {
     if (!match) return;
 
     const dbPatch: Partial<MatchRow> = { ...patch };
-    if ((dbPatch as any).status === "paused") {
-      (dbPatch as any).status = "live";
-    }
+    // Note : paused est désormais persisté réellement en base (pas de transformation).
+    // Cela permet à postgres_changes de renvoyer le bon état aux listeners.
 
     const { error } = await supabase
       .from("matches")

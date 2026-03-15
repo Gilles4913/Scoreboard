@@ -608,6 +608,55 @@ Déclenché par `sendTvBroadcast(matchId, patch)` côté Operator.
 - **Sync horloge MobileControlPage** : souscription `mobile-clock:${matchId}` (broadcast + postgres_changes), interpolation via `clock_anchor_epoch` / `clock_anchor_ms`
 - **Guard overlay** : `overlay` extrait du patch avant `mergeContext` — n'altère jamais le contexte score
 
+### 12.1 Règles de synchronisation horloge (fixes 2026-03-15)
+
+**Problème originel** : le polling HTTP du Display (toutes les 3 s, mode stable équipe) réinjectait un `clock_ms` figé depuis la DB, écrasant l'ancre realtime et provoquant des sauts/dérives.
+
+**Trois correctifs appliqués** :
+
+#### A — Display polling n'écrase plus l'horloge live (`main.tsx`)
+
+Dans l'intervalle 3 s, quand `prev.match_id === nextCtx.match_id` :
+
+```ts
+const { clock_ms: _cm, clock_running: _cr, ...stableFields } = nextCtx;
+return mergeContext(prev, stableFields);
+```
+
+`clock_ms` et `clock_running` sont **exclus** du merge HTTP. Le realtime reste la seule source autoritaire pour l'horloge. Seul un changement de `match_id` autorise un reset complet depuis le HTTP.
+
+#### B — `paused` persiste réellement en base (`ControlPage.tsx`)
+
+Suppression de :
+```ts
+// SUPPRIMÉ — ne plus jamais réintroduire
+if ((dbPatch as any).status === "paused") {
+  (dbPatch as any).status = "live";
+}
+```
+
+La DB doit contenir `status = "paused"` réel. Cela permet aux listeners `postgres_changes` de recevoir le bon état et évite les contradictions entre broadcast et DB.
+
+#### C — QR Console émet les ancres temps (`MobileControlPage.tsx`)
+
+`startClock()` inclut désormais :
+```ts
+clock_anchor_epoch: epoch,
+clock_anchor_ms: ms,
+emitted_at: epoch,
+```
+
+`pauseClock()` inclut `emitted_at: now`.
+
+Le Display peut ainsi interpoler exactement depuis la QR Console, comme depuis la console principale.
+
+**Ordre de priorité horloge côté Display/MobileControl** :
+1. `clock_anchor_epoch` + `clock_anchor_ms` → interpolation exacte
+2. `emitted_at` présent → compensation dérive réseau
+3. Fallback → `Date.now()` (dérive ≈ 0)
+
+**Règle invariante** : ne jamais réécrire `clock_ms`/`clock_running` depuis un refresh HTTP stable équipe si le `match_id` n'a pas changé.
+
 ---
 
 ## 13. Rôles et sécurité

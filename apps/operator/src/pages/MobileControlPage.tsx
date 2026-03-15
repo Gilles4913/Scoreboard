@@ -259,25 +259,40 @@ export default function MobileControlPage() {
   /* ── clock controls ──────────────────────────────────────────────────────── */
   async function startClock() {
     const ms = clockMsRef.current > 0 ? clockMsRef.current : defaultClockMs(sport, periodDurationS);
+    const epoch = Date.now();
     clockMsRef.current = ms;
     clockRunningRef.current = true;
-    clockAnchorRef.current = { epoch: Date.now(), ms };
+    clockAnchorRef.current = { epoch, ms };
     setClockMs(ms);
     setClockRunning(true);
     setStatus("live");
     try {
-      void push({ clock_ms: ms, clock_running: true, status: "live" });
+      // Émettre les ancres temps pour que le Display puisse interpoler exactement
+      void push({
+        clock_ms: ms,
+        clock_running: true,
+        status: "live",
+        clock_anchor_epoch: epoch,
+        clock_anchor_ms: ms,
+        emitted_at: epoch,
+      });
       void persist({ clock_ms: ms, clock_running: true, status: "live" });
     } catch {}
   }
 
   async function pauseClock() {
     const ms = clockMsRef.current;
+    const now = Date.now();
     clockRunningRef.current = false;
     setClockRunning(false);
     setStatus("paused");
     try {
-      void push({ clock_running: false, status: "paused", clock_ms: ms });
+      void push({
+        clock_running: false,
+        status: "paused",
+        clock_ms: ms,
+        emitted_at: now,
+      });
       void persist({ clock_running: false, status: "paused", clock_ms: ms });
     } catch {}
   }
