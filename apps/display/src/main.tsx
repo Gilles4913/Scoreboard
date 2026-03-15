@@ -479,7 +479,7 @@ function App() {
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
 
     const topic = `match:${resolvedMatchId}`;
-    const channel = supabase.channel(`display:${topic}`);
+    const channel = supabase.channel(topic);
 
     channel
       .on("broadcast", { event: "*" }, (message) => {

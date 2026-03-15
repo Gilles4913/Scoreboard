@@ -828,7 +828,7 @@ export default function ControlPage() {
   useEffect(() => {
     if (!matchId) return;
     const ch = supabase
-      .channel(`match-ctrl:${matchId}`)
+      .channel(`match:${matchId}`)
       .on('broadcast', { event: '*' }, (message: any) => {
         const patch = message?.payload?.patch || message?.payload || message;
         if (!patch || typeof patch !== 'object') return;

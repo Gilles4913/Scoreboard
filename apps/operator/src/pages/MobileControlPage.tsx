@@ -253,7 +253,7 @@ export default function MobileControlPage() {
   useEffect(() => {
     if (!matchId) return;
 
-    const channel = supabase.channel(`mobile-clock:${matchId}`);
+    const channel = supabase.channel(`match:${matchId}`);
     channel
       .on("broadcast", { event: "*" }, (message: any) => {
         const patch = message?.payload?.patch || message?.payload || message;
