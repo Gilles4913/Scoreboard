@@ -1,0 +1,470 @@
+Il faut arrêter les correctifs partiels et passer à une architecture unique :
+
+une séquence dominante unique par match
+
+un contrat live global total
+
+une seule porte d’entrée pour toute mutation live
+
+La cible doit être :
+
+Toute mutation live du match passe par une helper centrale unique.
+Cette helper génère la séquence dominante, diffuse le patch live, persiste l’état DB, persiste last_event_seq, journalise l’événement si nécessaire, et persiste l’ancre si la mutation concerne le chrono.
+
+Architecture cible
+1) Séquence dominante unique
+
+Il ne doit plus y avoir de concurrence conceptuelle entre :
+
+liveSeqRef
+
+eventSeqRef
+
+matches.last_event_seq
+
+La règle devient :
+
+matchSeqRef = seule séquence dominante côté client
+
+matches.last_event_seq = reflet persistant de cette séquence dominante
+
+match_events.seq = même séquence quand un événement est journalisé
+
+Donc :
+
+plus de double logique eventSeqRef vs liveSeqRef
+
+une seule vérité de séquence
+
+2) Contrat live global total
+
+Chaque mutation live doit passer par le même pipeline :
+
+seq = nextMatchSeq()
+
+construire le livePatch
+
+diffuser immédiatement le livePatch
+
+persister le dbPatch
+
+forcer dbPatch.last_event_seq = seq
+
+si mutation chrono :
+
+persister clock_anchor_epoch_ms
+
+persister clock_anchor_clock_ms
+
+si événement :
+
+écrire match_events.seq = seq
+
+si overlay :
+
+l’embarquer dans le patch live
+
+toutes les surfaces réceptrices filtrent :
+
+rejeter seq < lastAppliedSeq
+
+Ce qu’il faut refactorer complètement
+A. ControlPage.tsx
+
+Toutes les actions live doivent sortir du mode “fait maison” et appeler une helper unique.
+
+Cela inclut :
+
+score
+
+chrono
+
+changement période
+
+fautes
+
+temps morts
+
+bonus
+
+possession
+
+shot clock
+
+cartons
+
+sets
+
+sanctions
+
+rugby scoring
+
+handball actions
+
+football actions
+
+remplacements
+
+overlays
+
+B. MobileControlPage.tsx
+
+Même logique :
+
+la QR Console doit utiliser la même helper conceptuelle
+
+ou une variante allégée, mais strictement compatible
+
+C. Display
+
+Le Display ne doit connaître qu’une seule règle :
+
+appliquer uniquement les patches avec séquence >= lastAppliedSeq
+
+reconstruire le chrono depuis ancre persistée
+
+D. match_events
+
+Les événements journalisés doivent être alignés sur la séquence dominante.
+
+Refactor recommandé
+1) Créer une helper centrale
+
+Je te recommande un module du genre :
+
+apps/operator/src/live/liveMutation.ts
+
+avec une API du style :
+
+type LiveMutationInput = {
+  matchId: string;
+  seqRef: React.MutableRefObject<number>;
+  clockAnchorRef: React.MutableRefObject<{ epoch: number; ms: number }>;
+  broadcast: (payload: Record<string, any>) => Promise<void> | void;
+  persistMatch: (patch: Record<string, any>) => Promise<void>;
+  appendEvent?: (event: {
+    seq: number;
+    type: string;
+    teamSide?: "home" | "away";
+    payload?: Record<string, any>;
+  }) => Promise<void>;
+};
+
+type EmitLiveMutationArgs = {
+  patch?: Record<string, any>;
+  dbPatch?: Record<string, any>;
+  event?: {
+    type: string;
+    teamSide?: "home" | "away";
+    payload?: Record<string, any>;
+  };
+  overlay?: Record<string, any>;
+  clock?: {
+    anchorEpochMs: number;
+    anchorClockMs: number;
+  };
+};
+
+async function emitLiveMutation(input: LiveMutationInput, args: EmitLiveMutationArgs) {
+  // 1. next seq
+  // 2. build live patch
+  // 3. broadcast
+  // 4. persist db patch with last_event_seq
+  // 5. persist event with same seq
+}
+2) Supprimer le double système de séquence
+
+Dans ControlPage.tsx :
+
+supprimer la coexistence eventSeqRef / liveSeqRef
+
+remplacer par un seul :
+
+matchSeqRef
+
+Exemple :
+
+const matchSeqRef = useRef<number>(0);
+
+function nextMatchSeq() {
+  matchSeqRef.current += 1;
+  return matchSeqRef.current;
+}
+
+Puis :
+
+lastAppliedSeqRef reste pour la réception
+
+matchSeqRef sert pour l’émission
+
+3) Initialiser la séquence dominante depuis la DB
+
+Au chargement initial du match :
+
+matchSeqRef.current = match.last_event_seq || 0
+
+lastAppliedSeqRef.current = match.last_event_seq || 0
+
+Même logique sur :
+
+console principale
+
+QR Console
+
+Display
+
+4) Aligner match_events
+
+Il faut que appendEvent(...) accepte explicitement un seq.
+
+Exemple :
+
+appendEvent({
+  seq,
+  type: "football_substitution",
+  teamSide: "home",
+  payload: {...}
+})
+
+Et que la ligne match_events garde cette même séquence.
+
+Si la table match_events n’a pas de colonne seq, il faut l’ajouter.
+
+Migration SQL à faire pour finir proprement
+A. Ajouter seq à match_events
+begin;
+
+alter table public.match_events
+  add column if not exists seq bigint null;
+
+create index if not exists idx_match_events_match_id_seq
+  on public.match_events(match_id, seq);
+
+commit;
+
+Ensuite, à l’insertion d’événement :
+
+seq = live_seq dominant
+
+B. Optionnel mais recommandé : renforcer match_substitutions
+
+Si tu veux une cohérence totale :
+
+begin;
+
+alter table public.match_substitutions
+  add column if not exists seq bigint null;
+
+create index if not exists idx_match_substitutions_match_id_seq
+  on public.match_substitutions(match_id, seq);
+
+commit;
+
+Comme ça :
+
+substitution structurée
+
+événement journalisé
+
+overlay
+
+tout partage la même séquence
+
+Règles obligatoires après refactor
+Mutation live standard
+
+Pour toute mutation non-chrono :
+
+générer seq
+
+broadcast patch avec live_seq = seq
+
+persist DB patch avec last_event_seq = seq
+
+Mutation chrono
+
+En plus :
+
+persister clock_anchor_epoch_ms
+
+persister clock_anchor_clock_ms
+
+Mutation avec événement
+
+En plus :
+
+écrire match_events.seq = seq
+
+Mutation avec overlay
+
+En plus :
+
+embarquer overlay dans le patch live avec le même live_seq
+
+Ce qu’il faut absolument refactorer en premier
+Dans ControlPage.tsx
+
+Convertir ces familles de fonctions vers la helper centrale :
+
+startClock
+
+pauseClock
+
+resetClock
+
+adjustClock
+
+changeScore
+
+setBasketPeriod
+
+changeTeamFouls
+
+changeShotClock
+
+toggleBonus
+
+togglePossessionArrow
+
+changeSetsWon
+
+issueCard
+
+applyRugbyScoring
+
+handleSubstitution
+
+Dans MobileControlPage.tsx
+
+Convertir :
+
+startClock
+
+pauseClock
+
+resetClock
+
+changeScore
+
+setPeriod
+
+issueCard
+
+remplacements si supportés
+
+Prompt Replit complet pour le faire totalement
+Je ne veux plus de correctifs partiels. Je veux finaliser complètement l’architecture de synchronisation live de scoreDisplay V2.
+
+Objectif :
+mettre en place une SÉQUENCE DOMINANTE UNIQUE et un CONTRAT LIVE GLOBAL TOTAL.
+
+Règle absolue :
+- toute mutation live du match doit passer par une helper centrale unique
+- cette helper génère la séquence dominante
+- cette même séquence doit être utilisée pour :
+  - le broadcast live
+  - matches.last_event_seq
+  - match_events.seq
+  - match_substitutions.seq si pertinent
+- le chrono, en plus, doit persister une ancre :
+  - clock_anchor_epoch_ms
+  - clock_anchor_clock_ms
+
+Je veux supprimer toute architecture partiellement dupliquée entre :
+- liveSeqRef
+- eventSeqRef
+- last_event_seq
+
+Cible :
+- une seule séquence dominante côté émission
+- une seule règle côté réception
+- toutes les surfaces alignées :
+  - ControlPage
+  - MobileControlPage
+  - Display
+
+TRAVAIL DEMANDÉ
+
+1. Créer une helper centrale de mutation live
+Exemple possible :
+- apps/operator/src/live/liveMutation.ts
+
+Cette helper doit :
+- générer seq
+- construire le patch live
+- diffuser le patch live
+- persister le dbPatch avec last_event_seq = seq
+- persister les ancres chrono si mutation chrono
+- écrire match_events avec seq si un event est fourni
+- permettre overlay si nécessaire
+- retourner seq au besoin
+
+2. Refactor ControlPage.tsx
+Toutes les mutations live doivent passer par cette helper :
+- chrono
+- score
+- période
+- fautes
+- temps morts
+- bonus
+- shot clock
+- possession
+- sets
+- cartons
+- sanctions
+- rugby scoring
+- remplacements
+- overlays
+
+3. Refactor MobileControlPage.tsx
+Même contrat live.
+Même logique de séquence dominante.
+Même discipline de persistance.
+Même discipline de réception.
+
+4. Refactor Display
+Vérifier que :
+- last_event_seq est chargé au démarrage
+- tout patch plus vieux est rejeté
+- chrono reconstruit depuis ancre persistée
+- même logique pour tout le live
+
+5. Unification des séquences
+Je veux que tu supprimes la coexistence conceptuelle entre eventSeqRef et liveSeqRef.
+Je veux une seule séquence dominante de match.
+Si nécessaire :
+- renommer en matchSeqRef
+- initialiser depuis matches.last_event_seq
+
+6. Migration SQL
+Ajouter si nécessaire :
+- match_events.seq bigint
+- match_substitutions.seq bigint
+
+Je veux le SQL complet.
+
+7. Sortie attendue
+Je veux :
+- liste des fichiers modifiés
+- tous les fichiers complets modifiés
+- helper complète
+- migration SQL complète
+- explication courte de la nouvelle architecture
+- checklist de validation manuelle
+
+Contraintes :
+- ne pas casser l’existant
+- ne pas réintroduire token / display_token / public_display
+- garder le mode public stable par équipe via teamSlug
+- rester compatible Supabase
+- corriger réellement, pas seulement commenter
+
+Checklist à produire à la fin :
+- score synchro
+- chrono synchro
+- période synchro
+- fautes / temps morts / bonus synchro
+- cartons / sanctions synchro
+- remplacements / overlays synchro
+- reprise à froid correcte sur nouveau Display
+- reprise à froid correcte sur nouvelle QR Console

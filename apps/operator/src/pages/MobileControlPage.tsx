@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../supabase";
 import { sendTvBroadcast } from "../realtime";
+import type { LiveMutationCtx } from "../live/liveMutation";
 import { usePlayerPicker, PlayerPickerDialog, PlayerOption } from "../components/PlayerPickerDialog";
 
 /* ─── helpers ──────────────────────────────────────────────────────────────── */
@@ -104,7 +105,7 @@ export default function MobileControlPage() {
   const clockMsRef = useRef(0);
   const clockRunningRef = useRef(false);
   const clockAnchorRef = useRef<{ epoch: number; ms: number }>({ epoch: Date.now(), ms: 0 });
-  const liveSeqRef = useRef(0);
+  const matchSeqRef = useRef(0);
   const lastAppliedSeqRef = useRef(0);
   const lastPatchAtRef = useRef<number>(0);
   const debugClock = isDebugClockEnabled();
@@ -125,7 +126,7 @@ export default function MobileControlPage() {
       // Initialise les planchers de séquence depuis la DB
       const initialSeq = Number(m.last_event_seq || 0);
       lastAppliedSeqRef.current = initialSeq;
-      if (initialSeq > liveSeqRef.current) liveSeqRef.current = initialSeq;
+      if (initialSeq > matchSeqRef.current) matchSeqRef.current = initialSeq;
 
       const sportVal = normalizeSport(m.home_name ? (m.sport || null) : null);
       const [{ data: orgRow }, { data: ssRow }, { data: mpData }] = await Promise.all([
@@ -270,7 +271,7 @@ export default function MobileControlPage() {
     if (seq) {
       lastAppliedSeqRef.current = seq;
     lastPatchAtRef.current = Date.now();
-      if (seq > liveSeqRef.current) liveSeqRef.current = seq;
+      if (seq > matchSeqRef.current) matchSeqRef.current = seq;
     }
 
     if (typeof patch.status === "string")       setStatus(patch.status);
@@ -314,11 +315,11 @@ export default function MobileControlPage() {
   }, [matchId]);
 
   /* ── helpers ─────────────────────────────────────────────────────────────── */
-  function nextSeq() { liveSeqRef.current += 1; return liveSeqRef.current; }
+  function nextMatchSeq() { matchSeqRef.current += 1; return matchSeqRef.current; }
 
   const push = useCallback(async (patch: Record<string, any>) => {
     if (!matchId) return;
-    const seq = nextSeq();
+    const seq = nextMatchSeq();
     const payload = {
       ...patch,
       match_id: matchId,
@@ -336,7 +337,7 @@ export default function MobileControlPage() {
     // Auto-inclure last_event_seq si non fourni (contrat live global)
     const dbPatch = "last_event_seq" in patch
       ? patch
-      : { ...patch, last_event_seq: liveSeqRef.current };
+      : { ...patch, last_event_seq: matchSeqRef.current };
     await supabase.from("matches").update(dbPatch).eq("id", matchId);
   }, [matchId]);
 
@@ -683,7 +684,7 @@ export default function MobileControlPage() {
           <div>clock_ms: {Math.round(Number(clockMs || 0))}</div>
           <div>anchor_ms: {Math.round(Number(clockAnchorRef.current?.ms || 0))}</div>
           <div>anchor_epoch: {Math.round(Number(clockAnchorRef.current?.epoch || 0))}</div>
-          <div>local_seq: {liveSeqRef.current}</div>
+          <div>local_seq: {matchSeqRef.current}</div>
           <div>last_applied_seq: {lastAppliedSeqRef.current}</div>
           <div>last_patch_at: {lastPatchAtRef.current || 0}</div>
           <div>now: {Date.now()}</div>

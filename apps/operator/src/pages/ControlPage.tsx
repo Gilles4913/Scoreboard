@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { useNavigate, useParams } from "react-router-dom";
 import { sendTvBroadcast } from "../realtime";
+import { emitLiveMutation } from "../live/liveMutation";
+import type { LiveMutationCtx } from "../live/liveMutation";
 import { supabase } from "../supabase";
 import { useToast, ToastContainer } from "../components/Toast";
 import { useConfirm, ConfirmDialog } from "../components/ConfirmDialog";
@@ -495,11 +497,11 @@ export default function ControlPage() {
   const [footballAddedEx2, setFootballAddedEx2] = useState(0);
 
   const timerRef = useRef<number | null>(null);
-  const liveSeqRef = useRef<number>(0);
+  const matchSeqRef = useRef<number>(0);  // séquence dominante unique du match
   const lastAppliedSeqRef = useRef<number>(0);
   const lastPatchAtRef = useRef<number>(0);
   const debugClock = isDebugClockEnabled();
-  const eventSeqRef = useRef<number>(0);
+
   const clockMsRef = useRef<number>(0);
   const clockRunningRef = useRef<boolean>(false);
   const clockAnchorRef = useRef<{ epoch: number; ms: number }>({ epoch: Date.now(), ms: 0 });
@@ -546,7 +548,7 @@ export default function ControlPage() {
       // Initialise les planchers de séquence depuis la DB
       const initialSeq = Number(currentMatch.last_event_seq || 0);
       lastAppliedSeqRef.current = initialSeq;
-      if (initialSeq > liveSeqRef.current) liveSeqRef.current = initialSeq;
+      if (initialSeq > matchSeqRef.current) matchSeqRef.current = initialSeq;
 
       const [
         { data: orgRow },
@@ -605,7 +607,7 @@ export default function ControlPage() {
       setEvents(loadedEvents);
       setRugbySuspensions((rugbyRows as SuspensionRow[]) || []);
       setHandballSuspensions((handballRows as SuspensionRow[]) || []);
-      eventSeqRef.current = loadedEvents.length > 0 ? Math.max(...loadedEvents.map((e) => e.seq || 0)) : Number(currentMatch.last_event_seq || 0);
+      // Séquence dominante: max(last_event_seq, max event seq chargés)
 
       const sportValue = normalizeSport((orgRow as OrgRow | null)?.sport);
       const ss = (ssRow as SportSettings | null) || null;
@@ -882,9 +884,29 @@ export default function ControlPage() {
     return `${window.location.origin}/matches/${matchId}/mobile`;
   }
 
-  function nextLiveSeq(): number {
-    liveSeqRef.current += 1;
-    return liveSeqRef.current;
+  function nextMatchSeq(): number {
+    matchSeqRef.current += 1;
+    return matchSeqRef.current;
+  }
+
+  /** Contexte partagé pour emitLiveMutation — construit à la demande (closure fraîche) */
+  function getLiveMutCtx() {
+    return {
+      matchId: match!.id,
+      matchSeqRef,
+      lastAppliedSeqRef,
+      clockAnchorRef,
+      broadcast: sendTvBroadcast,
+      persistMatch: persistLiveState,
+      appendEventRow: async (params: { seq: number; event_type: string; team_side?: "home" | "away" | null; player_id?: string | null; payload?: Record<string, any> }) => {
+        await appendEvent({
+          event_type: params.event_type,
+          team_side: params.team_side,
+          player_id: params.player_id,
+          payload: params.payload,
+        });
+      },
+    };
   }
 
   function applyIncomingLivePatch(patch: Record<string, any>) {
@@ -895,7 +917,7 @@ export default function ControlPage() {
     if (seq) {
       lastAppliedSeqRef.current = seq;
     lastPatchAtRef.current = Date.now();
-      if (seq > liveSeqRef.current) liveSeqRef.current = seq;
+      if (seq > matchSeqRef.current) matchSeqRef.current = seq;
     }
 
     if (typeof patch.status === "string")             setStatus(patch.status);
@@ -930,7 +952,7 @@ export default function ControlPage() {
     const dbPatch: Partial<MatchRow> = { ...patch };
     // Auto-inclure last_event_seq si non déjà fourni (contrat live global)
     if (!("last_event_seq" in dbPatch)) {
-      dbPatch.last_event_seq = liveSeqRef.current;
+      dbPatch.last_event_seq = matchSeqRef.current;
     }
 
     const { error } = await supabase
@@ -954,8 +976,8 @@ export default function ControlPage() {
   }) {
     if (!match) return;
 
-    eventSeqRef.current += 1;
-    const nextSeq = eventSeqRef.current;
+    // Utiliser la séquence dominante du match (matchSeqRef) — contrat live global
+    const nextSeq = matchSeqRef.current;
 
     const { data, error } = await supabase
       .from("match_events")
@@ -989,9 +1011,12 @@ export default function ControlPage() {
     if (!match) return;
     const eventType = sport === "rugby" ? "rugby_substitution" : "football_substitution";
 
+    const substSeq = nextMatchSeq();
+    lastAppliedSeqRef.current = substSeq;
     await supabase.from("match_substitutions").insert({
       org_id: match.org_id,
       match_id: match.id,
+      seq: substSeq,
       sport,
       team_side: sub.teamSide,
       team_id: sub.teamId,
@@ -1045,7 +1070,6 @@ export default function ControlPage() {
     });
 
     const nowMs = Date.now();
-    const substSeq = nextLiveSeq();
     void sendTvBroadcast(match.id, {
       live_seq: substSeq,
       emitted_at: nowMs,
@@ -1070,7 +1094,7 @@ export default function ControlPage() {
   async function pushPatch(extra: Record<string, any>) {
     if (!match) return;
 
-    const seq = nextLiveSeq();
+    const seq = nextMatchSeq();
     const payload = {
       match_id: match.id,
       match_name: matchName,
@@ -1305,7 +1329,6 @@ export default function ControlPage() {
     const nextClockMs =
       clockMsRef.current > 0 ? clockMsRef.current : defaultClockMsBySport(sport, sportSettings?.period_duration_s);
     const now = Date.now();
-    const seq = nextLiveSeq();
 
     clockMsRef.current = nextClockMs;
     clockRunningRef.current = true;
@@ -1314,54 +1337,38 @@ export default function ControlPage() {
     setClockRunning(true);
     setStatus("live");
 
-    lastAppliedSeqRef.current = seq;
-
     try {
-      await sendTvBroadcast(match!.id, {
-        match_id: match!.id,
-        clock_ms: nextClockMs,
-        clock_running: true,
-        status: "live",
-        live_seq: seq,
-        clock_anchor_epoch: now,
-        clock_anchor_ms: nextClockMs,
-        emitted_at: now,
+      await emitLiveMutation(getLiveMutCtx(), {
+        livePatch: { match_id: match!.id, clock_ms: nextClockMs, clock_running: true, status: "live" },
+        dbPatch:   { clock_ms: nextClockMs, clock_running: true, status: "live" },
+        clock: { anchorEpochMs: now, anchorClockMs: nextClockMs },
       });
-      void persistLiveState({ clock_ms: nextClockMs, clock_running: true, status: "live", last_event_seq: seq, clock_anchor_epoch_ms: now, clock_anchor_clock_ms: nextClockMs });
+      // emitLiveMutation gère : seq dominant, broadcast, persist DB (avec last_event_seq + ancre chrono)
     } catch {}
   }
 
   async function pauseClock() {
     const capturedClockMs = clockMsRef.current;
     const now = Date.now();
-    const seq = nextLiveSeq();
 
     clockRunningRef.current = false;
     clockAnchorRef.current = { epoch: now, ms: capturedClockMs };
     setClockRunning(false);
     setStatus("paused");
 
-    lastAppliedSeqRef.current = seq;
-
     try {
-      await sendTvBroadcast(match!.id, {
-        match_id: match!.id,
-        clock_running: false,
-        clock_ms: capturedClockMs,
-        status: "paused",
-        live_seq: seq,
-        clock_anchor_epoch: now,
-        clock_anchor_ms: capturedClockMs,
-        emitted_at: now,
+      await emitLiveMutation(getLiveMutCtx(), {
+        livePatch: { match_id: match!.id, clock_running: false, clock_ms: capturedClockMs, status: "paused" },
+        dbPatch:   { clock_running: false, clock_ms: capturedClockMs, status: "paused" },
+        clock: { anchorEpochMs: now, anchorClockMs: capturedClockMs },
       });
-      void persistLiveState({ clock_running: false, clock_ms: capturedClockMs, status: "paused", last_event_seq: seq, clock_anchor_epoch_ms: now, clock_anchor_clock_ms: capturedClockMs });
+      // emitLiveMutation gère : seq dominant, broadcast, persist DB (avec last_event_seq + ancre chrono)
     } catch {}
   }
 
   async function resetClock() {
     const next = defaultClockMsBySport(sport, sportSettings?.period_duration_s);
     const now = Date.now();
-    const seq = nextLiveSeq();
 
     clockMsRef.current = next;
     clockRunningRef.current = false;
@@ -1369,19 +1376,13 @@ export default function ControlPage() {
     setClockMs(next);
     setClockRunning(false);
 
-    lastAppliedSeqRef.current = seq;
-
     try {
-      await sendTvBroadcast(match!.id, {
-        match_id: match!.id,
-        clock_ms: next,
-        clock_running: false,
-        live_seq: seq,
-        clock_anchor_epoch: now,
-        clock_anchor_ms: next,
-        emitted_at: now,
+      await emitLiveMutation(getLiveMutCtx(), {
+        livePatch: { match_id: match!.id, clock_ms: next, clock_running: false },
+        dbPatch:   { clock_ms: next, clock_running: false },
+        clock: { anchorEpochMs: now, anchorClockMs: next },
       });
-      void persistLiveState({ clock_ms: next, clock_running: false, last_event_seq: seq, clock_anchor_epoch_ms: now, clock_anchor_clock_ms: next });
+      // emitLiveMutation gère : seq dominant, broadcast, persist DB (avec last_event_seq + ancre chrono)
     } catch {}
   }
 
@@ -1510,7 +1511,7 @@ export default function ControlPage() {
     setEvents([]);
     setRugbySuspensions([]);
     setHandballSuspensions([]);
-    eventSeqRef.current = 0;
+
     const resetPlayers = (rows: PlayerStatRow[]) =>
       rows.map((p) => ({ ...p, fouls: 0, points: 0, yellow_cards: 0, red_cards: 0 }));
     setHomePlayers((prev) => resetPlayers(prev));
@@ -3181,7 +3182,7 @@ export default function ControlPage() {
           <div>clock_ms: {Math.round(Number(clockMs || 0))}</div>
           <div>anchor_ms: {Math.round(Number(clockAnchorRef.current?.ms || 0))}</div>
           <div>anchor_epoch: {Math.round(Number(clockAnchorRef.current?.epoch || 0))}</div>
-          <div>local_seq: {liveSeqRef.current}</div>
+          <div>local_seq: {matchSeqRef.current}</div>
           <div>last_applied_seq: {lastAppliedSeqRef.current}</div>
           <div>last_patch_at: {lastPatchAtRef.current || 0}</div>
           <div>now: {Date.now()}</div>
