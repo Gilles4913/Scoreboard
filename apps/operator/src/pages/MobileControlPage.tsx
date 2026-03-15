@@ -248,7 +248,14 @@ export default function MobileControlPage() {
   const push = useCallback(async (patch: Record<string, any>) => {
     if (!matchId) return;
     const seq = nextSeq();
-    void sendTvBroadcast(matchId, { ...patch, match_id: matchId, live_seq: seq, emitted_at: Date.now() });
+    void sendTvBroadcast(matchId, {
+      ...patch,
+      match_id: matchId,
+      live_seq: seq,
+      clock_anchor_epoch: clockAnchorRef.current.epoch,
+      clock_anchor_ms: clockAnchorRef.current.ms,
+      emitted_at: Date.now(),
+    });
   }, [matchId]);
 
   const persist = useCallback(async (patch: Record<string, any>) => {
@@ -259,22 +266,23 @@ export default function MobileControlPage() {
   /* ── clock controls ──────────────────────────────────────────────────────── */
   async function startClock() {
     const ms = clockMsRef.current > 0 ? clockMsRef.current : defaultClockMs(sport, periodDurationS);
-    const epoch = Date.now();
+    const now = Date.now();
+
     clockMsRef.current = ms;
     clockRunningRef.current = true;
-    clockAnchorRef.current = { epoch, ms };
+    clockAnchorRef.current = { epoch: now, ms };
+
     setClockMs(ms);
     setClockRunning(true);
     setStatus("live");
+
     try {
-      // Émettre les ancres temps pour que le Display puisse interpoler exactement
       void push({
         clock_ms: ms,
         clock_running: true,
         status: "live",
-        clock_anchor_epoch: epoch,
+        clock_anchor_epoch: now,
         clock_anchor_ms: ms,
-        emitted_at: epoch,
       });
       void persist({ clock_ms: ms, clock_running: true, status: "live" });
     } catch {}
@@ -283,15 +291,21 @@ export default function MobileControlPage() {
   async function pauseClock() {
     const ms = clockMsRef.current;
     const now = Date.now();
+
     clockRunningRef.current = false;
+    clockAnchorRef.current = { epoch: now, ms };
+
+    setClockMs(ms);
     setClockRunning(false);
     setStatus("paused");
+
     try {
       void push({
         clock_running: false,
         status: "paused",
         clock_ms: ms,
-        emitted_at: now,
+        clock_anchor_epoch: now,
+        clock_anchor_ms: ms,
       });
       void persist({ clock_running: false, status: "paused", clock_ms: ms });
     } catch {}

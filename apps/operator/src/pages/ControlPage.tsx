@@ -1172,8 +1172,8 @@ export default function ControlPage() {
       if (org?.id && org?.sport) {
         void supabase.from("orgs").update({ sport: org.sport }).eq("id", org.id);
       }
-      await persistP;
       await pushP;
+      void persistP;
       toast("Match sauvegardé.", "success");
     } catch {}
   }
