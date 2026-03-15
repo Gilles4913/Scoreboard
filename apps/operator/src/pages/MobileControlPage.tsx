@@ -51,6 +51,19 @@ function isDebugClockEnabled() {
   }
 }
 
+function computeClockFromAnchor(
+  clockMs: number | null | undefined,
+  running: boolean | null | undefined,
+  anchorEpoch: number | null | undefined,
+  anchorClockMs: number | null | undefined,
+) {
+  const baseClock = Number(clockMs || 0);
+  if (!running) return baseClock;
+  if (typeof anchorEpoch !== "number" || typeof anchorClockMs !== "number") return baseClock;
+  const elapsed = Date.now() - anchorEpoch;
+  return Math.max(0, anchorClockMs - elapsed);
+}
+
 export default function MobileControlPage() {
   const { matchId = "" } = useParams();
   const nav = useNavigate();

@@ -1,0 +1,459 @@
+On boucle le chrono proprement.
+
+Je te donne l’implémentation complète en 5 blocs :
+
+migration SQL
+
+ControlPage.tsx
+
+MobileControlPage.tsx
+
+get-display-context/index.ts
+
+apps/display/src/main.tsx
+
+1) Migration SQL
+
+Exécute ceci dans Supabase :
+
+begin;
+
+alter table public.matches
+  add column if not exists clock_anchor_epoch_ms bigint null,
+  add column if not exists clock_anchor_clock_ms integer null;
+
+create index if not exists idx_matches_clock_anchor_epoch_ms
+  on public.matches(clock_anchor_epoch_ms);
+
+commit;
+2) apps/operator/src/pages/ControlPage.tsx
+A. Persister l’ancre dans saveMatch()
+
+Dans le payload de saveMatch(), ajoute :
+
+clock_anchor_epoch_ms: clockAnchorRef.current?.epoch ?? null,
+clock_anchor_clock_ms: clockAnchorRef.current?.ms ?? null,
+
+Donc dans saveMatch(), dans const payload: Partial<MatchRow> = { ... }, ajoute ces 2 lignes près de clock_ms / clock_running.
+
+B. Remplace entièrement startClock() par ceci
+async function startClock() {
+  const nextClockMs =
+    clockMs > 0 ? clockMs : defaultClockMsBySport(sport, sportSettings?.period_duration_s);
+
+  const now = Date.now();
+  const seq = nextLiveSeq();
+
+  clockAnchorRef.current = { epoch: now, ms: nextClockMs };
+  setClockMs(nextClockMs);
+  setClockRunning(true);
+  setStatus("live");
+
+  lastAppliedSeqRef.current = seq;
+
+  try {
+    await sendTvBroadcast(match!.id, {
+      match_id: match!.id,
+      clock_ms: nextClockMs,
+      clock_running: true,
+      status: "live",
+      live_seq: seq,
+      clock_anchor_epoch: now,
+      clock_anchor_ms: nextClockMs,
+      emitted_at: now,
+    });
+
+    void persistLiveState({
+      clock_ms: nextClockMs,
+      clock_running: true,
+      status: "live",
+      clock_anchor_epoch_ms: now,
+      clock_anchor_clock_ms: nextClockMs,
+      last_event_seq: seq,
+    });
+  } catch {}
+}
+C. Remplace entièrement pauseClock() par ceci
+async function pauseClock() {
+  const nextClockMs = clockMs;
+  const now = Date.now();
+  const seq = nextLiveSeq();
+
+  clockAnchorRef.current = { epoch: now, ms: nextClockMs };
+  setClockRunning(false);
+  setStatus("paused");
+
+  lastAppliedSeqRef.current = seq;
+
+  try {
+    await sendTvBroadcast(match!.id, {
+      match_id: match!.id,
+      clock_running: false,
+      clock_ms: nextClockMs,
+      status: "paused",
+      live_seq: seq,
+      clock_anchor_epoch: now,
+      clock_anchor_ms: nextClockMs,
+      emitted_at: now,
+    });
+
+    void persistLiveState({
+      clock_running: false,
+      clock_ms: nextClockMs,
+      status: "paused",
+      clock_anchor_epoch_ms: now,
+      clock_anchor_clock_ms: nextClockMs,
+      last_event_seq: seq,
+    });
+  } catch {}
+}
+D. Remplace entièrement resetClock() par ceci
+async function resetClock() {
+  const next = defaultClockMsBySport(sport, sportSettings?.period_duration_s);
+  const now = Date.now();
+  const seq = nextLiveSeq();
+
+  clockAnchorRef.current = { epoch: now, ms: next };
+  setClockMs(next);
+  setClockRunning(false);
+
+  lastAppliedSeqRef.current = seq;
+
+  try {
+    await sendTvBroadcast(match!.id, {
+      match_id: match!.id,
+      clock_ms: next,
+      clock_running: false,
+      live_seq: seq,
+      clock_anchor_epoch: now,
+      clock_anchor_ms: next,
+      emitted_at: now,
+    });
+
+    void persistLiveState({
+      clock_ms: next,
+      clock_running: false,
+      clock_anchor_epoch_ms: now,
+      clock_anchor_clock_ms: next,
+      last_event_seq: seq,
+    });
+  } catch {}
+}
+E. Mets à jour le type MatchRow
+
+Ajoute ces champs dans le type :
+
+clock_anchor_epoch_ms?: number | null;
+clock_anchor_clock_ms?: number | null;
+3) apps/operator/src/pages/MobileControlPage.tsx
+A. Mets à jour le type MatchRow
+
+Ajoute :
+
+clock_anchor_epoch_ms?: number | null;
+clock_anchor_clock_ms?: number | null;
+B. Ajoute ce helper dans le composant
+function computeClockFromAnchor(
+  clockMs: number | null | undefined,
+  running: boolean | null | undefined,
+  anchorEpoch: number | null | undefined,
+  anchorClockMs: number | null | undefined,
+) {
+  const baseClock = Number(clockMs || 0);
+
+  if (!running) return baseClock;
+  if (typeof anchorEpoch !== "number" || typeof anchorClockMs !== "number") return baseClock;
+
+  const elapsed = Date.now() - anchorEpoch;
+  return Math.max(0, anchorClockMs - elapsed);
+}
+C. Dans le chargement initial du match mobile
+
+Après récupération de matchRow, remplace l’initialisation du chrono par :
+
+const initialClockMs = computeClockFromAnchor(
+  matchRow.clock_ms,
+  matchRow.clock_running,
+  matchRow.clock_anchor_epoch_ms,
+  matchRow.clock_anchor_clock_ms,
+);
+
+setClockMs(initialClockMs);
+clockMsRef.current = initialClockMs;
+
+setClockRunning(!!matchRow.clock_running);
+clockRunningRef.current = !!matchRow.clock_running;
+
+if (
+  typeof matchRow.clock_anchor_epoch_ms === "number" &&
+  typeof matchRow.clock_anchor_clock_ms === "number"
+) {
+  clockAnchorRef.current = {
+    epoch: matchRow.clock_anchor_epoch_ms,
+    ms: matchRow.clock_anchor_clock_ms,
+  };
+} else {
+  clockAnchorRef.current = {
+    epoch: Date.now(),
+    ms: initialClockMs,
+  };
+}
+D. Remplace entièrement startClock() par ceci
+async function startClock() {
+  const ms = clockMsRef.current > 0 ? clockMsRef.current : defaultClockMs(sport, periodDurationS);
+  const now = Date.now();
+
+  clockMsRef.current = ms;
+  clockRunningRef.current = true;
+  clockAnchorRef.current = { epoch: now, ms };
+
+  setClockMs(ms);
+  setClockRunning(true);
+  setStatus("live");
+
+  try {
+    void push({
+      clock_ms: ms,
+      clock_running: true,
+      status: "live",
+      clock_anchor_epoch: now,
+      clock_anchor_ms: ms,
+    });
+
+    void persist({
+      clock_ms: ms,
+      clock_running: true,
+      status: "live",
+      clock_anchor_epoch_ms: now,
+      clock_anchor_clock_ms: ms,
+    });
+  } catch {}
+}
+E. Remplace entièrement pauseClock() par ceci
+async function pauseClock() {
+  const ms = clockMsRef.current;
+  const now = Date.now();
+
+  clockRunningRef.current = false;
+  clockAnchorRef.current = { epoch: now, ms };
+
+  setClockMs(ms);
+  setClockRunning(false);
+  setStatus("paused");
+
+  try {
+    void push({
+      clock_ms: ms,
+      clock_running: false,
+      status: "paused",
+      clock_anchor_epoch: now,
+      clock_anchor_ms: ms,
+    });
+
+    void persist({
+      clock_ms: ms,
+      clock_running: false,
+      status: "paused",
+      clock_anchor_epoch_ms: now,
+      clock_anchor_clock_ms: ms,
+    });
+  } catch {}
+}
+F. Remplace entièrement resetClock() par ceci
+async function resetClock() {
+  const ms = defaultClockMs(sport, periodDurationS);
+  const now = Date.now();
+
+  clockMsRef.current = ms;
+  clockRunningRef.current = false;
+  clockAnchorRef.current = { epoch: now, ms };
+
+  setClockMs(ms);
+  setClockRunning(false);
+
+  try {
+    void push({
+      clock_ms: ms,
+      clock_running: false,
+      clock_anchor_epoch: now,
+      clock_anchor_ms: ms,
+    });
+
+    void persist({
+      clock_ms: ms,
+      clock_running: false,
+      clock_anchor_epoch_ms: now,
+      clock_anchor_clock_ms: ms,
+    });
+  } catch {}
+}
+4) supabase/functions/get-display-context/index.ts
+A. Dans MATCH_SELECT, ajoute ces 2 colonnes juste après clock_running
+clock_anchor_epoch_ms,
+clock_anchor_clock_ms,
+
+Donc la portion devient :
+
+  period_label,
+  clock_ms,
+  clock_running,
+  clock_anchor_epoch_ms,
+  clock_anchor_clock_ms,
+  home_team_fouls,
+B. Dans le payload match, ajoute :
+clock_anchor_epoch_ms: match.clock_anchor_epoch_ms ?? null,
+clock_anchor_clock_ms: match.clock_anchor_clock_ms ?? null,
+
+Donc dans :
+
+clock_ms: match.clock_ms ?? 0,
+clock_running: match.clock_running ?? false,
+period_label: match.period_label ?? "",
+
+ajoute juste après :
+
+clock_anchor_epoch_ms: match.clock_anchor_epoch_ms ?? null,
+clock_anchor_clock_ms: match.clock_anchor_clock_ms ?? null,
+5) apps/display/src/main.tsx
+A. Ajoute ce helper en haut du fichier
+function computeClockFromAnchor(
+  clockMs: number | null | undefined,
+  running: boolean | null | undefined,
+  anchorEpoch: number | null | undefined,
+  anchorClockMs: number | null | undefined,
+) {
+  const baseClock = Number(clockMs || 0);
+
+  if (!running) return baseClock;
+  if (typeof anchorEpoch !== "number" || typeof anchorClockMs !== "number") return baseClock;
+
+  const elapsed = Date.now() - anchorEpoch;
+  return Math.max(0, anchorClockMs - elapsed);
+}
+B. Dans buildContextFromResponse(json), ajoute les 2 champs dans le contexte retourné
+
+Juste après :
+
+clock_ms: match.clock_ms ?? 0,
+clock_running: match.clock_running ?? false,
+period_label: match.period_label ?? "",
+
+remplace par :
+
+clock_ms: computeClockFromAnchor(
+  match.clock_ms ?? 0,
+  match.clock_running ?? false,
+  match.clock_anchor_epoch_ms ?? null,
+  match.clock_anchor_clock_ms ?? null,
+),
+clock_running: match.clock_running ?? false,
+period_label: match.period_label ?? "",
+clock_anchor_epoch_ms: match.clock_anchor_epoch_ms ?? null,
+clock_anchor_clock_ms: match.clock_anchor_clock_ms ?? null,
+C. Dans buildPatchFromMatchRow(row), ajoute :
+clock_anchor_epoch_ms: row.clock_anchor_epoch_ms ?? undefined,
+clock_anchor_clock_ms: row.clock_anchor_clock_ms ?? undefined,
+
+Donc la portion devient :
+
+clock_ms: row.clock_ms ?? undefined,
+clock_running: row.clock_running ?? undefined,
+clock_anchor_epoch_ms: row.clock_anchor_epoch_ms ?? undefined,
+clock_anchor_clock_ms: row.clock_anchor_clock_ms ?? undefined,
+period_label: row.period_label ?? undefined,
+D. Dans mergeContextFromStableRefresh(prev, nextCtx), ne bloque plus les ancres
+
+Remplace la fonction par ceci :
+
+function mergeContextFromStableRefresh(prev: ScoreboardContext, nextCtx: ScoreboardContext): ScoreboardContext {
+  const sameMatch =
+    prev.match_id &&
+    nextCtx.match_id &&
+    String(prev.match_id) === String(nextCtx.match_id);
+
+  if (!sameMatch) return nextCtx;
+
+  const {
+    clock_ms: _clockMs,
+    clock_running: _clockRunning,
+    period_label: _periodLabel,
+    status: _status,
+    ...safeNext
+  } = nextCtx as any;
+
+  return mergeContext(prev, safeNext);
+}
+
+On garde les ancres car elles sont utiles pour les nouveaux clients et resyncs.
+
+E. Dans l’effet qui recale lastBaseClockRef / lastBaseTsRef
+
+Remplace entièrement :
+
+useEffect(() => {
+  if (!ctx) return;
+
+  const nextClockMs = typeof ctx.clock_ms === "number" ? ctx.clock_ms : 0;
+  const nextRunning = !!ctx.clock_running;
+  const nextMatchId = String(ctx.match_id ?? "");
+
+  const runningChanged = nextRunning !== lastRunningRef.current;
+  const matchChanged = nextMatchId !== lastMatchIdRef.current;
+  const clockChanged = nextClockMs !== lastBaseClockRef.current;
+
+  if (runningChanged || matchChanged || clockChanged) {
+    lastBaseClockRef.current = nextClockMs;
+    lastBaseTsRef.current = Date.now();
+    lastRunningRef.current = nextRunning;
+    lastMatchIdRef.current = nextMatchId;
+  }
+}, [ctx?.clock_ms, ctx?.clock_running, ctx?.match_id]);
+
+par :
+
+useEffect(() => {
+  if (!ctx) return;
+
+  const nextClockMs = typeof ctx.clock_ms === "number" ? ctx.clock_ms : 0;
+  const nextRunning = !!ctx.clock_running;
+  const nextMatchId = String(ctx.match_id ?? "");
+
+  const anchorEpoch = (ctx as any).clock_anchor_epoch_ms;
+  const anchorClockMs = (ctx as any).clock_anchor_clock_ms;
+
+  const runningChanged = nextRunning !== lastRunningRef.current;
+  const matchChanged = nextMatchId !== lastMatchIdRef.current;
+  const clockChanged = nextClockMs !== lastBaseClockRef.current;
+
+  if (typeof anchorEpoch === "number" && typeof anchorClockMs === "number") {
+    lastBaseClockRef.current = anchorClockMs;
+    lastBaseTsRef.current = anchorEpoch;
+    lastRunningRef.current = nextRunning;
+    lastMatchIdRef.current = nextMatchId;
+    return;
+  }
+
+  if (runningChanged || matchChanged || clockChanged) {
+    lastBaseClockRef.current = nextClockMs;
+    lastBaseTsRef.current = Date.now();
+    lastRunningRef.current = nextRunning;
+    lastMatchIdRef.current = nextMatchId;
+  }
+}, [
+  ctx?.clock_ms,
+  ctx?.clock_running,
+  ctx?.match_id,
+  (ctx as any)?.clock_anchor_epoch_ms,
+  (ctx as any)?.clock_anchor_clock_ms,
+]);
+Résultat attendu
+
+Après ça :
+
+un nouveau Display ouvert en cours de match se cale immédiatement
+
+une nouvelle QR Console ouverte en cours de match se cale immédiatement
+
+la base contient désormais une ancre exploitable
+
+plus besoin d’attendre un nouveau start ou pause pour se synchroniser

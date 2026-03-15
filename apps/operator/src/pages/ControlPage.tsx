@@ -52,6 +52,8 @@ type MatchRow = {
   timeouts_overtime_home: number | null;
   timeouts_overtime_away: number | null;
   last_event_seq: number | null;
+  clock_anchor_epoch_ms?: number | null;
+  clock_anchor_clock_ms?: number | null;
 
   rugby_home_tries: number | null;
   rugby_away_tries: number | null;
@@ -1188,6 +1190,8 @@ export default function ControlPage() {
       period_label: periodLabel,
       clock_ms: clockMs,
       clock_running: clockRunning,
+      clock_anchor_epoch_ms: clockAnchorRef.current?.epoch ?? null,
+      clock_anchor_clock_ms: clockAnchorRef.current?.ms ?? null,
       home_team_fouls: homeTeamFouls,
       away_team_fouls: awayTeamFouls,
       home_timeouts: homeTimeouts,

@@ -43,6 +43,19 @@ function mergeContext(prev: ScoreboardContext, patch: Partial<ScoreboardContext>
  *   - clock_ms / clock_running → source autoritaire = realtime uniquement
  *   - period_label / status → évite les sauts si le realtime est plus récent
  */
+function computeClockFromAnchor(
+  clockMs: number | null | undefined,
+  running: boolean | null | undefined,
+  anchorEpoch: number | null | undefined,
+  anchorClockMs: number | null | undefined,
+) {
+  const baseClock = Number(clockMs || 0);
+  if (!running) return baseClock;
+  if (typeof anchorEpoch !== "number" || typeof anchorClockMs !== "number") return baseClock;
+  const elapsed = Date.now() - anchorEpoch;
+  return Math.max(0, anchorClockMs - elapsed);
+}
+
 function mergeContextFromStableRefresh(prev: ScoreboardContext, nextCtx: ScoreboardContext): ScoreboardContext {
   const sameMatch =
     prev.match_id &&
@@ -115,7 +128,12 @@ function buildContextFromResponse(json: any): ScoreboardContext {
     away_name: match.away_name ?? match.away?.name ?? "Extérieur",
     home_score: match.home_score ?? 0,
     away_score: match.away_score ?? 0,
-    clock_ms: match.clock_ms ?? 0,
+    clock_ms: computeClockFromAnchor(
+      match.clock_ms ?? 0,
+      match.clock_running ?? false,
+      match.clock_anchor_epoch_ms ?? null,
+      match.clock_anchor_clock_ms ?? null,
+    ),
     clock_running: match.clock_running ?? false,
     period_label: match.period_label ?? "",
 
@@ -171,8 +189,8 @@ function buildContextFromResponse(json: any): ScoreboardContext {
     home: match.home || {},
     away: match.away || {},
 
-    clock_anchor_epoch: match.clock_anchor_epoch_ms ?? undefined,
-    clock_anchor_ms: match.clock_anchor_clock_ms ?? undefined,
+    clock_anchor_epoch_ms: match.clock_anchor_epoch_ms ?? null,
+    clock_anchor_clock_ms: match.clock_anchor_clock_ms ?? null,
   } as any;
 }
 
@@ -189,8 +207,8 @@ function buildPatchFromMatchRow(row: any): Partial<ScoreboardContext> {
     away_score: row.away_score ?? undefined,
     clock_ms: row.clock_ms ?? undefined,
     clock_running: row.clock_running ?? undefined,
-    clock_anchor_epoch: row.clock_anchor_epoch_ms ?? undefined,
-    clock_anchor_ms: row.clock_anchor_clock_ms ?? undefined,
+    clock_anchor_epoch_ms: row.clock_anchor_epoch_ms ?? undefined,
+    clock_anchor_clock_ms: row.clock_anchor_clock_ms ?? undefined,
     period_label: row.period_label ?? undefined,
 
     home_team_fouls: row.home_team_fouls ?? undefined,
@@ -290,33 +308,34 @@ function App() {
     const nextRunning = !!ctx.clock_running;
     const nextMatchId = String(ctx.match_id ?? "");
 
+    const anchorEpoch = (ctx as any).clock_anchor_epoch_ms;
+    const anchorClockMs = (ctx as any).clock_anchor_clock_ms;
+
     const runningChanged = nextRunning !== lastRunningRef.current;
     const matchChanged = nextMatchId !== lastMatchIdRef.current;
     const clockChanged = nextClockMs !== lastBaseClockRef.current;
 
-    if (runningChanged || matchChanged || clockChanged) {
-      const anchorEpoch = typeof (ctx as any).clock_anchor_epoch === "number"
-        ? (ctx as any).clock_anchor_epoch
-        : null;
-      const anchorMs = typeof (ctx as any).clock_anchor_ms === "number"
-        ? (ctx as any).clock_anchor_ms
-        : null;
+    if (typeof anchorEpoch === "number" && typeof anchorClockMs === "number") {
+      lastBaseClockRef.current = anchorClockMs;
+      lastBaseTsRef.current = anchorEpoch;
+      lastRunningRef.current = nextRunning;
+      lastMatchIdRef.current = nextMatchId;
+      return;
+    }
 
-      if (anchorEpoch !== null && anchorMs !== null) {
-        lastBaseClockRef.current = anchorMs;
-        lastBaseTsRef.current = anchorEpoch;
-      } else {
-        const receiveDelay =
-          typeof (ctx as any).emitted_at === "number"
-            ? Math.max(0, Date.now() - (ctx as any).emitted_at)
-            : 0;
-        lastBaseClockRef.current = Math.max(0, nextClockMs - receiveDelay);
-        lastBaseTsRef.current = Date.now();
-      }
+    if (runningChanged || matchChanged || clockChanged) {
+      lastBaseClockRef.current = nextClockMs;
+      lastBaseTsRef.current = Date.now();
       lastRunningRef.current = nextRunning;
       lastMatchIdRef.current = nextMatchId;
     }
-  }, [ctx?.clock_ms, ctx?.clock_running, ctx?.match_id]);
+  }, [
+    ctx?.clock_ms,
+    ctx?.clock_running,
+    ctx?.match_id,
+    (ctx as any)?.clock_anchor_epoch_ms,
+    (ctx as any)?.clock_anchor_clock_ms,
+  ]);
 
   const computedContext = useMemo(() => {
     if (!ctx) return null;
@@ -370,9 +389,19 @@ function App() {
     }
 
     const { overlay: _overlay, ...patchWithoutOverlay } = rawPatch;
+
+    // Normalize broadcast anchor names (clock_anchor_epoch/ms) → DB names (clock_anchor_epoch_ms/clock_ms)
+    const normalized: any = { ...patchWithoutOverlay };
+    if (typeof normalized.clock_anchor_epoch === "number" && normalized.clock_anchor_epoch_ms === undefined) {
+      normalized.clock_anchor_epoch_ms = normalized.clock_anchor_epoch;
+    }
+    if (typeof normalized.clock_anchor_ms === "number" && normalized.clock_anchor_clock_ms === undefined) {
+      normalized.clock_anchor_clock_ms = normalized.clock_anchor_ms;
+    }
+
     setCtx((prev) => {
       if (!prev) return prev;
-      return mergeContext(prev, patchWithoutOverlay);
+      return mergeContext(prev, normalized);
     });
   }
 

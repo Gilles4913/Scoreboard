@@ -58,6 +58,8 @@ const MATCH_SELECT = `
   period_label,
   clock_ms,
   clock_running,
+  clock_anchor_epoch_ms,
+  clock_anchor_clock_ms,
   home_team_fouls,
   away_team_fouls,
   home_timeouts,
