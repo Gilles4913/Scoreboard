@@ -1,0 +1,357 @@
+Pour aller au bout sur le chrono, il faut verrouiller les 3 maillons :
+
+Console principale = source fiable avec ancre temps
+
+QR Console = même contrat temps + filtre live_seq
+
+Display = applique seulement les patches les plus récents
+
+Tu as déjà corrigé le Display.
+La dernière grosse pièce est donc la QR Console.
+
+Objectif exact
+
+La QR Console doit :
+
+émettre live_seq
+
+émettre clock_anchor_epoch
+
+émettre clock_anchor_ms
+
+ignorer tout patch plus ancien
+
+recaler son chrono local quand un patch plus récent arrive
+
+ne jamais laisser un vieux postgres_changes ou un vieux broadcast réécrire l’état
+
+Fichier à corriger
+
+apps/operator/src/pages/MobileControlPage.tsx
+
+Je te donne les blocs exacts à appliquer.
+
+1) Ajouter les refs de séquence et d’ancre
+
+Ajoute ces refs avec les autres useRef(...) :
+
+const liveSeqRef = useRef(0);
+const lastAppliedSeqRef = useRef(0);
+
+function nextSeq() {
+  liveSeqRef.current += 1;
+  return liveSeqRef.current;
+}
+2) Ajouter un helper de recalage de l’horloge distante
+
+Ajoute cette fonction dans le composant :
+
+function applyRemoteClockPatch(patch: Record<string, any>) {
+  const hasAnchorEpoch = typeof patch.clock_anchor_epoch === "number";
+  const hasAnchorMs = typeof patch.clock_anchor_ms === "number";
+  const hasClockMs = typeof patch.clock_ms === "number";
+  const hasClockRunning = typeof patch.clock_running === "boolean";
+
+  if (hasAnchorEpoch && hasAnchorMs) {
+    clockAnchorRef.current = {
+      epoch: patch.clock_anchor_epoch,
+      ms: patch.clock_anchor_ms,
+    };
+
+    const nextRunning = hasClockRunning ? !!patch.clock_running : clockRunningRef.current;
+    clockRunningRef.current = nextRunning;
+    setClockRunning(nextRunning);
+
+    const nextClockMs = hasClockMs ? patch.clock_ms : patch.clock_anchor_ms;
+    clockMsRef.current = nextClockMs;
+    setClockMs(nextClockMs);
+    return;
+  }
+
+  if (hasClockMs) {
+    clockMsRef.current = patch.clock_ms;
+    setClockMs(patch.clock_ms);
+  }
+
+  if (hasClockRunning) {
+    clockRunningRef.current = !!patch.clock_running;
+    setClockRunning(!!patch.clock_running);
+  }
+}
+3) Ajouter un helper pour appliquer les patches avec filtre live_seq
+
+Ajoute ceci :
+
+function applyIncomingLivePatch(patch: Record<string, any>) {
+  if (!patch || typeof patch !== "object") return;
+
+  const seq = Number(patch.live_seq || 0);
+
+  if (seq && seq < lastAppliedSeqRef.current) {
+    return;
+  }
+
+  if (seq) {
+    lastAppliedSeqRef.current = seq;
+    if (seq > liveSeqRef.current) {
+      liveSeqRef.current = seq;
+    }
+  }
+
+  if (typeof patch.status === "string") {
+    setStatus(patch.status);
+  }
+
+  if (typeof patch.period_label === "string") {
+    setPeriodLabel(patch.period_label);
+  }
+
+  if (typeof patch.home_score === "number") {
+    setHomeScore(patch.home_score);
+  }
+
+  if (typeof patch.away_score === "number") {
+    setAwayScore(patch.away_score);
+  }
+
+  if (typeof patch.home_team_fouls === "number") {
+    setHomeTeamFouls(patch.home_team_fouls);
+  }
+
+  if (typeof patch.away_team_fouls === "number") {
+    setAwayTeamFouls(patch.away_team_fouls);
+  }
+
+  if (typeof patch.home_timeouts === "number") {
+    setHomeTimeouts(patch.home_timeouts);
+  }
+
+  if (typeof patch.away_timeouts === "number") {
+    setAwayTimeouts(patch.away_timeouts);
+  }
+
+  if (typeof patch.home_bonus === "boolean") {
+    setHomeBonus(patch.home_bonus);
+  }
+
+  if (typeof patch.away_bonus === "boolean") {
+    setAwayBonus(patch.away_bonus);
+  }
+
+  if (typeof patch.shot_clock_s === "number") {
+    setShotClockS(patch.shot_clock_s);
+  }
+
+  if (typeof patch.possession_arrow === "string" || patch.possession_arrow === null) {
+    setPossessionArrow(patch.possession_arrow);
+  }
+
+  applyRemoteClockPatch(patch);
+}
+4) Remplacer entièrement la fonction push
+
+Tu l’avais déjà corrigée partiellement. Mets-la maintenant comme ça :
+
+const push = useCallback(async (patch: Record<string, any>) => {
+  if (!matchId) return;
+
+  const seq = nextSeq();
+  const payload = {
+    ...patch,
+    match_id: matchId,
+    live_seq: seq,
+    clock_anchor_epoch: clockAnchorRef.current.epoch,
+    clock_anchor_ms: clockAnchorRef.current.ms,
+    emitted_at: Date.now(),
+  };
+
+  lastAppliedSeqRef.current = seq;
+  void sendTvBroadcast(matchId, payload);
+}, [matchId]);
+5) Recaler correctement startClock()
+
+Remplace entièrement startClock() par ceci :
+
+async function startClock() {
+  const ms = clockMsRef.current > 0 ? clockMsRef.current : defaultClockMs(sport, periodDurationS);
+  const now = Date.now();
+
+  clockMsRef.current = ms;
+  clockRunningRef.current = true;
+  clockAnchorRef.current = { epoch: now, ms };
+
+  setClockMs(ms);
+  setClockRunning(true);
+  setStatus("live");
+
+  try {
+    void push({
+      clock_ms: ms,
+      clock_running: true,
+      status: "live",
+      clock_anchor_epoch: now,
+      clock_anchor_ms: ms,
+    });
+
+    void persist({
+      clock_ms: ms,
+      clock_running: true,
+      status: "live",
+    });
+  } catch {}
+}
+6) Recaler correctement pauseClock()
+
+Remplace entièrement pauseClock() par ceci :
+
+async function pauseClock() {
+  const ms = clockMsRef.current;
+  const now = Date.now();
+
+  clockRunningRef.current = false;
+  clockAnchorRef.current = { epoch: now, ms };
+
+  setClockMs(ms);
+  setClockRunning(false);
+  setStatus("paused");
+
+  try {
+    void push({
+      clock_ms: ms,
+      clock_running: false,
+      status: "paused",
+      clock_anchor_epoch: now,
+      clock_anchor_ms: ms,
+    });
+
+    void persist({
+      clock_ms: ms,
+      clock_running: false,
+      status: "paused",
+    });
+  } catch {}
+}
+7) Recaler correctement resetClock()
+
+Si tu as une fonction resetClock(), remplace-la par ceci :
+
+async function resetClock() {
+  const ms = defaultClockMs(sport, periodDurationS);
+  const now = Date.now();
+
+  clockMsRef.current = ms;
+  clockRunningRef.current = false;
+  clockAnchorRef.current = { epoch: now, ms };
+
+  setClockMs(ms);
+  setClockRunning(false);
+
+  try {
+    void push({
+      clock_ms: ms,
+      clock_running: false,
+      clock_anchor_epoch: now,
+      clock_anchor_ms: ms,
+    });
+
+    void persist({
+      clock_ms: ms,
+      clock_running: false,
+    });
+  } catch {}
+}
+8) Dans l’écoute realtime de la QR Console, appliquer applyIncomingLivePatch(...)
+
+Quand la QR Console reçoit un broadcast ou un update Supabase, il faut passer par le filtre live_seq.
+
+Si tu as un handler broadcast du genre :
+.on("broadcast", { event: "*" }, (message) => {
+  const patch = message?.payload?.patch || message?.payload || message;
+  ...
+})
+
+remplace le contenu par :
+
+.on("broadcast", { event: "*" }, (message) => {
+  const patch = message?.payload?.patch || message?.payload || message;
+  if (!patch || typeof patch !== "object") return;
+  applyIncomingLivePatch(patch);
+})
+Et pour postgres_changes, remplace le contenu par quelque chose comme :
+.on(
+  "postgres_changes",
+  {
+    event: "UPDATE",
+    schema: "public",
+    table: "matches",
+    filter: `id=eq.${matchId}`,
+  },
+  (payload: any) => {
+    const row = payload?.new;
+    if (!row) return;
+
+    applyIncomingLivePatch({
+      live_seq: row.last_event_seq ?? 0,
+      status: row.status,
+      period_label: row.period_label,
+      home_score: row.home_score,
+      away_score: row.away_score,
+      clock_ms: row.clock_ms,
+      clock_running: row.clock_running,
+      home_team_fouls: row.home_team_fouls,
+      away_team_fouls: row.away_team_fouls,
+      home_timeouts: row.home_timeouts,
+      away_timeouts: row.away_timeouts,
+      home_bonus: row.home_bonus,
+      away_bonus: row.away_bonus,
+      shot_clock_s: row.shot_clock_s,
+      possession_arrow: row.possession_arrow,
+    });
+  },
+)
+9) Important : tick local de la QR Console
+
+Assure-toi que le tick local utilise bien l’ancre pour calculer le chrono courant, et pas seulement setClockMs(prev => prev - 100).
+
+Le bon modèle est :
+
+useEffect(() => {
+  const t = window.setInterval(() => {
+    if (!clockRunningRef.current) return;
+
+    const elapsed = Date.now() - clockAnchorRef.current.epoch;
+    const next = Math.max(0, clockAnchorRef.current.ms - elapsed);
+
+    clockMsRef.current = next;
+    setClockMs(next);
+
+    if (next <= 0) {
+      clockRunningRef.current = false;
+      setClockRunning(false);
+    }
+  }, 100);
+
+  return () => window.clearInterval(t);
+}, []);
+
+Si tu as encore un modèle basé uniquement sur décrément local sans ancre, remplace-le par ça.
+
+Ce que ça garantit
+
+Avec ces changements :
+
+la QR Console ignore les vieux patches
+
+elle se recalle proprement quand une source plus récente parle
+
+elle parle le même protocole temps que la console principale
+
+elle ne laisse plus un vieux postgres_changes remettre un état ancien
+
+le chrono devient cohérent entre :
+
+console principale
+
+QR Console
+
+Display

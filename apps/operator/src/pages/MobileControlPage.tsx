@@ -82,8 +82,8 @@ export default function MobileControlPage() {
   const clockMsRef = useRef(0);
   const clockRunningRef = useRef(false);
   const clockAnchorRef = useRef<{ epoch: number; ms: number }>({ epoch: Date.now(), ms: 0 });
-  const timerRef = useRef<number | null>(null);
   const liveSeqRef = useRef(0);
+  const lastAppliedSeqRef = useRef(0);
 
   const isRugby = normalizeSport(sport) === "rugby";
   const canScore = status === "live";
@@ -170,47 +170,72 @@ export default function MobileControlPage() {
 
   /* ── clock tick ──────────────────────────────────────────────────────────── */
   useEffect(() => {
-    if (!clockRunning) return;
-    timerRef.current = window.setInterval(() => {
-      const { epoch, ms } = clockAnchorRef.current;
-      const computed = Math.max(0, ms - (Date.now() - epoch));
-      clockMsRef.current = computed;
-      setClockMs(computed);
-      if (computed === 0) { clockRunningRef.current = false; setClockRunning(false); }
-    }, 100);
-    return () => { if (timerRef.current) { window.clearInterval(timerRef.current); timerRef.current = null; } };
-  }, [clockRunning]);
+    const t = window.setInterval(() => {
+      if (!clockRunningRef.current) return;
 
-  /* ── remote clock sync ───────────────────────────────────────────────────── */
-  // Applique un patch distant (broadcast ou postgres_changes) en corrigeant
-  // la dérive réseau via emitted_at — même logique que le Display app.
-  function applyRemoteClockSync(patch: any) {
-    if (!patch || typeof patch !== "object") return;
-    if (typeof patch.clock_ms !== "number" && typeof patch.clock_running !== "boolean") return;
+      const elapsed = Date.now() - clockAnchorRef.current.epoch;
+      const next = Math.max(0, clockAnchorRef.current.ms - elapsed);
 
-    if (typeof patch.clock_ms === "number") {
-      // Priorité 1 : clock_anchor_epoch/ms envoyés par ControlPage (interpolation exacte)
-      const anchorEpoch = typeof patch.clock_anchor_epoch === "number" ? patch.clock_anchor_epoch : null;
-      const anchorMs    = typeof patch.clock_anchor_ms    === "number" ? patch.clock_anchor_ms    : null;
-      let correctedMs: number;
-      if (anchorEpoch !== null && anchorMs !== null) {
-        correctedMs = Math.max(0, anchorMs - (Date.now() - anchorEpoch));
-      } else {
-        // Fallback : compenser la dérive réseau via emitted_at
-        const emittedAt = typeof patch.emitted_at === "number" ? patch.emitted_at : Date.now();
-        correctedMs = Math.max(0, patch.clock_ms - Math.max(0, Date.now() - emittedAt));
+      clockMsRef.current = next;
+      setClockMs(next);
+
+      if (next <= 0) {
+        clockRunningRef.current = false;
+        setClockRunning(false);
       }
-      clockMsRef.current = correctedMs;
-      clockAnchorRef.current = { epoch: Date.now(), ms: correctedMs };
-      setClockMs(correctedMs);
+    }, 100);
+
+    return () => window.clearInterval(t);
+  }, []);
+
+  /* ── remote clock helpers ────────────────────────────────────────────────── */
+  function applyRemoteClockPatch(patch: Record<string, any>) {
+    const hasAnchorEpoch = typeof patch.clock_anchor_epoch === "number";
+    const hasAnchorMs    = typeof patch.clock_anchor_ms    === "number";
+    const hasClockMs     = typeof patch.clock_ms           === "number";
+    const hasClockRunning = typeof patch.clock_running === "boolean";
+
+    if (hasAnchorEpoch && hasAnchorMs) {
+      clockAnchorRef.current = {
+        epoch: patch.clock_anchor_epoch,
+        ms:    patch.clock_anchor_ms,
+      };
+      const nextRunning = hasClockRunning ? !!patch.clock_running : clockRunningRef.current;
+      clockRunningRef.current = nextRunning;
+      setClockRunning(nextRunning);
+
+      const nextClockMs = hasClockMs ? patch.clock_ms : patch.clock_anchor_ms;
+      clockMsRef.current = nextClockMs;
+      setClockMs(nextClockMs);
+      return;
     }
-    if (typeof patch.clock_running === "boolean") {
-      clockRunningRef.current = patch.clock_running;
-      setClockRunning(patch.clock_running);
+
+    if (hasClockMs) {
+      clockMsRef.current = patch.clock_ms;
+      setClockMs(patch.clock_ms);
     }
-    if (typeof patch.status === "string") {
-      setStatus(patch.status.toLowerCase());
+    if (hasClockRunning) {
+      clockRunningRef.current = !!patch.clock_running;
+      setClockRunning(!!patch.clock_running);
     }
+  }
+
+  function applyIncomingLivePatch(patch: Record<string, any>) {
+    if (!patch || typeof patch !== "object") return;
+
+    const seq = Number(patch.live_seq || 0);
+    if (seq && seq < lastAppliedSeqRef.current) return;
+    if (seq) {
+      lastAppliedSeqRef.current = seq;
+      if (seq > liveSeqRef.current) liveSeqRef.current = seq;
+    }
+
+    if (typeof patch.status === "string")       setStatus(patch.status);
+    if (typeof patch.period_label === "string") setPeriodLabel(patch.period_label);
+    if (typeof patch.home_score === "number")   setHomeScore(patch.home_score);
+    if (typeof patch.away_score === "number")   setAwayScore(patch.away_score);
+
+    applyRemoteClockPatch(patch);
   }
 
   useEffect(() => {
@@ -220,7 +245,8 @@ export default function MobileControlPage() {
     channel
       .on("broadcast", { event: "*" }, (message: any) => {
         const patch = message?.payload?.patch || message?.payload || message;
-        applyRemoteClockSync(patch);
+        if (!patch || typeof patch !== "object") return;
+        applyIncomingLivePatch(patch);
       })
       .on(
         "postgres_changes",
@@ -228,12 +254,14 @@ export default function MobileControlPage() {
         (payload: any) => {
           const row = payload?.new;
           if (!row) return;
-          // postgres_changes n'a pas d'emitted_at : on utilise Date.now() (dérive ~0)
-          applyRemoteClockSync({
+          applyIncomingLivePatch({
+            live_seq: row.last_event_seq ?? 0,
+            status: row.status,
+            period_label: row.period_label,
+            home_score: row.home_score,
+            away_score: row.away_score,
             clock_ms: row.clock_ms,
             clock_running: row.clock_running,
-            status: row.status,
-            emitted_at: Date.now(),
           });
         },
       )
@@ -248,14 +276,16 @@ export default function MobileControlPage() {
   const push = useCallback(async (patch: Record<string, any>) => {
     if (!matchId) return;
     const seq = nextSeq();
-    void sendTvBroadcast(matchId, {
+    const payload = {
       ...patch,
       match_id: matchId,
       live_seq: seq,
       clock_anchor_epoch: clockAnchorRef.current.epoch,
       clock_anchor_ms: clockAnchorRef.current.ms,
       emitted_at: Date.now(),
-    });
+    };
+    lastAppliedSeqRef.current = seq;
+    void sendTvBroadcast(matchId, payload);
   }, [matchId]);
 
   const persist = useCallback(async (patch: Record<string, any>) => {
@@ -308,6 +338,28 @@ export default function MobileControlPage() {
         clock_anchor_ms: ms,
       });
       void persist({ clock_running: false, status: "paused", clock_ms: ms });
+    } catch {}
+  }
+
+  async function resetClock() {
+    const ms = defaultClockMs(sport, periodDurationS);
+    const now = Date.now();
+
+    clockMsRef.current = ms;
+    clockRunningRef.current = false;
+    clockAnchorRef.current = { epoch: now, ms };
+
+    setClockMs(ms);
+    setClockRunning(false);
+
+    try {
+      void push({
+        clock_ms: ms,
+        clock_running: false,
+        clock_anchor_epoch: now,
+        clock_anchor_ms: ms,
+      });
+      void persist({ clock_ms: ms, clock_running: false });
     } catch {}
   }
 
