@@ -170,6 +170,9 @@ function buildContextFromResponse(json: any): ScoreboardContext {
 
     home: match.home || {},
     away: match.away || {},
+
+    clock_anchor_epoch: match.clock_anchor_epoch_ms ?? undefined,
+    clock_anchor_ms: match.clock_anchor_clock_ms ?? undefined,
   } as any;
 }
 
@@ -186,6 +189,8 @@ function buildPatchFromMatchRow(row: any): Partial<ScoreboardContext> {
     away_score: row.away_score ?? undefined,
     clock_ms: row.clock_ms ?? undefined,
     clock_running: row.clock_running ?? undefined,
+    clock_anchor_epoch: row.clock_anchor_epoch_ms ?? undefined,
+    clock_anchor_ms: row.clock_anchor_clock_ms ?? undefined,
     period_label: row.period_label ?? undefined,
 
     home_team_fouls: row.home_team_fouls ?? undefined,

@@ -152,10 +152,23 @@ export default function MobileControlPage() {
 
       const initMs = typeof m.clock_ms === "number" ? m.clock_ms : defaultClockMs(detectedSport, pdS);
       const initRunning = !!m.clock_running;
-      clockMsRef.current = initMs;
       clockRunningRef.current = initRunning;
-      clockAnchorRef.current = { epoch: Date.now(), ms: initMs };
-      setClockMs(initMs);
+      // Recalculate live clock from persisted anchor if match is already running
+      if (
+        initRunning &&
+        typeof m.clock_anchor_epoch_ms === "number" &&
+        typeof m.clock_anchor_clock_ms === "number"
+      ) {
+        const elapsed = Date.now() - m.clock_anchor_epoch_ms;
+        const currentMs = Math.max(0, m.clock_anchor_clock_ms - elapsed);
+        clockMsRef.current = currentMs;
+        clockAnchorRef.current = { epoch: m.clock_anchor_epoch_ms, ms: m.clock_anchor_clock_ms };
+        setClockMs(currentMs);
+      } else {
+        clockMsRef.current = initMs;
+        clockAnchorRef.current = { epoch: Date.now(), ms: initMs };
+        setClockMs(initMs);
+      }
       setClockRunning(initRunning);
 
       /* players — feuille de match uniquement : titulaires + remplaçants */
@@ -326,7 +339,7 @@ export default function MobileControlPage() {
         clock_anchor_epoch: now,
         clock_anchor_ms: ms,
       });
-      void persist({ clock_ms: ms, clock_running: true, status: "live" });
+      void persist({ clock_ms: ms, clock_running: true, status: "live", clock_anchor_epoch_ms: now, clock_anchor_clock_ms: ms });
     } catch {}
   }
 
@@ -349,7 +362,7 @@ export default function MobileControlPage() {
         clock_anchor_epoch: now,
         clock_anchor_ms: ms,
       });
-      void persist({ clock_running: false, status: "paused", clock_ms: ms });
+      void persist({ clock_running: false, status: "paused", clock_ms: ms, clock_anchor_epoch_ms: now, clock_anchor_clock_ms: ms });
     } catch {}
   }
 
@@ -371,7 +384,7 @@ export default function MobileControlPage() {
         clock_anchor_epoch: now,
         clock_anchor_ms: ms,
       });
-      void persist({ clock_ms: ms, clock_running: false });
+      void persist({ clock_ms: ms, clock_running: false, clock_anchor_epoch_ms: now, clock_anchor_clock_ms: ms });
     } catch {}
   }
 

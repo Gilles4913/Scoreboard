@@ -1315,7 +1315,7 @@ export default function ControlPage() {
         clock_anchor_ms: nextClockMs,
         emitted_at: now,
       });
-      void persistLiveState({ clock_ms: nextClockMs, clock_running: true, status: "live", last_event_seq: seq });
+      void persistLiveState({ clock_ms: nextClockMs, clock_running: true, status: "live", last_event_seq: seq, clock_anchor_epoch_ms: now, clock_anchor_clock_ms: nextClockMs });
     } catch {}
   }
 
@@ -1342,7 +1342,7 @@ export default function ControlPage() {
         clock_anchor_ms: capturedClockMs,
         emitted_at: now,
       });
-      void persistLiveState({ clock_running: false, clock_ms: capturedClockMs, status: "paused", last_event_seq: seq });
+      void persistLiveState({ clock_running: false, clock_ms: capturedClockMs, status: "paused", last_event_seq: seq, clock_anchor_epoch_ms: now, clock_anchor_clock_ms: capturedClockMs });
     } catch {}
   }
 
@@ -1369,7 +1369,7 @@ export default function ControlPage() {
         clock_anchor_ms: next,
         emitted_at: now,
       });
-      void persistLiveState({ clock_ms: next, clock_running: false, last_event_seq: seq });
+      void persistLiveState({ clock_ms: next, clock_running: false, last_event_seq: seq, clock_anchor_epoch_ms: now, clock_anchor_clock_ms: next });
     } catch {}
   }
 

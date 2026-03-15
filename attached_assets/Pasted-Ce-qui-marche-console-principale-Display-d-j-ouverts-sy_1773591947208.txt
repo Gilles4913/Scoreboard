@@ -1,0 +1,211 @@
+Ce qui marche
+
+console principale ↔ Display déjà ouverts : synchro correcte via broadcast + ancre locale
+
+Ce qui ne marche pas
+
+nouvelle Régie mobile ouverte en cours de match
+
+nouvel écran Display ouvert en cours de match
+
+Ces nouveaux clients arrivent “à froid”.
+Ils ne reçoivent pas l’historique du broadcast déjà passé. Ils chargent seulement l’état depuis la DB / edge function.
+
+La vraie cause
+
+La DB ne stocke pas encore l’ancre temps courante du chrono de manière exploitable pour un client qui se connecte en cours de route.
+
+Aujourd’hui, un nouveau client récupère surtout :
+
+clock_ms
+
+clock_running
+
+Mais si le match tourne déjà depuis 2 minutes, cette valeur en base est souvent une photo ancienne, pas un état “rejouable”.
+
+Il lui manque :
+
+à quel instant cette valeur était vraie
+
+autrement dit une ancre du style :
+
+clock_anchor_epoch_ms
+
+clock_anchor_clock_ms
+
+Ce qu’il faut faire pour rendre la synchro parfaite
+
+Il faut persister dans matches les 2 champs d’ancrage du chrono.
+
+Champs à ajouter
+
+clock_anchor_epoch_ms bigint
+
+clock_anchor_clock_ms integer
+
+Sens
+
+Si on a :
+
+clock_running = true
+
+clock_anchor_epoch_ms = 1710000000000
+
+clock_anchor_clock_ms = 1800000
+
+alors un client qui se connecte maintenant peut calculer immédiatement :
+
+clock_ms = clock_anchor_clock_ms - (now - clock_anchor_epoch_ms)
+
+Donc il se synchronise instantanément, même s’il arrive au milieu du match.
+
+Migration SQL
+begin;
+
+alter table public.matches
+  add column if not exists clock_anchor_epoch_ms bigint null,
+  add column if not exists clock_anchor_clock_ms integer null;
+
+create index if not exists idx_matches_clock_anchor_epoch_ms
+  on public.matches(clock_anchor_epoch_ms);
+
+commit;
+Règle métier à appliquer
+Quand on fait Start
+
+Il faut persister :
+
+clock_running = true
+
+clock_ms = valeur de départ
+
+clock_anchor_epoch_ms = now
+
+clock_anchor_clock_ms = valeur de départ
+
+Quand on fait Pause
+
+Il faut persister :
+
+clock_running = false
+
+clock_ms = valeur figée
+
+clock_anchor_epoch_ms = now
+
+clock_anchor_clock_ms = valeur figée
+
+Quand on fait Reset
+
+Il faut persister :
+
+clock_running = false
+
+clock_ms = valeur reset
+
+clock_anchor_epoch_ms = now
+
+clock_anchor_clock_ms = valeur reset
+
+Ce qu’il faut changer ensuite
+1) ControlPage.tsx
+
+Dans chaque action chrono (startClock, pauseClock, resetClock), ajouter ces colonnes à persistLiveState(...).
+
+2) MobileControlPage.tsx
+
+Même chose côté QR Console.
+
+3) get-display-context
+
+Retourner aussi :
+
+clock_anchor_epoch_ms
+
+clock_anchor_clock_ms
+
+4) apps/display/src/main.tsx
+
+Au chargement initial, si clock_running === true et que l’ancre existe, recalculer immédiatement le clock_ms courant au lieu de faire confiance à la simple valeur DB.
+
+5) MobileControlPage.tsx
+
+Au chargement initial de la régie mobile, même logique.
+
+Pourquoi c’est indispensable
+
+Sans ancre persistée :
+
+les clients déjà ouverts restent bons grâce au broadcast
+
+les nouveaux clients ouverts en cours de match sont faux
+
+Avec ancre persistée :
+
+tout le monde peut reconstruire le bon chrono :
+
+consoles déjà ouvertes
+
+nouvelle régie mobile
+
+nouveau Display
+
+Prompt Replit prêt à coller
+Le chrono est désormais bien synchrone entre la console principale et les écrans déjà ouverts, mais un nouveau client ouvert en cours de match (nouvelle régie mobile ou nouveau Display) ne se synchronise pas sur le chrono en cours.
+
+Cause :
+la DB ne persiste pas encore une ancre temps exploitable pour reconstruire le chrono en cours à l’ouverture d’un nouveau client.
+
+Je veux corriger ça proprement.
+
+À faire :
+
+1. Migration SQL
+Ajouter dans public.matches :
+- clock_anchor_epoch_ms bigint null
+- clock_anchor_clock_ms integer null
+
+2. Console principale
+Dans ControlPage.tsx :
+- startClock
+- pauseClock
+- resetClock
+doivent persister :
+- clock_running
+- clock_ms
+- clock_anchor_epoch_ms
+- clock_anchor_clock_ms
+- last_event_seq si applicable
+
+3. Régie mobile
+Dans MobileControlPage.tsx :
+- même logique de persistance d’ancre
+
+4. Edge function
+Dans get-display-context :
+- retourner clock_anchor_epoch_ms
+- retourner clock_anchor_clock_ms
+
+5. Display
+Dans apps/display/src/main.tsx :
+- au chargement initial, si clock_running=true et qu’une ancre existe, recalculer immédiatement le clock_ms courant avec :
+  current_clock_ms = clock_anchor_clock_ms - (Date.now() - clock_anchor_epoch_ms)
+- idem après refresh HTTP stable équipe
+
+6. Régie mobile
+Au chargement initial, même logique de recalcul du chrono depuis l’ancre DB
+
+Je veux :
+- migration SQL complète
+- fichiers complets modifiés
+- solution incrémentale sans casser l’existant
+- mini plan de test
+Résultat attendu après ce lot
+
+Tu pourras :
+
+ouvrir une nouvelle régie mobile pendant un match
+
+ouvrir un nouvel écran Display pendant un match
+
+et ils arriveront directement sur le bon chrono, sans attendre un nouveau start/pause.
