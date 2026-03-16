@@ -1,0 +1,274 @@
+J’ai vu d’autres problèmes, et les deux plus importants sont justement :
+
+les paramètres d’affichage par sport ne sont pas tous réellement branchés jusqu’au rendu
+
+l’horloge des exclusions temporaires rugby n’est pas encore opérationnelle malgré la migration
+
+1) Problèmes encore présents sur les paramètres d’affichage
+A. Le wording rugby n’est pas vraiment corrigé
+
+Dans DisplaySettingsPage.tsx, le libellé est encore :
+
+"Séance de tirs au but"
+
+Donc le changement validé vers :
+
+"Procédure de départage"
+
+n’a pas été appliqué dans l’UI actuelle.
+
+B. Beaucoup de flags existent, mais ne pilotent pas vraiment le Display
+
+Dans le code, on voit bien des flags typés et transportés, par exemple :
+
+show_substitutions
+
+show_sin_bin
+
+show_rugby_score_breakdown
+
+show_rugby_tries
+
+show_rugby_conversions
+
+show_rugby_penalties
+
+show_rugby_drop_goals
+
+show_added_time
+
+show_penalty_shootout
+
+show_match_phase
+
+show_two_min_suspensions
+
+show_disqualifications
+
+show_warnings
+
+show_set_points
+
+show_service
+
+show_current_set
+
+show_tiebreak
+
+Mais dans Scoreboard.tsx, ce qui est réellement utilisé est beaucoup plus limité.
+
+Ce qui est réellement branché au rendu
+
+En pratique, côté rugby, je vois surtout :
+
+show_cards
+
+show_sin_bin
+
+show_rugby_score_breakdown
+
+Donc aujourd’hui :
+
+les sous-flags rugby fins ne sont pas réellement indépendants
+
+le breakdown rugby reste encore largement “tout ou rien”
+
+C. Les paramètres sport envoyés par l’Operator sont incomplets
+
+Dans DisplaySettingsPage.tsx, le broadcast immédiat de settings vers le Display n’envoie encore que :
+
+show_team_fouls
+
+show_player_fouls
+
+show_timeouts
+
+show_bonus
+
+show_sets
+
+show_cards
+
+show_shot_clock
+
+Il n’envoie pas les nouveaux flags plus fins rugby/football/handball/volley.
+
+Donc même si certains réglages sont stockés, le Display ne les reçoit pas tous en live.
+
+2) Problème majeur : show_sin_bin_timer n’est pas branché
+
+C’est le point le plus clair.
+
+Ce que j’ai vu
+
+La migration existe :
+
+20260316000003_rugby_sin_bin_timer.sql
+
+Elle ajoute :
+
+show_sin_bin_timer
+
+rugby_sin_bin_duration_s
+
+Mais dans le code applicatif actuel :
+
+aucune occurrence runtime de show_sin_bin_timer
+
+aucune occurrence runtime de rugby_sin_bin_duration_s
+
+get-display-context ne charge pas match_sin_bins
+
+main.tsx ne reçoit pas de liste de sin bins actifs
+
+Scoreboard.tsx n’affiche aucun timer d’exclusion
+
+DisplaySettingsPage.tsx ne montre pas de toggle show_sin_bin_timer
+
+Conclusion
+
+Le paramètre et la migration existent, mais la fonctionnalité n’est pas implémentée.
+
+3) L’horloge des exclusions rugby n’est pas encore opérationnelle
+
+Côté régie, il existe bien une logique match_sin_bins dans ControlPage.tsx :
+
+lecture de match_sin_bins
+
+insertion / update
+
+fin d’exclusion
+
+Mais côté Display :
+
+seul le compteur d’exclusions actives est utilisé :
+
+rugby_home_sin_bin_active
+
+rugby_away_sin_bin_active
+
+Donc aujourd’hui tu peux afficher :
+
+Excl. temp. 1
+
+mais pas :
+
+Excl. temp. 1 • 07:32
+
+En plus
+
+Le système ne semble pas encore exploiter rugby_sin_bin_duration_s = 600 côté runtime.
+Donc le défaut métier “10 minutes” n’est pas encore vraiment branché dans toute la chaîne.
+
+4) Problème de cohérence entre tables et payload
+
+Actuellement :
+
+ControlPage.tsx manipule match_sin_bins
+
+mais get-display-context ne renvoie pas ces données détaillées
+
+donc le Display ne peut pas reconstruire un timer précis
+
+C’est le vrai trou fonctionnel.
+
+Il manque un chaînage complet :
+
+match_sin_bins en DB
+
+chargement par get-display-context
+
+calcul du remaining_ms / remaining_s
+
+passage au Display
+
+rendu compact dans Scoreboard.tsx
+
+5) Autre souci : le paramétrage par sport reste partiel dans l’UI
+
+Dans DisplaySettingsPage.tsx, la page continue à manipuler un sous-ensemble assez ancien de org_sport_settings :
+
+period_count
+
+period_duration_s
+
+extra_time_enabled
+
+penalties_enabled
+
+show_team_fouls
+
+show_player_fouls
+
+show_timeouts
+
+show_bonus
+
+show_sets
+
+show_cards
+
+show_shot_clock
+
+Mais elle ne pilote pas encore proprement :
+
+show_sin_bin_timer
+
+clock_direction
+
+clock_limit_s
+
+clock_overrun_mode
+
+les flags fins rugby
+
+les flags fins football
+
+les flags fins handball / volley
+
+Donc la matrice sport est là en base et partiellement dans le Display, mais l’Operator n’expose pas encore tout ce qui existe vraiment.
+
+Mon diagnostic final
+Ce qui est vraiment en place
+
+le socle multi-sport existe
+
+quelques flags généraux fonctionnent
+
+le rugby affiche :
+
+cartons
+
+breakdown
+
+nombre d’exclusions actives
+
+Ce qui manque encore
+
+show_sin_bin_timer branché de bout en bout
+
+rugby_sin_bin_duration_s utilisé réellement
+
+wording rugby corrigé en UI
+
+flags rugby fins réellement indépendants
+
+cohérence complète entre settings Operator et rendu Display
+
+Réponse nette à ta question
+
+Oui, j’ai vu d’autres problèmes :
+
+Paramètres d’affichage
+
+ils sont partiellement implémentés
+
+plusieurs ON/OFF existent mais ne sont pas réellement opérationnels jusqu’au rendu
+
+Horloge des exclusions
+
+elle n’est pas encore implémentée
+
+le système affiche seulement le nombre d’exclusions actives
+
+pas le temps restant

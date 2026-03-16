@@ -590,25 +590,12 @@ function SinBinTimer({
   clockMs: number;
   theme: ThemeMode;
 }) {
-  const [ticked, setTicked] = React.useState(clockMs);
-
-  React.useEffect(() => {
-    setTicked(clockMs);
-  }, [clockMs]);
-
-  React.useEffect(() => {
-    const id = setInterval(() => {
-      setTicked((prev) => Math.max(0, prev - 1000));
-    }, 1000);
-    return () => clearInterval(id);
-  }, []);
-
   if (!sinBins || sinBins.length === 0) return null;
 
   const withRemaining = sinBins
     .map((sb) => {
       const endClock = sb.started_game_clock_ms - sb.duration_s * 1000;
-      return { ...sb, remaining: Math.max(0, ticked - endClock) };
+      return { ...sb, remaining: Math.max(0, clockMs - endClock) };
     })
     .sort((a, b) => a.remaining - b.remaining);
 
@@ -902,13 +889,13 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
             {context.show_rugby_score_breakdown !== false && (
               <>
-                <BreakdownChip label="Essais" value={safeNum(context.rugby_home_tries)} color={accentHome} theme={theme} />
-                <BreakdownChip label="Transfo" value={safeNum(context.rugby_home_conversions)} color={accentHome} theme={theme} />
-                <BreakdownChip label="Pén" value={safeNum(context.rugby_home_penalties)} color={accentHome} theme={theme} />
-                <BreakdownChip label="Drop" value={safeNum(context.rugby_home_drop_goals)} color={accentHome} theme={theme} />
+                {context.show_rugby_tries !== false && <BreakdownChip label="Essais" value={safeNum(context.rugby_home_tries)} color={accentHome} theme={theme} />}
+                {context.show_rugby_conversions !== false && <BreakdownChip label="Transfo" value={safeNum(context.rugby_home_conversions)} color={accentHome} theme={theme} />}
+                {context.show_rugby_penalties !== false && <BreakdownChip label="Pén" value={safeNum(context.rugby_home_penalties)} color={accentHome} theme={theme} />}
+                {context.show_rugby_drop_goals !== false && <BreakdownChip label="Drop" value={safeNum(context.rugby_home_drop_goals)} color={accentHome} theme={theme} />}
               </>
             )}
-            {showSinBin && homeSinBin > 0 && (
+            {showSinBin && homeSinBin > 0 && !context.show_sin_bin_timer && (
               <BreakdownChip label="Excl. temp." value={homeSinBin} color="#f59e0b" theme={theme} />
             )}
             {context.show_sin_bin_timer && (
@@ -935,13 +922,13 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap", justifyContent: "flex-end" }}>
             {context.show_rugby_score_breakdown !== false && (
               <>
-                <BreakdownChip label="Essais" value={safeNum(context.rugby_away_tries)} color={accentAway} theme={theme} />
-                <BreakdownChip label="Transfo" value={safeNum(context.rugby_away_conversions)} color={accentAway} theme={theme} />
-                <BreakdownChip label="Pén" value={safeNum(context.rugby_away_penalties)} color={accentAway} theme={theme} />
-                <BreakdownChip label="Drop" value={safeNum(context.rugby_away_drop_goals)} color={accentAway} theme={theme} />
+                {context.show_rugby_tries !== false && <BreakdownChip label="Essais" value={safeNum(context.rugby_away_tries)} color={accentAway} theme={theme} />}
+                {context.show_rugby_conversions !== false && <BreakdownChip label="Transfo" value={safeNum(context.rugby_away_conversions)} color={accentAway} theme={theme} />}
+                {context.show_rugby_penalties !== false && <BreakdownChip label="Pén" value={safeNum(context.rugby_away_penalties)} color={accentAway} theme={theme} />}
+                {context.show_rugby_drop_goals !== false && <BreakdownChip label="Drop" value={safeNum(context.rugby_away_drop_goals)} color={accentAway} theme={theme} />}
               </>
             )}
-            {showSinBin && awaySinBin > 0 && (
+            {showSinBin && awaySinBin > 0 && !context.show_sin_bin_timer && (
               <BreakdownChip label="Excl. temp." value={awaySinBin} color="#f59e0b" theme={theme} />
             )}
             {context.show_sin_bin_timer && (
@@ -1208,13 +1195,13 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
             {context.show_rugby_score_breakdown !== false && (
               <>
-                <BreakdownChip label="Essais" value={safeNum(context.rugby_home_tries)} color={accentHome} theme={theme} />
-                <BreakdownChip label="Transfo" value={safeNum(context.rugby_home_conversions)} color={accentHome} theme={theme} />
-                <BreakdownChip label="Pén" value={safeNum(context.rugby_home_penalties)} color={accentHome} theme={theme} />
-                <BreakdownChip label="Drop" value={safeNum(context.rugby_home_drop_goals)} color={accentHome} theme={theme} />
+                {context.show_rugby_tries !== false && <BreakdownChip label="Essais" value={safeNum(context.rugby_home_tries)} color={accentHome} theme={theme} />}
+                {context.show_rugby_conversions !== false && <BreakdownChip label="Transfo" value={safeNum(context.rugby_home_conversions)} color={accentHome} theme={theme} />}
+                {context.show_rugby_penalties !== false && <BreakdownChip label="Pén" value={safeNum(context.rugby_home_penalties)} color={accentHome} theme={theme} />}
+                {context.show_rugby_drop_goals !== false && <BreakdownChip label="Drop" value={safeNum(context.rugby_home_drop_goals)} color={accentHome} theme={theme} />}
               </>
             )}
-            {context.show_sin_bin !== false && homeSinBin > 0 && (
+            {context.show_sin_bin !== false && homeSinBin > 0 && !context.show_sin_bin_timer && (
               <BreakdownChip label="Excl. temp." value={homeSinBin} color="#f59e0b" theme={theme} />
             )}
             {context.show_sin_bin_timer && (
@@ -1241,13 +1228,13 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap", justifyContent: "flex-end" }}>
             {context.show_rugby_score_breakdown !== false && (
               <>
-                <BreakdownChip label="Essais" value={safeNum(context.rugby_away_tries)} color={accentAway} theme={theme} />
-                <BreakdownChip label="Transfo" value={safeNum(context.rugby_away_conversions)} color={accentAway} theme={theme} />
-                <BreakdownChip label="Pén" value={safeNum(context.rugby_away_penalties)} color={accentAway} theme={theme} />
-                <BreakdownChip label="Drop" value={safeNum(context.rugby_away_drop_goals)} color={accentAway} theme={theme} />
+                {context.show_rugby_tries !== false && <BreakdownChip label="Essais" value={safeNum(context.rugby_away_tries)} color={accentAway} theme={theme} />}
+                {context.show_rugby_conversions !== false && <BreakdownChip label="Transfo" value={safeNum(context.rugby_away_conversions)} color={accentAway} theme={theme} />}
+                {context.show_rugby_penalties !== false && <BreakdownChip label="Pén" value={safeNum(context.rugby_away_penalties)} color={accentAway} theme={theme} />}
+                {context.show_rugby_drop_goals !== false && <BreakdownChip label="Drop" value={safeNum(context.rugby_away_drop_goals)} color={accentAway} theme={theme} />}
               </>
             )}
-            {context.show_sin_bin !== false && awaySinBin > 0 && (
+            {context.show_sin_bin !== false && awaySinBin > 0 && !context.show_sin_bin_timer && (
               <BreakdownChip label="Excl. temp." value={awaySinBin} color="#f59e0b" theme={theme} />
             )}
             {context.show_sin_bin_timer && (

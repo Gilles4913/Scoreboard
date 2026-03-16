@@ -1,0 +1,305 @@
+Voici un pack de prompts Replit pour finaliser proprement ce chantier, sans repartir dans tous les sens.
+
+Je te conseille de les lancer dans cet ordre :
+
+prompt A : audit + branchement réel des paramètres d’affichage sport
+
+prompt B : sin bin timer rugby de bout en bout
+
+prompt C : chronomètre visuel cohérent entre Régie / QR Console / Display
+
+prompt D : QA finale + nettoyage
+
+Prompt A — Finaliser les paramètres d’affichage sport réellement branchés
+Je veux finaliser proprement les paramètres d’affichage par sport dans scoreDisplay V2.
+
+Contexte :
+- le projet dispose déjà d’une architecture de paramètres :
+  - org_display_settings
+  - org_sport_settings
+  - org_display_sport_profiles
+  - display_templates
+  - team_display_settings
+- beaucoup de flags existent déjà dans les types, dans get-display-context, dans le Display et dans les pages de settings
+- mais tous ne sont pas réellement branchés jusqu’au rendu Display
+- je veux une finalisation propre, pas seulement déclarative
+
+Objectif :
+faire en sorte que les paramètres ON/OFF réellement exposés soient effectivement opérationnels dans l’affichage.
+
+Travail demandé :
+
+1. Faire un audit du dernier code
+Je veux une liste claire en 3 colonnes :
+- paramètres réellement branchés jusqu’au rendu
+- paramètres présents mais partiellement branchés
+- paramètres présents mais non branchés
+
+Sports concernés :
+- rugby
+- football
+- basket
+- handball
+- volleyball
+
+2. Corriger l’UI des settings sport
+Je veux que DisplaySettingsPage.tsx expose proprement les paramètres par sport réellement utiles et cohérents.
+
+3. Corriger les libellés rugby
+Le libellé visible en UI ne doit plus être :
+- "Séance de tirs au but"
+mais :
+- "Procédure de départage"
+
+4. Faire en sorte que les changements de settings soient bien diffusés
+Quand un réglage d’affichage sport est modifié, le Display doit recevoir un payload live cohérent.
+Le broadcast immédiat de settings ne doit pas rester limité aux anciens flags généraux si de nouveaux flags fins existent déjà.
+
+5. Livrables
+Je veux :
+- la liste des fichiers modifiés
+- les fichiers complets modifiés
+- un résumé des flags désormais vraiment opérationnels
+- un mini plan de test
+
+Contraintes :
+- partir du code existant
+- ne pas casser la synchro live
+- ne pas casser les autres sports
+- garder la lisibilité LED comme priorité
+- éviter les flags morts
+Prompt B — Rendre show_sin_bin_timer vraiment opérationnel en Rugby
+Je veux finaliser complètement l’horloge d’exclusion temporaire Rugby (sin bin timer) dans scoreDisplay V2.
+
+Contexte :
+- une migration SQL existe déjà avec :
+  - org_display_sport_profiles.show_sin_bin_timer
+  - org_sport_settings.rugby_sin_bin_duration_s
+- le wording Rugby a été validé
+- la durée par défaut validée pour un carton jaune Rugby à XV est :
+  - 10 minutes = 600 secondes
+- le code de régie gère déjà match_sin_bins
+- le Display n’affiche actuellement que le nombre d’exclusions temporaires actives
+- show_sin_bin_timer n’est pas encore branché de bout en bout
+
+Objectif :
+rendre show_sin_bin_timer réellement fonctionnel de l’Operator jusqu’au Display.
+
+Travail demandé :
+
+1. Settings
+Je veux que DisplaySettingsPage.tsx expose réellement :
+- show_sin_bin_timer
+pour le Rugby
+
+2. Backend / Edge Function
+Je veux que get-display-context charge les exclusions temporaires rugby actives depuis match_sin_bins.
+
+Je veux qu’il retourne au Display des données exploitables, par exemple :
+- home_active_sin_bins: [...]
+- away_active_sin_bins: [...]
+
+Chaque item doit pouvoir contenir :
+- player_id
+- player_name
+- player_number
+- started_game_clock_ms
+- duration_s
+- remaining_ms
+- remaining_s
+
+3. Règle métier
+La durée par défaut d’une exclusion temporaire Rugby doit être :
+- org_sport_settings.rugby_sin_bin_duration_s
+avec fallback à 600 si absent
+
+4. Display
+Je veux que Scoreboard.tsx affiche le timer d’exclusion temporaire Rugby.
+
+Comportement attendu :
+- si show_sin_bin_timer = false :
+  - affichage actuel conservé (nombre d’exclusions actives seulement)
+- si show_sin_bin_timer = true :
+  - affichage compact et lisible
+  - exemple :
+    - "Excl. temp. 1 • 07:32"
+
+Si plusieurs exclusions actives :
+- en mode compact, afficher :
+  - le nombre total
+  - le chrono le plus urgent
+- ne pas surcharger le layout
+
+5. Contraintes UX
+- affichage LED lisible
+- pas de bloc trop dense
+- ne pas casser rugby_stade
+- ne pas casser rugby_expert
+
+6. Livrables
+Je veux :
+- les fichiers complets modifiés
+- le code complet de get-display-context si modifié
+- le code complet du Scoreboard si modifié
+- un mini plan de test
+
+Contraintes :
+- partir du code existant
+- ne pas casser les autres sports
+- ne pas casser le contrat live global
+- rester compatible avec les ancres chrono existantes
+Prompt C — Aligner définitivement l’horloge visible entre Régie, QR Console et Display
+Je veux finaliser définitivement la cohérence visuelle du chronomètre entre :
+- la Régie principale
+- la QR Console
+- le Display
+
+Contexte :
+- le moteur live est synchronisé avec live_seq, last_event_seq et les ancres chrono
+- le Display sait déjà afficher certains sports en count_up
+- mais en Rugby, la Régie affiche encore la valeur technique interne au départ (40:00) alors que le Display affiche 00:00
+- ce n’est pas acceptable : la valeur visible doit être identique sur toutes les surfaces
+
+Objectif :
+faire en sorte que la Régie principale, la QR Console et le Display affichent la même représentation visuelle du chronomètre, sans forcément refondre le moteur interne.
+
+Règles cibles :
+- Rugby : affichage count_up
+- Football : affichage count_up
+- Basket : affichage count_down
+- Handball : affichage count_down
+- Volleyball : comportement simple et stable
+
+Travail demandé :
+
+1. Créer ou consolider une helper de calcul visuel du chrono
+Exemple :
+- computeVisualClock(...)
+- formatDisplayClock(...)
+
+2. Utiliser cette helper dans :
+- apps/display/src/components/Scoreboard.tsx
+- apps/operator/src/pages/ControlPage.tsx
+- apps/operator/src/pages/MobileControlPage.tsx
+
+3. Corriger count_up
+Le dépassement de limite doit fonctionner réellement :
+- Rugby : 39:58 -> 40:00 -> 40:12 -> 41:03
+- Football : 44:58 -> 45:00 -> 45:20 -> 46:11
+
+4. Modes à respecter
+- stop_at_limit
+- continue_red
+- continue_with_plus
+
+5. Couleur rouge
+Je veux que le chrono passe effectivement en rouge après la limite dans les cas continue_red.
+
+6. Livrables
+Je veux :
+- les fichiers complets modifiés
+- un résumé du comportement final par sport
+- un mini plan de test
+
+Contraintes :
+- ne pas casser la synchro live existante
+- ne pas casser teamSlug / Display stable
+- ne pas refondre gratuitement le moteur chrono
+Prompt D — QA finale et nettoyage des derniers trous
+Je veux une QA finale ciblée sur :
+1. paramètres d’affichage par sport
+2. chronomètre visuel par sport
+3. exclusion temporaire Rugby
+4. cohérence Operator / QR Console / Display
+
+Contexte :
+- plusieurs lots ont déjà été implémentés
+- je veux maintenant identifier précisément les derniers trous restants
+- je ne veux pas une explication abstraite, mais un audit concret du code actuel
+
+Travail demandé :
+
+1. Vérifier les paramètres d’affichage réellement opérationnels
+Je veux une matrice finale par sport :
+- Rugby
+- Football
+- Basket
+- Handball
+- Volleyball
+
+Pour chaque paramètre :
+- présent en DB ?
+- exposé en settings ?
+- transporté par get-display-context ?
+- rendu réellement pris en compte dans Scoreboard ?
+
+2. Vérifier le chrono visuel
+Je veux confirmer :
+- Rugby count_up cohérent partout
+- Football count_up cohérent partout
+- Basket count_down cohérent partout
+- Handball count_down cohérent partout
+
+3. Vérifier le sin bin Rugby
+Je veux confirmer :
+- show_sin_bin_timer réellement opérationnel
+- durée par défaut 600 s
+- affichage compact correct
+- nouveau Display ouvert en cours d’exclusion = état correct
+
+4. Nettoyage
+Je veux signaler les derniers éléments :
+- flags morts
+- branches de rendu inutilisées
+- wording encore incohérent
+- paramètres exposés mais non utilisés
+
+Livrables :
+- liste des problèmes restants
+- correctifs appliqués
+- fichiers complets modifiés si nécessaire
+- checklist manuelle finale
+
+Contraintes :
+- corrections ciblées
+- ne pas casser l’existant
+- priorité à la lisibilité et à la démo Rugby
+Migration SQL complémentaire si Replit te dit qu’elle manque encore
+
+Si show_sin_bin_timer et rugby_sin_bin_duration_s n’ont finalement pas été appliqués en base, utilise celle-ci :
+
+begin;
+
+alter table public.org_display_sport_profiles
+  add column if not exists show_sin_bin_timer boolean not null default false;
+
+alter table public.org_sport_settings
+  add column if not exists rugby_sin_bin_duration_s integer not null default 600;
+
+update public.org_sport_settings
+set rugby_sin_bin_duration_s = 600
+where coalesce(sport, '') = 'rugby'
+  and (rugby_sin_bin_duration_s is null or rugby_sin_bin_duration_s <= 0);
+
+commit;
+Ordre recommandé
+
+Lance-les comme ça :
+
+Prompt B
+
+Prompt C
+
+Prompt A
+
+Prompt D
+
+Pourquoi :
+
+le sin bin timer est le trou fonctionnel le plus net
+
+ensuite il faut aligner l’horloge visible
+
+puis nettoyer les paramètres
+
+puis faire la QA finale

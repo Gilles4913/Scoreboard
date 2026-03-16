@@ -49,6 +49,7 @@ type SportSettingsRow = {
   max_player_fouls: number | null;
   max_timeouts: number | null;
   shot_clock_s: number | null;
+  rugby_sin_bin_duration_s: number | null;
 };
 
 type SportClockForm = {
@@ -308,6 +309,7 @@ function presetSportSettingsForSport(sport: string): Partial<SportSettingsRow> {
       max_player_fouls: null,
       max_timeouts: null,
       shot_clock_s: null,
+      rugby_sin_bin_duration_s: 600,
     };
   }
 
@@ -438,7 +440,7 @@ export default function DisplaySettingsPage() {
             .maybeSingle(),
           supabase
             .from("org_sport_settings")
-            .select("org_id, sport, period_count, period_duration_s, extra_time_enabled, penalties_enabled, show_team_fouls, show_player_fouls, show_timeouts, show_bonus, show_sets, show_cards, show_shot_clock, max_team_fouls, max_player_fouls, max_timeouts, shot_clock_s")
+            .select("org_id, sport, period_count, period_duration_s, extra_time_enabled, penalties_enabled, show_team_fouls, show_player_fouls, show_timeouts, show_bonus, show_sets, show_cards, show_shot_clock, max_team_fouls, max_player_fouls, max_timeouts, shot_clock_s, rugby_sin_bin_duration_s")
             .eq("org_id", currentOrg.id)
             .maybeSingle(),
           supabase
@@ -504,6 +506,7 @@ export default function DisplaySettingsPage() {
           max_player_fouls: null,
           max_timeouts: null,
           shot_clock_s: null,
+          rugby_sin_bin_duration_s: null,
         },
       );
 
@@ -816,10 +819,12 @@ export default function DisplaySettingsPage() {
                   onChange={(e) => patchDisplay({ layout_mode: e.target.value })}
                   style={styles.input}
                 >
-                  <option value="stadium">stadium</option>
-                  <option value="arena">arena</option>
+                  <option value="rugby_stade">rugby_stade (Rugby LED Stade)</option>
+                  <option value="rugby_expert">rugby_expert (Rugby Expert)</option>
+                  <option value="stadium">stadium (Stade classique)</option>
+                  <option value="arena">arena (Arena premium)</option>
                   <option value="compact">compact</option>
-                  <option value="volley">volley</option>
+                  <option value="volley">volley (Volleyball)</option>
                 </select>
               </Field>
 
@@ -1017,6 +1022,21 @@ export default function DisplaySettingsPage() {
               <div style={styles.sectionText}>
                 Ces options contrôlent les éléments spécifiques au rugby sur le Display (breakdown des points, exclusions temporaires, etc.).
               </div>
+
+              <div style={styles.formGrid}>
+                <Field label="Durée exclusion temporaire — sin bin (secondes)">
+                  <input
+                    type="number"
+                    min={60}
+                    max={1200}
+                    value={sportForm.rugby_sin_bin_duration_s ?? 600}
+                    onChange={(e) => patchSport({ rugby_sin_bin_duration_s: Math.max(60, Number(e.target.value || 600)) })}
+                    style={styles.input}
+                    placeholder="ex: 600 (10 min)"
+                  />
+                </Field>
+              </div>
+
               <div style={styles.flagsGrid}>
                 <Toggle
                   label="Détail des points (Essais / Transfo / Pén / Drop)"
