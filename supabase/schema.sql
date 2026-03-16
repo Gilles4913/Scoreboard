@@ -1,3 +1,32 @@
+-- =========================================================
+-- ATTENTION — FICHIER TEMPORAIREMENT OBSOLÈTE
+-- =========================================================
+-- Le présent fichier `supabase/schema.sql` n'est pas
+-- actuellement aligné avec la base Supabase réelle.
+--
+-- IL NE DOIT PAS ÊTRE UTILISÉ COMME SOURCE DE VÉRITÉ.
+--
+-- La source de vérité du schéma est, dans l'ordre :
+-- 1. la base de données réelle
+-- 2. les migrations SQL effectivement appliquées
+--
+-- Tant que ce fichier n'a pas été régénéré depuis la DB réelle,
+-- il ne doit pas servir pour :
+-- - reconstruire le schéma
+-- - comparer le schéma réel
+-- - valider l'existence de colonnes / vues / contraintes / fonctions
+--
+-- Toute vérification structurelle doit être faite contre :
+-- - les colonnes réellement présentes en base
+-- - les vues réellement présentes
+-- - les contraintes réellement présentes
+-- - les fonctions / triggers réellement présents
+-- - les migrations SQL du projet
+--
+-- Une régénération complète de ce fichier depuis la base réelle
+-- est prévue afin de réaligner le repo avec l'état effectif de la DB.
+-- =========================================================
+
 create extension if not exists "uuid-ossp";
 create extension if not exists "pgcrypto";
 
