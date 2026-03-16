@@ -1,0 +1,200 @@
+Le problème est identifié clairement dans le code.
+
+Cause
+
+Pour le Rugby :
+
+la Régie live continue à utiliser un moteur interne en compte à rebours avec une valeur initiale de 40 min
+
+le Display transforme cette valeur en affichage croissant (00:00 → 40:00)
+
+Donc aujourd’hui :
+
+Operator affiche la valeur technique interne
+
+Display affiche la valeur transformée pour le public
+
+C’est pour ça que tu vois :
+
+Régie : 40:00 au départ
+
+Display : 00:00 au départ
+
+Où ça se voit dans le repo
+
+Côté Operator, les fonctions par défaut restent en rugby à 40 minutes :
+
+apps/operator/src/pages/ControlPage.tsx
+
+apps/operator/src/pages/MobileControlPage.tsx
+
+apps/operator/src/pages/NewMatchPage.tsx
+
+avec une logique du type :
+
+rugby → 40 * 60 * 1000
+
+Côté Display, main.tsx transmet bien :
+
+clock_direction
+
+clock_limit_s
+
+clock_overrun_mode
+
+et Scoreboard.tsx essaie de convertir l’affichage selon count_up.
+
+Conclusion
+
+Le système est aujourd’hui en double représentation :
+
+représentation technique : temps restant
+
+représentation visuelle : temps écoulé
+
+Ce n’est pas faux techniquement, mais c’est mauvais en usage, parce que la régie et l’écran ne montrent pas la même chose.
+
+Ce qu’il faut faire
+
+Tu as 2 options.
+
+Option 1 — recommandée maintenant
+
+Conserver le moteur interne actuel, mais faire afficher la même représentation visuelle dans l’Operator et dans le Display.
+
+Donc :
+
+en rugby / football avec clock_direction = count_up
+
+la Régie doit afficher aussi 00:00 puis 00:01, 00:02, etc.
+
+tout en continuant à stocker techniquement clock_ms comme aujourd’hui si tu veux éviter une refonte profonde
+
+Avantage
+
+peu risqué
+
+ne casse pas la synchro actuelle
+
+aligne enfin Régie + Display
+
+Inconvénient
+
+le moteur interne reste un compte à rebours “masqué”
+
+Option 2 — refonte plus profonde
+
+Faire du rugby / football un vrai moteur interne en count_up.
+
+Avantage
+
+cohérence totale
+
+plus propre conceptuellement
+
+Inconvénient
+
+plus risqué
+
+il faut revoir plus de logique :
+
+start/pause/reset
+
+calculs d’ancre
+
+dépassement
+
+événements
+
+reprise à froid
+
+Ma recommandation
+
+Je te conseille Option 1 tout de suite :
+
+garder le moteur interne actuel, mais afficher dans la Régie la même valeur transformée que sur le Display.
+
+Comme ça :
+
+Rugby : 00:00 au départ partout
+
+Football : 00:00 au départ partout
+
+Basket / Handball : restent en compte à rebours partout
+
+Règle cible par sport
+
+Rugby : affichage count_up
+
+Football : affichage count_up
+
+Basket : affichage count_down
+
+Handball : affichage count_down
+
+Volley : simple / inchangé
+
+Ce qu’il faut demander à Replit
+
+Il faut maintenant un lot ciblé :
+
+créer une helper de format d’affichage du chrono réutilisable
+
+l’utiliser :
+
+dans Scoreboard.tsx
+
+dans ControlPage.tsx
+
+dans MobileControlPage.tsx
+
+pour que l’Operator et le Display montrent la même valeur visuelle
+
+sans casser le moteur live existant
+
+Voici le prompt prêt à coller :
+
+Je veux corriger une incohérence d’affichage du chronomètre entre la Régie live et le Display.
+
+Problème actuel :
+- en Rugby, la Régie affiche encore le temps interne technique en compte à rebours (départ à 40:00)
+- le Display affiche un rendu count_up (départ à 00:00)
+- cela crée une incohérence visible et gênante
+
+Objectif :
+- l’Operator, la QR Console et le Display doivent afficher la même représentation visuelle du chrono
+- sans casser le moteur live existant ni la synchronisation déjà en place
+
+Règle cible :
+- Rugby : affichage count_up
+- Football : affichage count_up
+- Basket : affichage count_down
+- Handball : affichage count_down
+- Volley : comportement simple, inchangé si nécessaire
+
+Important :
+- je ne demande pas forcément une refonte du moteur interne
+- si le moteur interne reste en clock_ms “temps restant”, ce n’est pas grave
+- mais la représentation affichée doit être identique sur toutes les surfaces
+
+Travail demandé :
+1. créer une helper réutilisable de calcul / format visuel du chrono
+   par exemple :
+   - computeDisplayClock(...)
+   - formatDisplayClock(...)
+2. utiliser cette helper dans :
+   - apps/display/src/components/Scoreboard.tsx
+   - apps/operator/src/pages/ControlPage.tsx
+   - apps/operator/src/pages/MobileControlPage.tsx
+3. faire en sorte qu’en Rugby :
+   - au départ la Régie affiche 00:00 et non 40:00
+   - au-delà de 40:00, le chrono continue et passe en rouge si continue_red
+4. faire de même pour Football avec 45:00
+5. ne pas casser Basket / Handball
+6. garder la synchro live existante
+7. fournir les fichiers complets modifiés
+
+Je veux aussi un mini résumé final :
+- cause exacte du bug
+- logique retenue
+- comportement final par sport

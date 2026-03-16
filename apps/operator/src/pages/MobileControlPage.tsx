@@ -9,6 +9,31 @@ import { usePlayerPicker, PlayerPickerDialog, PlayerOption } from "../components
 function normalizeSport(v: string | null | undefined) {
   return ((v || "football") + "").toLowerCase().trim();
 }
+function computeDisplayClock(
+  clockMs: number,
+  clockMsUnclamped: number,
+  direction: string,
+  limitS: number | null,
+  overrunMode: string,
+): { text: string; isOverrun: boolean } {
+  if (direction !== "count_up" || limitS === null) {
+    return { text: fmtClock(clockMs), isOverrun: false };
+  }
+  const limitMs = limitS * 1000;
+  const elapsedMs = limitMs - clockMsUnclamped;
+  const isOverrun = elapsedMs > limitMs;
+  if (!isOverrun) {
+    return { text: fmtClock(Math.max(0, elapsedMs)), isOverrun: false };
+  }
+  if (overrunMode === "stop_at_limit") {
+    return { text: fmtClock(limitMs), isOverrun: false };
+  }
+  if (overrunMode === "continue_with_plus") {
+    return { text: "+" + fmtClock(elapsedMs - limitMs), isOverrun: true };
+  }
+  return { text: fmtClock(elapsedMs), isOverrun: true };
+}
+
 function fmtClock(ms: number) {
   const total = Math.max(0, Math.floor(ms / 1000));
   const mm = String(Math.floor(total / 60)).padStart(2, "0");
@@ -86,6 +111,7 @@ export default function MobileControlPage() {
   const [homeScore, setHomeScore] = useState(0);
   const [awayScore, setAwayScore] = useState(0);
   const [clockMs, setClockMs] = useState(0);
+  const [clockMsUnclamped, setClockMsUnclamped] = useState(0);
   const [clockRunning, setClockRunning] = useState(false);
 
   const [homeYellow, setHomeYellow] = useState(0);
@@ -183,10 +209,12 @@ export default function MobileControlPage() {
         clockMsRef.current = currentMs;
         clockAnchorRef.current = { epoch: m.clock_anchor_epoch_ms, ms: m.clock_anchor_clock_ms };
         setClockMs(currentMs);
+        setClockMsUnclamped(currentMs);
       } else {
         clockMsRef.current = initMs;
         clockAnchorRef.current = { epoch: Date.now(), ms: initMs };
         setClockMs(initMs);
+        setClockMsUnclamped(initMs);
       }
       setClockRunning(initRunning);
 
@@ -217,10 +245,12 @@ export default function MobileControlPage() {
       if (!clockRunningRef.current) return;
 
       const elapsed = Date.now() - clockAnchorRef.current.epoch;
-      const next = Math.max(0, clockAnchorRef.current.ms - elapsed);
+      const rawNext = clockAnchorRef.current.ms - elapsed;
+      const next = Math.max(0, rawNext);
 
       clockMsRef.current = next;
       setClockMs(next);
+      setClockMsUnclamped(rawNext);
 
       if (next <= 0) {
         clockRunningRef.current = false;
@@ -250,12 +280,14 @@ export default function MobileControlPage() {
       const nextClockMs = hasClockMs ? patch.clock_ms : patch.clock_anchor_ms;
       clockMsRef.current = nextClockMs;
       setClockMs(nextClockMs);
+      setClockMsUnclamped(nextClockMs);
       return;
     }
 
     if (hasClockMs) {
       clockMsRef.current = patch.clock_ms;
       setClockMs(patch.clock_ms);
+      setClockMsUnclamped(patch.clock_ms);
     }
     if (hasClockRunning) {
       clockRunningRef.current = !!patch.clock_running;
@@ -611,7 +643,13 @@ export default function MobileControlPage() {
       {/* chrono */}
       <div style={s.card}>
         <div style={s.sectionTitle}>Chronomètre</div>
-        <div style={s.clockDisplay}>{fmtClock(clockMs)}</div>
+        {(() => {
+          const dir = (normalizeSport(sport) === "rugby" || normalizeSport(sport) === "football") ? "count_up" : "count_down";
+          const limitS = periodDurationS ?? null;
+          const ovr = dir === "count_up" ? "continue_red" : "stop_at_limit";
+          const { text: clockText, isOverrun } = computeDisplayClock(clockMs, clockMsUnclamped, dir, limitS, ovr);
+          return <div style={{ ...s.clockDisplay, color: isOverrun ? "#ef4444" : s.clockDisplay.color }}>{clockText}</div>;
+        })()}
         <div style={s.clockActions}>
           {clockRunning
             ? <button style={s.clockBtn(true)} onClick={pauseClock}>⏸ Pause</button>

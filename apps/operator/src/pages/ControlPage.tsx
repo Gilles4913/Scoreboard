@@ -357,6 +357,31 @@ function fmtClock(ms: number) {
   return `${mm}:${ss}`;
 }
 
+function computeDisplayClock(
+  clockMs: number,
+  clockMsUnclamped: number,
+  direction: string,
+  limitS: number | null,
+  overrunMode: string,
+): { text: string; isOverrun: boolean } {
+  if (direction !== "count_up" || limitS === null) {
+    return { text: fmtClock(clockMs), isOverrun: false };
+  }
+  const limitMs = limitS * 1000;
+  const elapsedMs = limitMs - clockMsUnclamped;
+  const isOverrun = elapsedMs > limitMs;
+  if (!isOverrun) {
+    return { text: fmtClock(Math.max(0, elapsedMs)), isOverrun: false };
+  }
+  if (overrunMode === "stop_at_limit") {
+    return { text: fmtClock(limitMs), isOverrun: false };
+  }
+  if (overrunMode === "continue_with_plus") {
+    return { text: "+" + fmtClock(elapsedMs - limitMs), isOverrun: true };
+  }
+  return { text: fmtClock(elapsedMs), isOverrun: true };
+}
+
 function clampMin(n: number, min = 0) {
   return Math.max(min, n);
 }
@@ -425,6 +450,7 @@ export default function ControlPage() {
   const [homeScore, setHomeScore] = useState(0);
   const [awayScore, setAwayScore] = useState(0);
   const [clockMs, setClockMs] = useState(0);
+  const [clockMsUnclamped, setClockMsUnclamped] = useState(0);
   const [clockRunning, setClockRunning] = useState(false);
   const [autoLive, setAutoLive] = useState(true);
 
@@ -633,6 +659,7 @@ export default function ControlPage() {
       clockRunningRef.current = initClockRunning;
       clockAnchorRef.current = { epoch: Date.now(), ms: initClockMs };
       setClockMs(initClockMs);
+      setClockMsUnclamped(initClockMs);
       setClockRunning(initClockRunning);
 
       setHomeTeamFouls(Number(currentMatch.home_team_fouls || 0));
@@ -752,9 +779,11 @@ export default function ControlPage() {
 
     timerRef.current = window.setInterval(() => {
       const { epoch, ms: anchorMs } = clockAnchorRef.current;
-      const computed = Math.max(0, anchorMs - (Date.now() - epoch));
+      const rawComputed = anchorMs - (Date.now() - epoch);
+      const computed = Math.max(0, rawComputed);
       clockMsRef.current = computed;
       setClockMs(computed);
+      setClockMsUnclamped(rawComputed);
       if (computed === 0) {
         clockRunningRef.current = false;
         setClockRunning(false);
@@ -942,7 +971,7 @@ export default function ControlPage() {
     if (hasAnchorEpoch && hasAnchorMs) {
       clockAnchorRef.current = { epoch: patch.clock_anchor_epoch, ms: patch.clock_anchor_ms };
     }
-    if (hasClockMs)      { clockMsRef.current = patch.clock_ms;          setClockMs(patch.clock_ms); }
+    if (hasClockMs)      { clockMsRef.current = patch.clock_ms;          setClockMs(patch.clock_ms); setClockMsUnclamped(patch.clock_ms); }
     if (hasClockRunning) { clockRunningRef.current = !!patch.clock_running; setClockRunning(!!patch.clock_running); }
   }
 
@@ -2288,7 +2317,17 @@ export default function ControlPage() {
 
               <div style={styles.clockCard}>
                 <div style={styles.clockLabel}>{periodLabel}</div>
-                <div style={styles.clockValue}>{fmtClock(clockMs)}</div>
+                {(() => {
+                  const dir = (sport === "rugby" || sport === "football") ? "count_up" : "count_down";
+                  const limitS = sportSettings?.period_duration_s ?? null;
+                  const ovr = dir === "count_up" ? "continue_red" : "stop_at_limit";
+                  const { text: clockText, isOverrun } = computeDisplayClock(clockMs, clockMsUnclamped, dir, limitS, ovr);
+                  return (
+                    <div style={{ ...styles.clockValue, color: isOverrun ? "#ef4444" : undefined }}>
+                      {clockText}
+                    </div>
+                  );
+                })()}
                 <div style={{ opacity: 0.75, marginBottom: 12 }}>{clockRunning ? "Chrono actif" : "Chrono arrêté"}</div>
 
                 <div style={styles.scoreActions}>
