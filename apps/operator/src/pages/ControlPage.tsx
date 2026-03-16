@@ -174,6 +174,7 @@ type SportSettings = {
   max_player_fouls: number | null;
   max_timeouts: number | null;
   shot_clock_s: number | null;
+  rugby_sin_bin_duration_s: number;
 };
 
 type PlayerStatRow = {
@@ -570,7 +571,7 @@ export default function ControlPage() {
           .maybeSingle(),
         supabase
           .from("org_sport_settings")
-          .select("org_id, sport, period_count, period_duration_s, extra_time_enabled, penalties_enabled, show_team_fouls, show_player_fouls, show_timeouts, show_bonus, show_sets, show_cards, show_shot_clock, max_team_fouls, max_player_fouls, max_timeouts, shot_clock_s")
+          .select("org_id, sport, period_count, period_duration_s, extra_time_enabled, penalties_enabled, show_team_fouls, show_player_fouls, show_timeouts, show_bonus, show_sets, show_cards, show_shot_clock, max_team_fouls, max_player_fouls, max_timeouts, shot_clock_s, rugby_sin_bin_duration_s")
           .eq("org_id", currentMatch.org_id)
           .maybeSingle(),
         supabase
@@ -1849,7 +1850,7 @@ export default function ControlPage() {
     try {
       await dispatch(
         patch as Record<string, any>,
-        { event: { event_type: "rugby_yellow_card", team_side: side, player_id: player?.id || null, payload: { player_name: player?.name || null, shirt_number: player?.number || null, duration_s: 600 } } },
+        { event: { event_type: "rugby_yellow_card", team_side: side, player_id: player?.id || null, payload: { player_name: player?.name || null, shirt_number: player?.number || null, duration_s: sportSettings?.rugby_sin_bin_duration_s ?? 600 } } },
       );
 
       const { data } = await supabase
@@ -1863,7 +1864,7 @@ export default function ControlPage() {
           player_name_snapshot: player?.name || null,
           shirt_number_snapshot: player?.number || null,
           started_game_clock_ms: clockMsRef.current,
-          duration_s: 600,
+          duration_s: sportSettings?.rugby_sin_bin_duration_s ?? 600,
           is_active: true,
         })
         .select("id, team_side, player_id, player_name_snapshot, shirt_number_snapshot, started_game_clock_ms, duration_s, ended_game_clock_ms, is_active, created_at")

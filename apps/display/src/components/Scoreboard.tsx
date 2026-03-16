@@ -28,6 +28,15 @@ type PlayerStatRow = {
   red_cards?: number;
 };
 
+type ActiveSinBin = {
+  id: string;
+  team_side: string;
+  player_name_snapshot?: string | null;
+  shirt_number_snapshot?: string | null;
+  started_game_clock_ms: number;
+  duration_s: number;
+};
+
 export type ScoreboardContext = {
   match_id?: string;
   match_name?: string | null;
@@ -144,10 +153,13 @@ export type ScoreboardContext = {
   show_two_min_suspensions?: boolean;
   show_disqualifications?: boolean;
   show_warnings?: boolean;
+  show_sin_bin_timer?: boolean;
   overlay_position?: "top" | "bottom";
   overlay_duration_ms?: number;
   density_mode?: "low" | "medium" | "high";
   team_name_mode?: "full" | "short" | "code";
+  home_active_sin_bins?: ActiveSinBin[];
+  away_active_sin_bins?: ActiveSinBin[];
 };
 
 type Props = {
@@ -519,6 +531,73 @@ function BreakdownChip({
   );
 }
 
+function SinBinTimer({
+  sinBins,
+  clockMs,
+  theme,
+}: {
+  sinBins: ActiveSinBin[];
+  clockMs: number;
+  theme: ThemeMode;
+}) {
+  const [ticked, setTicked] = React.useState(clockMs);
+
+  React.useEffect(() => {
+    setTicked(clockMs);
+  }, [clockMs]);
+
+  React.useEffect(() => {
+    const id = setInterval(() => {
+      setTicked((prev) => Math.max(0, prev - 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  if (!sinBins || sinBins.length === 0) return null;
+
+  const withRemaining = sinBins
+    .map((sb) => {
+      const endClock = sb.started_game_clock_ms - sb.duration_s * 1000;
+      return { ...sb, remaining: Math.max(0, ticked - endClock) };
+    })
+    .sort((a, b) => a.remaining - b.remaining);
+
+  const mostUrgent = withRemaining[0];
+  const count = sinBins.length;
+  const totalS = Math.ceil(mostUrgent.remaining / 1000);
+  const m = Math.floor(totalS / 60);
+  const s = totalS % 60;
+  const timeStr = `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  const label = count > 1 ? `Excl. temp. ${count} • ${timeStr}` : `Excl. temp. • ${timeStr}`;
+
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "5px 12px",
+        borderRadius: 8,
+        background: "rgba(245,158,11,0.12)",
+        border: "1px solid rgba(245,158,11,0.35)",
+        marginTop: 4,
+      }}
+    >
+      <span
+        style={{
+          fontSize: "clamp(11px,1.5vw,16px)",
+          fontWeight: 700,
+          color: "#f59e0b",
+          letterSpacing: "0.03em",
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {label}
+      </span>
+    </div>
+  );
+}
+
 function RugbyStadeLayout({ context, activeOverlay }: Props) {
   const theme: ThemeMode = context.theme === "light" ? "light" : "dark";
   const bg = theme === "dark" ? "#04070a" : "#f7f8fb";
@@ -782,6 +861,9 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
             {showSinBin && homeSinBin > 0 && (
               <BreakdownChip label="Excl. temp." value={homeSinBin} color="#f59e0b" theme={theme} />
             )}
+            {context.show_sin_bin_timer && (
+              <SinBinTimer sinBins={context.home_active_sin_bins ?? []} clockMs={safeNum(context.clock_ms)} theme={theme} />
+            )}
             {showCards && homeYellow > 0 && (
               <BreakdownChip label="J" value={homeYellow} color="#eab308" theme={theme} />
             )}
@@ -811,6 +893,9 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
             )}
             {showSinBin && awaySinBin > 0 && (
               <BreakdownChip label="Excl. temp." value={awaySinBin} color="#f59e0b" theme={theme} />
+            )}
+            {context.show_sin_bin_timer && (
+              <SinBinTimer sinBins={context.away_active_sin_bins ?? []} clockMs={safeNum(context.clock_ms)} theme={theme} />
             )}
             {showCards && awayYellow > 0 && (
               <BreakdownChip label="J" value={awayYellow} color="#eab308" theme={theme} />
@@ -1082,6 +1167,9 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
             {context.show_sin_bin !== false && homeSinBin > 0 && (
               <BreakdownChip label="Excl. temp." value={homeSinBin} color="#f59e0b" theme={theme} />
             )}
+            {context.show_sin_bin_timer && (
+              <SinBinTimer sinBins={context.home_active_sin_bins ?? []} clockMs={safeNum(context.clock_ms)} theme={theme} />
+            )}
             {context.show_cards !== false && homeYellow > 0 && (
               <BreakdownChip label="J" value={homeYellow} color="#eab308" theme={theme} />
             )}
@@ -1111,6 +1199,9 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
             )}
             {context.show_sin_bin !== false && awaySinBin > 0 && (
               <BreakdownChip label="Excl. temp." value={awaySinBin} color="#f59e0b" theme={theme} />
+            )}
+            {context.show_sin_bin_timer && (
+              <SinBinTimer sinBins={context.away_active_sin_bins ?? []} clockMs={safeNum(context.clock_ms)} theme={theme} />
             )}
             {context.show_cards !== false && awayYellow > 0 && (
               <BreakdownChip label="J" value={awayYellow} color="#eab308" theme={theme} />

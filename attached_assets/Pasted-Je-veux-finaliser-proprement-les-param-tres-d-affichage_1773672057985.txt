@@ -1,0 +1,152 @@
+Je veux finaliser proprement les paramètres d’affichage par sport pour le Rugby, et en particulier l’exclusion temporaire sur carton jaune.
+
+Contexte projet :
+- scoreDisplay V2
+- React + TypeScript + Supabase
+- Operator = régie live
+- Display = écran public
+- architecture de paramètres déjà en place :
+  - org_display_settings
+  - org_sport_settings
+  - org_display_sport_profiles
+  - display_templates
+  - team_display_settings
+- sport pilote visuel : Rugby
+- les paramètres existent déjà en partie, mais tous ne sont pas encore réellement branchés en ON/OFF jusqu’au rendu
+
+Objectifs de ce lot :
+1. corriger le wording Rugby
+2. fiabiliser les paramètres Rugby réellement utiles
+3. ajouter un affichage optionnel du chrono d’exclusion temporaire (sin bin)
+4. vérifier que les paramètres ON/OFF sont bien implémentés côté Display
+5. ne pas casser les autres sports
+
+Décisions produit validées :
+- le libellé rugby "Séance de tir au but" doit devenir :
+  - "Procédure de départage"
+- carton jaune rugby :
+  - valeur par défaut = 10 minutes
+- on veut un nouveau paramètre :
+  - show_sin_bin_timer
+- ce timer doit être affichable en mode ON/OFF
+- il faut rester compatible avec les layouts LED
+- l’affichage doit rester lisible et non intrusif
+
+TRAVAIL DEMANDÉ
+
+A. Audit des paramètres Rugby réellement branchés
+Je veux que tu audites dans le dernier code :
+- les paramètres rugby présents dans les types / payloads / pages de settings
+- les paramètres rugby réellement utilisés par le Display
+- les paramètres qui existent mais ne sont pas branchés jusqu’au rendu
+
+Je veux une sortie claire :
+1. paramètres vraiment opérationnels
+2. paramètres présents mais non branchés
+3. paramètres mal nommés ou ambigus
+
+B. Correction du wording Rugby
+Je veux que tu remplaces dans l’UI Operator / settings Rugby :
+- "Séance de tir au but"
+par :
+- "Procédure de départage"
+
+Je veux que tu appliques ce changement proprement :
+- labels UI
+- help text éventuel
+- textes visibles
+- sans casser les champs techniques existants si leur stockage doit rester stable
+
+C. Gestion métier de l’exclusion temporaire Rugby
+Je veux que tu utilises comme durée par défaut :
+- 10 minutes = 600 secondes
+
+Le système doit utiliser :
+- org_sport_settings.rugby_sin_bin_duration_s
+avec fallback à 600 si absent
+
+D. Nouveau paramètre d’affichage
+Je veux brancher réellement :
+- org_display_sport_profiles.show_sin_bin_timer
+
+Règle :
+- si OFF :
+  - on garde l’affichage actuel des exclusions temporaires rugby
+  - ex : nombre d’exclusions actives seulement
+- si ON :
+  - le Display doit montrer un chrono d’exclusion temporaire rugby
+
+E. Source de données pour le timer
+Je veux que tu exploites la structure existante de sin bin rugby.
+Vérifie dans le code et dans la DB les données disponibles via :
+- match_sin_bins
+- ou équivalent si déjà utilisé
+- ou payload edge function
+
+Je veux que le backend / edge function retourne au Display les exclusions temporaires actives rugby sous une forme exploitable.
+
+Format attendu dans le payload display, par exemple :
+- home_active_sin_bins: [...]
+- away_active_sin_bins: [...]
+
+Chaque item doit pouvoir contenir :
+- player_id
+- player_name
+- player_number
+- started_game_clock_ms
+- duration_s
+- remaining_ms
+- remaining_s
+
+F. Edge Function
+Modifier get-display-context pour :
+1. charger les exclusions temporaires actives rugby
+2. calculer les valeurs utiles pour le Display
+3. retourner ces données dans le payload
+4. exposer aussi show_sin_bin_timer dans la config résolue
+
+Je veux le fichier complet si tu le modifies.
+
+G. Display
+Modifier le Scoreboard / composant rugby pour afficher le timer d’exclusion temporaire.
+
+Exigences UX :
+- ne pas casser la lisibilité LED
+- mode compact par défaut
+- exemple compact :
+  - "Excl. temp. 1 • 07:32"
+- si plusieurs exclusions actives :
+  - afficher le nombre + le chrono le plus urgent
+  - ou une liste très courte si le layout expert l’autorise
+- si OFF :
+  - aucun chrono d’exclusion ne doit apparaître
+- si ON :
+  - le chrono doit apparaître proprement
+
+Je veux une implémentation sobre et robuste, pas une UI chargée.
+
+H. Audit ON/OFF des paramètres par sport
+Je veux aussi que tu identifies dans le code quels paramètres d’affichage par sport :
+- sont réellement branchés jusqu’au rendu
+- circulent dans les payloads mais ne sont pas encore rendus
+- méritent un lot ultérieur
+
+Je veux ce diagnostic dans la réponse finale.
+
+I. Livrables
+Je veux :
+1. la liste des fichiers modifiés
+2. les fichiers complets modifiés
+3. le SQL complet si nécessaire
+4. un résumé clair :
+   - ce qui est réellement branché
+   - ce qui ne l’est pas encore
+5. un mini plan de test manuel
+
+Contraintes :
+- partir du code existant
+- ne pas faire une refonte gratuite
+- ne pas casser les autres sports
+- ne pas casser le contrat live global
+- ne pas réintroduire de logique legacy
+- garder la lisibilité LED comme priorité

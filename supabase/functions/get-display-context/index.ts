@@ -542,6 +542,24 @@ serve(async (req) => {
 
     const { org, display_settings: orgDisplaySettings, sport_settings, sport_profile } = orgSettings;
 
+    // Load active rugby sin bins (soft — table may not exist in all envs)
+    let activeSinBinsRaw: any[] = [];
+    try {
+      const orgSportVal = ((org?.sport as string) || "").toLowerCase().trim();
+      if (orgSportVal === "rugby") {
+        const { data: sbData } = await supabase
+          .from("match_sin_bins")
+          .select("id, team_side, player_name_snapshot, shirt_number_snapshot, started_game_clock_ms, duration_s")
+          .eq("match_id", String(match.id))
+          .eq("is_active", true);
+        activeSinBinsRaw = sbData ?? [];
+      }
+    } catch {
+      // Non-blocking: table may not exist in all envs
+    }
+    const home_active_sin_bins = activeSinBinsRaw.filter((sb) => sb.team_side === "home");
+    const away_active_sin_bins = activeSinBinsRaw.filter((sb) => sb.team_side === "away");
+
     // Resolve display template:
     // 1. team_display_settings override
     // 2. org_display_sport_profiles.default_display_template_id
@@ -742,6 +760,9 @@ serve(async (req) => {
       sponsors,
       home_players: players.home_players,
       away_players: players.away_players,
+
+      home_active_sin_bins,
+      away_active_sin_bins,
     };
 
     return json(payload, 200);

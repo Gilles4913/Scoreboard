@@ -111,6 +111,7 @@ function buildContextFromResponse(json: any): ScoreboardContext {
     show_cards: resolved.show_cards ?? sportSettings.show_cards ?? false,
     show_shot_clock: resolved.show_shot_clock ?? sportSettings.show_shot_clock ?? false,
     show_sin_bin: resolved.show_sin_bin ?? sp.show_sin_bin ?? sportSettings.show_sin_bin ?? true,
+    show_sin_bin_timer: resolved.show_sin_bin_timer ?? sp.show_sin_bin_timer ?? false,
     show_rugby_score_breakdown: resolved.show_rugby_score_breakdown ?? sp.show_rugby_score_breakdown ?? sportSettings.show_rugby_score_breakdown ?? true,
     show_rugby_tries: resolved.show_rugby_tries ?? sp.show_rugby_tries ?? sportSettings.show_rugby_tries ?? true,
     show_rugby_conversions: resolved.show_rugby_conversions ?? sp.show_rugby_conversions ?? sportSettings.show_rugby_conversions ?? true,
@@ -170,6 +171,8 @@ function buildContextFromResponse(json: any): ScoreboardContext {
     rugby_away_drop_goals: match.rugby_away_drop_goals ?? 0,
     rugby_home_sin_bin_active: match.rugby_home_sin_bin_active ?? 0,
     rugby_away_sin_bin_active: match.rugby_away_sin_bin_active ?? 0,
+    home_active_sin_bins: (json?.home_active_sin_bins ?? []) as any[],
+    away_active_sin_bins: (json?.away_active_sin_bins ?? []) as any[],
 
     handball_home_2min_active: match.handball_home_2min_active ?? 0,
     handball_away_2min_active: match.handball_away_2min_active ?? 0,

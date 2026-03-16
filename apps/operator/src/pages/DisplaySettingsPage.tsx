@@ -54,6 +54,7 @@ type SportSettingsRow = {
 type RugbyProfileForm = {
   show_rugby_score_breakdown: boolean;
   show_sin_bin: boolean;
+  show_sin_bin_timer: boolean;
   show_rugby_tries: boolean;
   show_rugby_conversions: boolean;
   show_rugby_penalties: boolean;
@@ -180,7 +181,7 @@ function sportUiConfig(sport: string) {
     periodCountLabel:       volley   ? "Nombre de sets"                    : basket  ? "Nombre de quarts"                  : rugby   ? "Nombre de mi-temps"              : "Nombre de périodes",
     periodDurationLabel:    basket   ? "Durée d'un quart (secondes)"       : rugby   ? "Durée d'une mi-temps (secondes)"    : volley  ? "Durée par set (secondes)"        : "Durée d'une période (secondes)",
     extraTimeLabel:         rugby    ? "Prolongations"                     : "Prolongation",
-    penaltiesLabel:         rugby    ? "Séance de tirs au but"             : volley  ? "Tirs au but"                        : "Tirs au but / pénalités",
+    penaltiesLabel:         rugby    ? "Procédure de départage"             : volley  ? "Tirs au but"                        : "Tirs au but / pénalités",
     maxTimeoutsLabel:       handball ? "Temps morts max (par équipe)"      : volley  ? "Temps techniques max"               : "Temps morts max",
     maxTeamFoulsLabel:      "Fautes équipe max",
     maxPlayerFoulsLabel:    basket   ? "Fautes joueur max (exclusion à 5)" : "Fautes joueur max",
@@ -426,7 +427,7 @@ export default function DisplaySettingsPage() {
           normalizeSport(currentOrg.sport) === "rugby"
             ? supabase
                 .from("org_display_sport_profiles")
-                .select("show_rugby_score_breakdown, show_sin_bin, show_rugby_tries, show_rugby_conversions, show_rugby_penalties, show_rugby_drop_goals")
+                .select("show_rugby_score_breakdown, show_sin_bin, show_sin_bin_timer, show_rugby_tries, show_rugby_conversions, show_rugby_penalties, show_rugby_drop_goals")
                 .eq("org_id", currentOrg.id)
                 .eq("sport", "rugby")
                 .maybeSingle()
@@ -496,6 +497,7 @@ export default function DisplaySettingsPage() {
         setRugbyForm({
           show_rugby_score_breakdown: rp?.show_rugby_score_breakdown ?? true,
           show_sin_bin:               rp?.show_sin_bin               ?? true,
+          show_sin_bin_timer:         rp?.show_sin_bin_timer         ?? false,
           show_rugby_tries:           rp?.show_rugby_tries           ?? true,
           show_rugby_conversions:     rp?.show_rugby_conversions     ?? true,
           show_rugby_penalties:       rp?.show_rugby_penalties       ?? true,
@@ -564,6 +566,7 @@ export default function DisplaySettingsPage() {
             sport:                     "rugby",
             show_rugby_score_breakdown: rugbyForm.show_rugby_score_breakdown,
             show_sin_bin:              rugbyForm.show_sin_bin,
+            show_sin_bin_timer:        rugbyForm.show_sin_bin_timer,
             show_rugby_tries:          rugbyForm.show_rugby_tries,
             show_rugby_conversions:    rugbyForm.show_rugby_conversions,
             show_rugby_penalties:      rugbyForm.show_rugby_penalties,
@@ -616,6 +619,7 @@ export default function DisplaySettingsPage() {
           ...(isRugby && rugbyForm ? {
             show_rugby_score_breakdown: rugbyForm.show_rugby_score_breakdown,
             show_sin_bin:              rugbyForm.show_sin_bin,
+            show_sin_bin_timer:        rugbyForm.show_sin_bin_timer,
             show_rugby_tries:          rugbyForm.show_rugby_tries,
             show_rugby_conversions:    rugbyForm.show_rugby_conversions,
             show_rugby_penalties:      rugbyForm.show_rugby_penalties,
@@ -946,6 +950,11 @@ export default function DisplaySettingsPage() {
                   label="Exclusions temporaires (carton jaune)"
                   value={rugbyForm.show_sin_bin}
                   onChange={(v) => patchRugby({ show_sin_bin: v })}
+                />
+                <Toggle
+                  label="Chrono d'exclusion temporaire (sin bin timer)"
+                  value={rugbyForm.show_sin_bin_timer}
+                  onChange={(v) => patchRugby({ show_sin_bin_timer: v })}
                 />
                 <Toggle
                   label="Afficher Essais"
