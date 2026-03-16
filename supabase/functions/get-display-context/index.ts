@@ -557,8 +557,31 @@ serve(async (req) => {
     } catch {
       // Non-blocking: table may not exist in all envs
     }
-    const home_active_sin_bins = activeSinBinsRaw.filter((sb) => sb.team_side === "home");
-    const away_active_sin_bins = activeSinBinsRaw.filter((sb) => sb.team_side === "away");
+
+    // Compute effective current clock_ms from anchor (unclamped, mirrors internal countdown engine)
+    // This value may be negative when overrun — intentional, for correct remaining_ms computation.
+    const effectiveClockMs = (() => {
+      const ae = match.clock_anchor_epoch_ms;
+      const ac = match.clock_anchor_clock_ms;
+      if (match.clock_running && typeof ae === "number" && typeof ac === "number") {
+        return ac - (Date.now() - ae);
+      }
+      return typeof match.clock_ms === "number" ? match.clock_ms : 0;
+    })();
+
+    // Enrich each sin bin with server-computed remaining_ms / remaining_s.
+    // Formula: the sin bin expires when the internal countdown reaches:
+    //   endClock = started_game_clock_ms - duration_s * 1000
+    // So: remaining_ms = max(0, effectiveClockMs - endClock)
+    const enrichSinBin = (sb: any) => {
+      const endClock = sb.started_game_clock_ms - sb.duration_s * 1000;
+      const remaining_ms = Math.max(0, effectiveClockMs - endClock);
+      const remaining_s = Math.ceil(remaining_ms / 1000);
+      return { ...sb, remaining_ms, remaining_s };
+    };
+
+    const home_active_sin_bins = activeSinBinsRaw.filter((sb) => sb.team_side === "home").map(enrichSinBin);
+    const away_active_sin_bins = activeSinBinsRaw.filter((sb) => sb.team_side === "away").map(enrichSinBin);
 
     // Resolve display template:
     // 1. team_display_settings override

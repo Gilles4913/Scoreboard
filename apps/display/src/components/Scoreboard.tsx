@@ -35,6 +35,8 @@ type ActiveSinBin = {
   shirt_number_snapshot?: string | null;
   started_game_clock_ms: number;
   duration_s: number;
+  remaining_ms?: number;
+  remaining_s?: number;
 };
 
 export type ScoreboardContext = {
@@ -583,20 +585,58 @@ function BreakdownChip({
 
 function SinBinTimer({
   sinBins,
-  clockMs,
   theme,
 }: {
   sinBins: ActiveSinBin[];
-  clockMs: number;
   theme: ThemeMode;
 }) {
+  // remainingMap: { [sinBinId]: remaining_ms } — local countdown seeded from backend
+  const [remainingMap, setRemainingMap] = useState<Record<string, number>>(() => {
+    const init: Record<string, number> = {};
+    for (const sb of sinBins) {
+      init[sb.id] = sb.remaining_ms ?? sb.duration_s * 1000;
+    }
+    return init;
+  });
+
+  // When backend refreshes sin bins (polling), reseed remaining values
+  // Only reset a sin bin if it's new or the backend value is meaningfully different
+  useEffect(() => {
+    setRemainingMap((prev) => {
+      const next: Record<string, number> = {};
+      for (const sb of sinBins) {
+        const backendMs = sb.remaining_ms ?? sb.duration_s * 1000;
+        const localMs = prev[sb.id];
+        if (localMs === undefined) {
+          next[sb.id] = backendMs;
+        } else {
+          const drift = Math.abs(localMs - backendMs);
+          next[sb.id] = drift > 5000 ? backendMs : localMs;
+        }
+      }
+      return next;
+    });
+  }, [sinBins]);
+
+  // Tick down every second
+  useEffect(() => {
+    if (sinBins.length === 0) return;
+    const interval = window.setInterval(() => {
+      setRemainingMap((prev) => {
+        const next: Record<string, number> = {};
+        for (const [id, ms] of Object.entries(prev)) {
+          next[id] = Math.max(0, ms - 1000);
+        }
+        return next;
+      });
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [sinBins.length]);
+
   if (!sinBins || sinBins.length === 0) return null;
 
   const withRemaining = sinBins
-    .map((sb) => {
-      const endClock = sb.started_game_clock_ms - sb.duration_s * 1000;
-      return { ...sb, remaining: Math.max(0, clockMs - endClock) };
-    })
+    .map((sb) => ({ ...sb, remaining: remainingMap[sb.id] ?? 0 }))
     .sort((a, b) => a.remaining - b.remaining);
 
   const mostUrgent = withRemaining[0];
@@ -898,8 +938,8 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
             {showSinBin && homeSinBin > 0 && !context.show_sin_bin_timer && (
               <BreakdownChip label="Excl. temp." value={homeSinBin} color="#f59e0b" theme={theme} />
             )}
-            {context.show_sin_bin_timer && (
-              <SinBinTimer sinBins={context.home_active_sin_bins ?? []} clockMs={safeNum(context.clock_ms)} theme={theme} />
+            {context.show_sin_bin_timer && (context.home_active_sin_bins?.length ?? 0) > 0 && (
+              <SinBinTimer sinBins={context.home_active_sin_bins!} theme={theme} />
             )}
             {showCards && homeYellow > 0 && (
               <BreakdownChip label="J" value={homeYellow} color="#eab308" theme={theme} />
@@ -931,8 +971,8 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
             {showSinBin && awaySinBin > 0 && !context.show_sin_bin_timer && (
               <BreakdownChip label="Excl. temp." value={awaySinBin} color="#f59e0b" theme={theme} />
             )}
-            {context.show_sin_bin_timer && (
-              <SinBinTimer sinBins={context.away_active_sin_bins ?? []} clockMs={safeNum(context.clock_ms)} theme={theme} />
+            {context.show_sin_bin_timer && (context.away_active_sin_bins?.length ?? 0) > 0 && (
+              <SinBinTimer sinBins={context.away_active_sin_bins!} theme={theme} />
             )}
             {showCards && awayYellow > 0 && (
               <BreakdownChip label="J" value={awayYellow} color="#eab308" theme={theme} />
@@ -1204,8 +1244,8 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
             {context.show_sin_bin !== false && homeSinBin > 0 && !context.show_sin_bin_timer && (
               <BreakdownChip label="Excl. temp." value={homeSinBin} color="#f59e0b" theme={theme} />
             )}
-            {context.show_sin_bin_timer && (
-              <SinBinTimer sinBins={context.home_active_sin_bins ?? []} clockMs={safeNum(context.clock_ms)} theme={theme} />
+            {context.show_sin_bin_timer && (context.home_active_sin_bins?.length ?? 0) > 0 && (
+              <SinBinTimer sinBins={context.home_active_sin_bins!} theme={theme} />
             )}
             {context.show_cards !== false && homeYellow > 0 && (
               <BreakdownChip label="J" value={homeYellow} color="#eab308" theme={theme} />
@@ -1237,8 +1277,8 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
             {context.show_sin_bin !== false && awaySinBin > 0 && !context.show_sin_bin_timer && (
               <BreakdownChip label="Excl. temp." value={awaySinBin} color="#f59e0b" theme={theme} />
             )}
-            {context.show_sin_bin_timer && (
-              <SinBinTimer sinBins={context.away_active_sin_bins ?? []} clockMs={safeNum(context.clock_ms)} theme={theme} />
+            {context.show_sin_bin_timer && (context.away_active_sin_bins?.length ?? 0) > 0 && (
+              <SinBinTimer sinBins={context.away_active_sin_bins!} theme={theme} />
             )}
             {context.show_cards !== false && awayYellow > 0 && (
               <BreakdownChip label="J" value={awayYellow} color="#eab308" theme={theme} />

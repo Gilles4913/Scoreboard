@@ -1,0 +1,146 @@
+Voici le dernier prompt Replit ultra ciblé pour finir proprement les 2 derniers vrais problèmes :
+
+justesse du timer d’exclusion temporaire Rugby
+
+cohérence visuelle du chrono entre Régie, QR Console et Display
+
+Je veux corriger proprement les 2 derniers problèmes importants de scoreDisplay V2.
+
+Contexte :
+- le socle live est déjà bien en place :
+  - matchSeqRef / last_event_seq
+  - clock_anchor_epoch_ms / clock_anchor_clock_ms
+  - Display et QR Console avec reprise à froid
+- les paramètres sport sont déjà bien plus avancés
+- show_sin_bin_timer existe déjà
+- le Rugby et le Football supportent déjà un mode visuel count_up côté Display
+
+Mais il reste 2 problèmes concrets :
+
+PROBLÈME 1 — Timer d’exclusion temporaire Rugby potentiellement faux
+Aujourd’hui, le Display calcule encore le temps restant d’un sin bin Rugby côté frontend à partir de :
+- started_game_clock_ms
+- duration_s
+- clockMs
+
+Ce calcul est fragile, surtout parce que :
+- le Rugby est affiché en count_up
+- le moteur interne reste en grande partie basé sur clock_ms technique
+- il existe déjà une distinction entre clock_ms et clock_ms_unclamped
+- l’ouverture d’un nouvel écran en cours d’exclusion doit rester correcte
+
+Je veux un calcul robuste :
+- le backend / edge function doit retourner pour chaque exclusion temporaire active :
+  - remaining_ms
+  - remaining_s
+- le Display ne doit plus recalculer cette logique complexe
+- le Display doit simplement afficher le résultat fourni
+
+PROBLÈME 2 — Incohérence visuelle du chrono entre Régie et Display
+Aujourd’hui, la Régie principale peut encore afficher la valeur technique interne du chrono (ex : Rugby départ 40:00),
+alors que le Display affiche déjà la valeur visuelle attendue (ex : 00:00).
+Je veux que la Régie principale, la QR Console et le Display affichent la même représentation visuelle.
+
+Objectif final :
+- Rugby :
+  - Régie = 00:00 au départ
+  - QR Console = 00:00 au départ
+  - Display = 00:00 au départ
+  - dépassement après 40:00 en rouge si continue_red
+- Football :
+  - même logique avec 45:00
+- Basket / Handball :
+  - affichage count_down cohérent partout
+
+TRAVAIL DEMANDÉ
+
+A. Backend / get-display-context
+Modifier get-display-context pour que les exclusions temporaires Rugby actives renvoyées au Display contiennent directement :
+- remaining_ms
+- remaining_s
+
+Règles :
+- utiliser la source la plus cohérente avec le moteur interne
+- ne pas laisser le frontend recalculer une logique fragile
+- gérer correctement le cas d’un nouvel écran ouvert en cours d’exclusion
+
+Je veux le fichier complet si tu le modifies.
+
+B. Display / Scoreboard
+Modifier le composant de timer d’exclusion Rugby pour qu’il utilise :
+- remaining_ms
+ou
+- remaining_s
+provenant du backend
+
+Le Display ne doit plus tenter de reconstruire lui-même une logique complexe à partir de started_game_clock_ms.
+
+Comportement attendu :
+- show_sin_bin_timer = false → rien de plus que l’état actuel
+- show_sin_bin_timer = true → affichage compact fiable
+- exemple :
+  - "Excl. temp. 1 • 07:32"
+
+C. Chrono visuel commun
+Créer ou finaliser une helper partagée de représentation visuelle du chrono, utilisable dans :
+- apps/display/src/components/Scoreboard.tsx
+- apps/operator/src/pages/ControlPage.tsx
+- apps/operator/src/pages/MobileControlPage.tsx
+
+Objectif :
+- le moteur interne peut rester tel quel si nécessaire
+- mais la valeur affichée visuellement doit être identique partout
+
+La helper doit prendre en compte :
+- clock_direction
+- clock_limit_s
+- clock_overrun_mode
+- la couleur d’overrun si nécessaire
+- le texte formaté
+- la logique Rugby / Football count_up
+- la logique Basket / Handball count_down
+
+D. Régie principale / QR Console
+Je veux que la Régie principale et la QR Console utilisent cette helper pour afficher le chrono visuel.
+Le but est de supprimer l’écart :
+- Régie = temps technique
+- Display = temps visuel
+
+Je veux :
+- même valeur visible sur les 3 surfaces
+- sans casser la synchro live
+- sans refonte inutile du moteur interne
+
+E. Vérification finale
+Je veux une réponse structurée avec :
+1. fichiers modifiés
+2. ce qui était faux
+3. ce qui a été corrigé
+4. pourquoi le nouveau calcul est plus robuste
+5. mini plan de test manuel
+
+CONTRAINTES
+- partir du code existant
+- ne pas casser le contrat live global
+- ne pas casser la reprise à froid
+- ne pas casser Rugby / Football / Basket / Handball
+- rester compatible avec teamSlug / Display stable
+- garder la lisibilité LED comme priorité
+
+CHECKLIST À PRODUIRE À LA FIN
+1. Rugby
+- exclusion temporaire active
+- timer correct sur Display
+- ouverture d’un nouvel écran en cours d’exclusion = timer correct
+- Régie / QR Console / Display affichent le même chrono visible
+
+2. Football
+- count_up cohérent partout
+- dépassement 45:00 en rouge si continue_red
+
+3. Basket / Handball
+- count_down cohérent partout
+
+4. Non-régression
+- synchro live toujours correcte
+- pas de régression sur les autres blocs de score

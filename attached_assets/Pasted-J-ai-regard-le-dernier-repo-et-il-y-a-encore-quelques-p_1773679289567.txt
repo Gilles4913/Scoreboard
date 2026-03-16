@@ -1,0 +1,192 @@
+J’ai regardé le dernier repo, et il y a encore quelques problèmes réels à corriger pour que ce soit “proprement finalisé”.
+
+Ce qui est bien maintenant
+
+show_sin_bin_timer est enfin présent dans le runtime
+
+get-display-context charge bien match_sin_bins
+
+le Display reçoit :
+
+home_active_sin_bins
+
+away_active_sin_bins
+
+DisplaySettingsPage expose maintenant :
+
+clock_direction
+
+clock_limit_s
+
+clock_overrun_mode
+pour tous les sports
+
+le wording rugby est bien corrigé en UI :
+
+Procédure de départage
+
+Donc il y a eu un vrai progrès.
+
+Problèmes encore présents
+1) L’horloge d’exclusion temporaire Rugby est probablement fausse
+
+C’est le point le plus important.
+
+Pourquoi
+
+Dans ControlPage.tsx, quand une exclusion temporaire rugby démarre, on enregistre :
+
+started_game_clock_ms: clockMsRef.current
+
+Or pour le rugby, ton moteur interne est encore en compte à rebours technique.
+
+Ensuite, dans Scoreboard.tsx, le timer d’exclusion calcule :
+
+const endClock = sb.started_game_clock_ms - sb.duration_s * 1000;
+remaining = Math.max(0, clockMs - endClock);
+
+Cette logique suppose implicitement un modèle particulier du chrono interne, et elle est très fragile maintenant que :
+
+le rugby est affiché en count_up
+
+le Display fait des conversions visuelles
+
+clockMs côté Display est potentiellement clampé
+
+clock_ms_unclamped existe déjà pour gérer les overrun
+
+Conséquence
+
+Le SinBinTimer peut afficher un temps incorrect, surtout :
+
+si le rugby est en mode count_up
+
+si on approche / dépasse la limite
+
+si on ouvre un nouvel écran en cours d’exclusion
+
+Recommandation
+
+Le timer d’exclusion ne doit pas utiliser naïvement clockMs tel quel.
+Il faut le calculer à partir d’une base cohérente avec le moteur interne ou bien faire transiter un remaining_ms déjà calculé par le backend.
+
+Option recommandée
+
+Dans get-display-context, calculer pour chaque sin bin :
+
+remaining_ms
+
+remaining_s
+
+et laisser le Display seulement afficher ce résultat.
+
+C’est beaucoup plus robuste.
+
+2) Le timer d’exclusion n’utilise pas clock_ms_unclamped
+
+Le Display a déjà une logique avancée pour le chrono principal :
+
+clock_ms
+
+clock_ms_unclamped
+
+Mais SinBinTimer prend seulement :
+
+clockMs={safeNum(context.clock_ms)}
+
+Donc il perd l’info utile si le chrono est en dépassement ou dans un mode visuel différent du moteur brut.
+
+Recommandation
+
+Si tu veux garder le calcul côté frontend, il faut lui passer une base temps cohérente avec le moteur, pas la version seulement clampée / affichée.
+
+3) Les paramètres rugby fins sont mieux branchés, mais pas encore totalement “propres”
+
+Bonne nouvelle :
+dans Scoreboard.tsx, les flags fins sont maintenant utilisés :
+
+show_rugby_tries
+
+show_rugby_conversions
+
+show_rugby_penalties
+
+show_rugby_drop_goals
+
+show_sin_bin
+
+show_sin_bin_timer
+
+Donc on est mieux qu’avant.
+
+Mais
+
+Le bloc parent reste encore conditionné par :
+
+context.show_rugby_score_breakdown !== false || context.show_sin_bin !== false || context.show_cards !== false
+
+Ce n’est pas forcément faux, mais ça veut dire que le layout rugby reste encore un peu structuré autour d’un gros bloc composite plutôt qu’autour de sous-blocs totalement indépendants.
+
+Ce n’est pas dramatique, mais ce n’est pas encore une granularité parfaite.
+
+4) Le chronomètre visuel peut encore diverger entre Régie et Display
+
+Le gros problème que tu avais signalé reste cohérent avec ce que je vois :
+
+la Régie continue d’utiliser le moteur technique
+
+le Display transforme visuellement en count_up
+
+Même si Scoreboard.tsx gère maintenant mieux count_up, je n’ai pas vu ici une refonte nette de la Régie principale pour qu’elle affiche la même représentation visuelle que le Display.
+
+Donc :
+
+oui, le problème “Régie 40:00 / Display 00:00” reste très plausible tant qu’il n’y a pas de helper visuelle commune effectivement branchée dans :
+
+ControlPage.tsx
+
+MobileControlPage.tsx
+
+Scoreboard.tsx
+
+5) show_sin_bin_timer peut afficher quelque chose même sans exclusion active
+
+Le rendu fait :
+
+{context.show_sin_bin_timer && (
+  <SinBinTimer sinBins={context.home_active_sin_bins ?? []} ... />
+)}
+
+Comme SinBinTimer retourne null si la liste est vide, ce n’est pas bloquant, mais la condition externe serait plus propre avec :
+
+context.show_sin_bin_timer && (context.home_active_sin_bins?.length ?? 0) > 0
+
+C’est mineur, mais plus propre.
+
+Mon diagnostic final sur ce repo
+Ce qui est vraiment finalisé
+
+wording rugby
+
+présence de show_sin_bin_timer
+
+UI chrono multi-sport dans les settings
+
+backend / Display pour transporter les paramètres
+
+affichage rugby plus fin qu’avant
+
+Ce qui n’est pas encore totalement propre
+critique
+
+calcul de l’horloge d’exclusion temporaire rugby
+
+important
+
+cohérence visuelle Régie / Display sur Rugby et Football
+
+secondaire
+
+granularité encore un peu composite des blocs rugby
+
+petits raffinements de conditions de rendu
