@@ -1,8 +1,8 @@
 # scoreDisplay — Bible Produit & Technique
 
-**Version**: V3.0.0  
-**Date**: 2026-03-14  
-**Statut**: Référence de travail V3 — matrice sport, templates, remplacements, statistiques et bandeau live figés
+**Version**: V3.1.0  
+**Date**: 2026-03-16  
+**Statut**: Référence de travail V3 — contrat live global, chrono ancre, séquence dominante, match_events, toutes migrations cumulées
 
 ---
 
@@ -228,6 +228,18 @@ Champs V2 structurants :
 
 > **Supprimés en V3** : `display_token`, `public_display` — colonnes retirées par migration.
 
+Champs V3 contrat live ajoutés (migrations 20260313000004, 20260315000001) :
+- `last_event_seq INTEGER NOT NULL DEFAULT 0` — séquence dominante persistée (dernière mutation live)
+- `clock_anchor_epoch_ms BIGINT NULL` — epoch JS (ms) de la dernière ancre chrono
+- `clock_anchor_clock_ms INTEGER NULL` — valeur chrono (ms) au moment de l'ancre
+
+Statuts valides (`match_status` enum) :
+- `scheduled` — planifié
+- `live` — en cours
+- `paused` — pausé (ajouté migration 20260313000005)
+- `finished` — terminé
+- `archived` — archivé
+
 ### 4.5 `match_players`
 
 Feuille de match persistée.
@@ -300,9 +312,19 @@ Upsert sur `team_id` (conflict key). Permet de surcharger le défaut organisatio
 
 ### 4.12 `match_substitutions` ← nouveau V3
 
-Journal structurel des remplacements.
+Journal structurel des remplacements rugby / football.
 
-Colonnes : `id`, `match_id`, `org_id`, `team_id`, `player_out_id`, `player_in_id`, `player_out_number`, `player_in_number`, `period`, `clock_ms`, `reason`, `is_temporary`, `is_blood_substitution`, `created_at`
+Colonnes : `id`, `match_id`, `org_id`, `sport`, `team_side`, `team_id`, `player_out_id`, `player_in_id`, `player_out_name_snapshot`, `player_in_name_snapshot`, `player_out_number_snapshot`, `player_in_number_snapshot`, `period_index`, `game_clock_ms`, `reason`, `is_temporary`, `is_blood_substitution`, `seq`, `created_at`
+
+`seq` : séquence dominante du remplacement — aligne `match_substitutions` avec le contrat live global.
+
+### 4.13 `match_events` ← nouveau V3
+
+Journal d'événements métier du match. Aligné avec la séquence dominante via `seq`.
+
+Colonnes : `id`, `org_id`, `match_id`, `seq`, `event_type`, `team_side`, `player_id`, `period_index`, `game_clock_ms`, `shot_clock_s`, `payload`, `created_at`
+
+Types d'événements : `rugby_substitution`, `football_substitution`, cartons, scores spéciaux, etc.
 
 ---
 
@@ -468,6 +490,8 @@ Payload : `{ player_out_id, player_in_id, player_out_number, player_in_number, p
 
 Affichage dans le journal : `#N1 NomSortant → #N2 NomEntrant (raison)`
 
+Champ `seq` : l'événement est horodaté avec le même `seq` que la mutation live qui l'a généré — garantit l'alignement avec le broadcast.
+
 ### 8.4 UI Operator
 
 - `SubstitutionDialog.tsx` — sélection joueur sortant / joueur entrant, raison, `is_temporary`, `is_blood_substitution`
@@ -599,7 +623,91 @@ Déclenché par `sendTvBroadcast(matchId, patch)` côté Operator.
 
 ---
 
-## 12. Architecture Realtime
+## 12. Contrat live global (V3.1 — 2026-03-15)
+
+### 12.1 Principe directeur
+
+Toute mutation live du match est protégée par une **séquence dominante unique** (`matchSeqRef` côté client, `matches.last_event_seq` côté DB).
+
+Le chrono, en plus, est reconstruit à partir d'une **ancre persistée** (`clock_anchor_epoch_ms` + `clock_anchor_clock_ms`).
+
+> **Invariant** : toute information live diffusée entre Operator, QR Console et Display est protégée par cette séquence. Un patch plus ancien que `lastAppliedSeq` est ignoré.
+
+### 12.2 Point d'entrée unique : `dispatch(dbPatch, opts?)`
+
+Toutes les mutations live dans `ControlPage.tsx` passent par `dispatch()`.
+
+```ts
+async function dispatch(dbPatch, opts?: { event?, clock?, overlay? })
+```
+
+- **`autoLive=true`** → `emitLiveMutation()` : `seq++` + broadcast snapshot + persist DB + journal événement
+- **`autoLive=false`** → `nextMatchSeq()` + `persistLiveState()` uniquement (pas de broadcast)
+
+`pushPatch` : réservé admin uniquement (`saveMatch` / `archiveMatch`).
+
+### 12.3 Pipeline `emitLiveMutation(ctx, args)` (`liveMutation.ts`)
+
+```
+1. matchSeqRef++ → seq
+2. broadcast live : { ...livePatch, live_seq: seq, emitted_at: Date.now(),
+                       clock_anchor_epoch?, clock_anchor_ms? }
+3. persist DB : { ...dbPatch, last_event_seq: seq,
+                  clock_anchor_epoch_ms?, clock_anchor_clock_ms? }
+4. insert match_events : { seq, event_type, ... } si event fourni
+```
+
+### 12.4 Réception des patches live
+
+Chaque surface (Display, MobileControl) doit :
+
+1. Charger `last_event_seq` au démarrage → `lastAppliedSeqRef`
+2. Ignorer tout patch avec `live_seq < lastAppliedSeq`
+3. Appliquer uniquement les patches les plus récents
+
+Ordre de priorité des sources :
+1. **Broadcast live** (`tv-broadcast` → topic `match:${matchId}`) — prioritaire
+2. **`postgres_changes`** UPDATE sur `matches` — rattrapage / resync
+3. **DB persistée** (`get-display-context`) — reprise à froid
+
+Le refresh HTTP stable équipe (polling 3 s) **ne doit pas écraser** l'horloge d'un live en cours.
+
+### 12.5 Chronomètre — contrat ancre persistée
+
+Le chrono est une donnée **continue**. Une valeur figée `clock_ms` ne suffit pas.
+
+#### Start
+```
+clock_running = true
+clock_ms = valeur de départ
+clock_anchor_epoch_ms = Date.now()
+clock_anchor_clock_ms = valeur de départ
+```
+
+#### Pause
+```
+clock_running = false
+clock_ms = valeur figée
+clock_anchor_epoch_ms = Date.now()
+clock_anchor_clock_ms = valeur figée
+```
+
+#### Reset
+```
+clock_running = false
+clock_ms = valeur reset
+clock_anchor_epoch_ms = Date.now()
+clock_anchor_clock_ms = valeur reset
+```
+
+#### Reprise à froid
+Un Display ou MobileControl ouvert en cours de match charge les 4 champs et reconstruit immédiatement le bon chrono :
+```ts
+const elapsed = Date.now() - clock_anchor_epoch_ms;
+const currentMs = Math.max(0, clock_anchor_clock_ms - elapsed); // chrono dégressif
+```
+
+### 12.6 Architecture Realtime
 
 - **Broadcast Operator** : `sendTvBroadcast(matchId, patch)` → `tv-broadcast` → topic `match:${matchId}`
 - **Souscription Display** : `supabase.channel('match:${matchId}')` — topic exact, sans préfixe
@@ -608,7 +716,7 @@ Déclenché par `sendTvBroadcast(matchId, patch)` côté Operator.
 - **Sync horloge MobileControlPage** : souscription `mobile-clock:${matchId}` (broadcast + postgres_changes), interpolation via `clock_anchor_epoch` / `clock_anchor_ms`
 - **Guard overlay** : `overlay` extrait du patch avant `mergeContext` — n'altère jamais le contexte score
 
-### 12.1 Règles de synchronisation horloge (fixes 2026-03-15)
+### 12.7 Règles de synchronisation horloge (fixes 2026-03-15)
 
 **Problème originel** : le polling HTTP du Display (toutes les 3 s, mode stable équipe) réinjectait un `clock_ms` figé depuis la DB, écrasant l'ancre realtime et provoquant des sauts/dérives.
 
@@ -691,7 +799,11 @@ Identifié via helper SQL / RPC `is_super_admin(...)`, adossé à l'org `master`
 - `teams` étendue : slug, category, code, branding (short_name, logo_url, primary_color, secondary_color)
 - `matches` en V2 avec home_team_id / away_team_id ; `display_token` et `public_display` supprimés
 - `match_players` étendue avec is_on_field, entered_at_clock_ms, left_at_clock_ms, minutes_played_s
-- `match_substitutions` créée
+- `match_substitutions` créée (avec `seq` pour alignement contrat live)
+- `match_events` créée avec `seq`, `org_id`, `match_id`, `event_type`, `team_side`, `player_id`, `period_index`, `game_clock_ms`, `shot_clock_s`, `payload` (migration 20260316000001)
+- `match_status` enum étendu avec `'paused'` et `'cancelled'` (migration 20260313000005 / 20260316000002)
+- `matches.last_event_seq` ajouté — séquence dominante persistée (migration 20260313000004)
+- `matches.clock_anchor_epoch_ms` + `matches.clock_anchor_clock_ms` ajoutés — ancre chrono (migration 20260315000001 / 20260316000001)
 - `display_templates` créée et seedée
 - `org_display_sport_profiles` créée et pré-remplie depuis `orgs.sport`
 - `team_display_settings` créée
@@ -814,18 +926,26 @@ Recharge périodiquement le contexte. Rebascule sur un autre match si besoin.
 
 Migrations dans `supabase/migrations/` :
 
-| Fichier | Description |
-|---------|-------------|
-| `20260313000001_cleanup_legacy_token.sql` | Supprime `public_display` et `display_token` de `matches` |
-| `20260313000002_display_templates.sql` | Crée `display_templates` et `team_display_settings` avec seed |
-| `20260313000003_fix_rls_public_display.sql` | Corrige les RLS qui dépendaient de `public_display` ; anon read matches + teams ; vue `matches_v` |
-| `20260314000001_substitutions.sql` | Ajoute `is_on_field/entered_at/left_at/minutes_played_s` à `match_players` ; crée `match_substitutions` |
-| `20260314000002_team_stats_rpc.sql` | Crée 4 RPC pour statistiques équipe |
-| `20260314000003_substitution_banner_setting.sql` | Ajoute `show_substitution_banner BOOLEAN DEFAULT TRUE` à `org_display_settings` |
-| `20260314000004_display_matrix.sql` | Crée `org_display_sport_profiles` ; seed templates système ; pré-remplit profils depuis `orgs.sport` |
-| `20260314000005_show_live_badge.sql` | Ajoute `show_live_badge BOOLEAN DEFAULT false` à `org_display_settings` et `org_display_sport_profiles` |
+| Fichier | Description | Statut |
+|---------|-------------|--------|
+| `20260313000001_cleanup_legacy_token.sql` | Supprime `public_display` et `display_token` de `matches` | À appliquer |
+| `20260313000002_display_templates.sql` | Crée `display_templates` et `team_display_settings` avec seed | À appliquer |
+| `20260313000003_fix_rls_public_display.sql` | Corrige les RLS ; anon read matches + teams ; vue `matches_v` | À appliquer |
+| `20260313000004_matches_gameplay_columns.sql` | Ajoute toutes les colonnes live à `matches` (`last_event_seq`, rugby, handball, football, volleyball…) | À appliquer |
+| `20260313000005_add_paused_status.sql` | Ajoute `'paused'` et `'cancelled'` au type `match_status` | À appliquer |
+| `20260314000001_substitutions.sql` | Ajoute `is_on_field/entered_at/left_at/minutes_played_s` à `match_players` ; crée `match_substitutions` | À appliquer |
+| `20260314000002_team_stats_rpc.sql` | Crée 4 RPC pour statistiques équipe | À appliquer |
+| `20260314000003_substitution_banner_setting.sql` | Ajoute `show_substitution_banner BOOLEAN DEFAULT TRUE` à `org_display_settings` | À appliquer |
+| `20260314000004_display_matrix.sql` | Crée `org_display_sport_profiles` ; seed templates système ; pré-remplit profils | À appliquer |
+| `20260314000005_show_live_badge.sql` | Ajoute `show_live_badge BOOLEAN DEFAULT false` à `org_display_settings` et `org_display_sport_profiles` | À appliquer |
+| `20260315000001_clock_anchors.sql` | Ajoute `clock_anchor_epoch_ms` + `clock_anchor_clock_ms` à `matches` | Couvert par 20260316000001 |
+| `20260315000002_live_seq_events.sql` | Index `match_events(match_id, seq)` + `match_substitutions.seq` | Couvert par 20260316000001 |
+| `20260316000001_create_match_events_and_finalize.sql` | **Rattrapage complet** : crée `match_events` (avec `seq`), RLS, colonnes `clock_anchor_*`, `match_substitutions.seq`. **Idempotente.** | **Appliquée** |
+| `20260316000002_catchup_missing_migrations.sql` | **Rattrapage enum + tables** : `match_status` enum 'paused'/'cancelled', `match_players` colonnes, `match_substitutions`, `org_display_settings` colonnes, `display_templates`. **Idempotente.** | **À appliquer** |
 
-> **Actions manuelles requises Supabase** : exécuter `20260314000003` et `20260314000004` dans l'éditeur SQL, puis redéployer `supabase functions deploy get-display-context`.
+> **Stratégie recommandée** : appliquer `20260316000001` (déjà fait) puis `20260316000002` dans le SQL Editor Supabase. Ces deux migrations couvrent l'intégralité du schéma V3 de manière idempotente. Les migrations individuelles 20260313-20260315 peuvent être appliquées en complément sans risque de conflit.
+
+> **Redéploiement obligatoire** : `supabase functions deploy get-display-context` après tout changement de schéma `matches`.
 
 ---
 
@@ -917,13 +1037,26 @@ Des pages et composants obsolètes peuvent encore exister. Les déplacer en `_le
 
 ## 23. Ce qu'il reste à faire pour une V3 propre
 
-1. Exécuter les migrations `20260314000003` et `20260314000004` en production
-2. Redéployer `get-display-context`
+### 23.1 DB / Migrations (priorité immédiate)
+1. Appliquer `20260316000002_catchup_missing_migrations.sql` dans le SQL Editor Supabase (corrige `match_status` enum + toutes colonnes manquantes)
+2. Redéployer `get-display-context` : `supabase functions deploy get-display-context`
+
+### 23.2 Code / UX
 3. Finir le nettoyage des pages legacy
 4. Améliorer logos / assets via Storage
 5. Enrichir les statistiques sportives par discipline
 6. Introduire la vraie multi-affectation joueur ↔ équipe si nécessaire
 7. Améliorer les templates Display détaillés (densité, zoom, responsive LED)
+
+### 23.3 Contrat live global (validé)
+- ✅ `dispatch()` — point d'entrée unique, 45 call sites
+- ✅ `emitLiveMutation()` — pipeline seq + broadcast + persist + journal
+- ✅ `clock_anchor_epoch_ms` / `clock_anchor_clock_ms` persistés sur Start/Pause/Reset
+- ✅ Display reconstruit le chrono depuis l'ancre à froid
+- ✅ MobileControlPage émet les ancres temps
+- ✅ Polling HTTP Display n'écrase plus l'horloge live
+- ✅ `match_events` créée avec `seq`
+- ✅ `match_status` enum étendu avec `'paused'`
 
 ---
 
@@ -983,3 +1116,8 @@ scoreDisplay est un produit multi-apps (Home, Operator, Display, Admin) basé su
 - Rugby et Football supportent les remplacements (journalisés + bandeau Display live)
 - Le temps réel passe par `tv-broadcast` + Supabase Broadcast
 - Les statistiques équipe reposent sur 4 RPC SQL depuis des données réellement disponibles
+
+**Contrat live global (V3.1)** :
+- Toute mutation live passe par `dispatch()` → `emitLiveMutation()` → seq + broadcast + persist + journal
+- Le chrono se reconstruit depuis l'ancre persistée `clock_anchor_epoch_ms` / `clock_anchor_clock_ms`
+- Jamais réintroduire : `token`, `display_token`, `public_display`, ni le PATCH de `status:"paused"` sans que l'enum l'inclue

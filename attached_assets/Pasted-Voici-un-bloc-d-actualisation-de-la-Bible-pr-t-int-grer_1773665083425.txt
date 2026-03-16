@@ -1,0 +1,536 @@
+Voici un bloc d’actualisation de la Bible prêt à intégrer, pour figer l’état actuel du projet.
+
+# scoreDisplay V2 — Bible actualisée
+
+## 1. Principes consolidés
+
+scoreDisplay V2 est une application SaaS de gestion de score sportif et d’affichage public, structurée autour de deux surfaces principales :
+
+- **Operator** : console de pilotage live
+- **Display** : écran public / panneau LED / écran externe
+
+Le mode public officiel est désormais :
+
+- **1 équipe = 1 URL publique stable**
+- paramètre principal : `teamSlug`
+- fallback serveur :
+  - `live`
+  - `paused`
+  - `scheduled`
+  - dernier `finished` / `archived` si nécessaire
+
+Le mode public par token match est supprimé.
+
+Les anciens champs suivants sont supprimés et ne doivent plus être réintroduits :
+- `matches.display_token`
+- `matches.public_display`
+
+---
+
+## 2. Tables et responsabilités
+
+### 2.1 `orgs`
+Champ valide pour le sport :
+- `sport`
+
+Les anciens usages de `orgs.org_sport` ou `orgs.display_settings` ne sont plus valides.
+
+### 2.2 `org_display_settings`
+Porte le **tronc commun d’affichage** :
+- thème
+- logos
+- sponsors
+- lower third
+- langues
+- overlays globaux
+- densité générale
+- habillage transverse
+
+### 2.3 `org_sport_settings`
+Porte les **règles métier du sport** :
+- périodes
+- durées
+- shot clock
+- bonus
+- fautes
+- temps morts
+- sets
+- cartes
+- etc.
+
+### 2.4 `org_display_sport_profiles`
+Porte la **matrice d’affichage par sport au niveau organisation**.
+
+Elle permet de définir, pour un sport donné :
+- les blocs visuels activés
+- la densité d’affichage
+- la stratégie de lisibilité LED
+- la position et la durée des overlays
+- le template d’affichage par défaut pour ce sport
+
+### 2.5 `display_templates`
+Bibliothèque système des modèles d’affichage.
+
+Chaque template possède :
+- `code`
+- `sport`
+- `layout_mode`
+- `config_json`
+- `is_default_system`
+
+### 2.6 `team_display_settings`
+Permet de choisir un **modèle d’affichage par défaut au niveau équipe**.
+
+### 2.7 `matches`
+Table centrale du live match.
+
+Champs structurants importants :
+- `status`
+- `clock_ms`
+- `clock_running`
+- `clock_anchor_epoch_ms`
+- `clock_anchor_clock_ms`
+- `last_event_seq`
+- `last_event_at`
+
+Statuts valides :
+- `scheduled`
+- `live`
+- `paused`
+- `finished`
+- `archived`
+
+### 2.8 `match_events`
+Journal d’événements métier du match.
+
+Un événement peut maintenant être aligné avec la séquence live via :
+- `seq`
+
+### 2.9 `match_substitutions`
+Journal structuré des remplacements rugby / football.
+
+Champs clés :
+- `match_id`
+- `sport`
+- `team_side`
+- `player_out_id`
+- `player_in_id`
+- snapshots noms / numéros
+- `period_index`
+- `game_clock_ms`
+- `reason`
+- `is_temporary`
+- `is_blood_substitution`
+- `seq`
+
+### 2.10 `match_players`
+Feuille de match enrichie.
+
+Champs ajoutés pour mieux gérer la présence terrain :
+- `is_on_field`
+- `entered_at_clock_ms`
+- `left_at_clock_ms`
+- `minutes_played_s`
+
+---
+
+## 3. Contrat live global
+
+### 3.1 Principe directeur
+
+Toute information live diffusée entre :
+
+- la console principale Operator
+- la QR Console / régie mobile
+- le Display
+
+doit être protégée par une **séquence dominante unique**.
+
+Le chrono, en plus, doit être reconstruit à partir d’une **ancre persistée**.
+
+### 3.2 Séquence dominante unique
+
+Le match dispose d’une séquence dominante unique :
+- côté client : `matchSeqRef`
+- côté base : `matches.last_event_seq`
+
+Cette séquence est utilisée pour :
+- les patches live broadcast
+- la persistance de l’état du match
+- les événements de journal (`match_events.seq`)
+- les remplacements structurés (`match_substitutions.seq`) si applicable
+
+### 3.3 Règle de mutation live
+
+Toute mutation live du match doit suivre ce pipeline :
+
+1. générer `seq`
+2. diffuser un patch live avec `live_seq = seq`
+3. persister l’état en DB
+4. persister `matches.last_event_seq = seq`
+5. si la mutation concerne le chrono :
+   - persister `clock_anchor_epoch_ms`
+   - persister `clock_anchor_clock_ms`
+6. si la mutation journalise un événement :
+   - persister `match_events.seq = seq`
+7. si la mutation produit un overlay :
+   - l’overlay porte le même `live_seq`
+
+### 3.4 Réception des patches live
+
+Chaque surface réceptrice doit :
+
+1. charger `last_event_seq` au démarrage
+2. mémoriser `lastAppliedSeq`
+3. ignorer tout patch avec `live_seq < lastAppliedSeq`
+4. appliquer uniquement les patches les plus récents
+
+### 3.5 Priorité des sources
+
+Ordre logique :
+
+1. **broadcast live** = voie prioritaire
+2. **postgres_changes** = rattrapage / resync
+3. **DB persistée** = reprise à froid
+4. **refresh HTTP stable équipe** = changement de match / resync
+
+Le refresh HTTP ne doit pas écraser agressivement un live déjà en cours sur le même match.
+
+---
+
+## 4. Chronomètre — contrat temps
+
+### 4.1 Nature de la donnée
+Le chrono est une donnée **continue**.  
+Il ne suffit pas de persister une valeur figée de `clock_ms`.
+
+### 4.2 Ancre persistée
+Le chrono doit être reconstruit à partir de :
+- `clock_anchor_epoch_ms`
+- `clock_anchor_clock_ms`
+
+### 4.3 Règles
+#### Start
+Persister :
+- `clock_running = true`
+- `clock_ms = valeur de départ`
+- `clock_anchor_epoch_ms = now`
+- `clock_anchor_clock_ms = valeur de départ`
+
+#### Pause
+Persister :
+- `clock_running = false`
+- `clock_ms = valeur figée`
+- `clock_anchor_epoch_ms = now`
+- `clock_anchor_clock_ms = valeur figée`
+
+#### Reset
+Persister :
+- `clock_running = false`
+- `clock_ms = valeur reset`
+- `clock_anchor_epoch_ms = now`
+- `clock_anchor_clock_ms = valeur reset`
+
+### 4.4 Reprise à froid
+Un Display ou une QR Console ouvert en cours de match doit pouvoir :
+- charger `clock_running`
+- charger `clock_ms`
+- charger `clock_anchor_epoch_ms`
+- charger `clock_anchor_clock_ms`
+- reconstruire immédiatement le bon chrono
+
+---
+
+## 5. Surfaces applicatives
+
+### 5.1 Console principale Operator
+La console principale est la surface complète de pilotage live.
+
+Elle doit :
+- émettre des mutations live séquencées
+- persister l’état du match
+- journaliser les événements si nécessaire
+- diffuser les overlays si nécessaire
+
+### 5.2 QR Console / régie mobile
+La régie mobile suit le même contrat live :
+- chargement initial avec `last_event_seq`
+- rejet des vieux patches
+- reconstruction du chrono à froid
+- émission de patches séquencés
+
+### 5.3 Display
+Le Display :
+- charge le contexte public via `get-display-context`
+- utilise `teamSlug` / `teamId`
+- rejette les vieux patches via `live_seq`
+- reconstruit le chrono via l’ancre persistée
+- utilise le refresh stable équipe seulement pour changement de match / resync
+
+---
+
+## 6. Edge Function `get-display-context`
+
+Cette Edge Function est la source principale du contexte public Display.
+
+Elle doit :
+- supporter `teamSlug`
+- supporter `teamId`
+- supporter éventuellement `matchId` pour usage technique interne
+- ne jamais supporter `token`
+- utiliser `SUPABASE_SERVICE_ROLE_KEY`
+
+Elle doit charger :
+- le match sélectionné
+- l’organisation
+- les équipes
+- `org_display_settings`
+- `org_sport_settings`
+- `org_display_sport_profiles`
+- `team_display_settings`
+- `display_templates`
+
+Elle doit retourner :
+- `match`
+- `org`
+- `display_settings`
+- `sport_settings`
+- `display_profile`
+- `display_template`
+- `resolved_display_template_id`
+- `config_display_resolved`
+
+Le payload du match doit inclure :
+- `last_event_seq`
+- `last_event_at`
+- `clock_anchor_epoch_ms`
+- `clock_anchor_clock_ms`
+
+---
+
+## 7. Matrice d’affichage par sport
+
+### 7.1 Tronc commun
+Exemples :
+- `show_score`
+- `show_clock`
+- `show_period`
+- `show_status`
+- `show_logos`
+- `show_sponsors`
+- `show_lower_third`
+- `show_live_overlays`
+- `overlay_position`
+- `overlay_duration_ms`
+- `density_mode`
+- `score_scale`
+- `clock_scale`
+- `team_name_mode`
+- `use_short_team_names`
+
+### 7.2 Basket
+Blocs typiques :
+- `show_team_fouls`
+- `show_player_fouls`
+- `show_timeouts`
+- `show_bonus`
+- `show_shot_clock`
+- `show_possession_arrow`
+
+### 7.3 Rugby
+Blocs typiques :
+- `show_cards`
+- `show_substitutions`
+- `show_sin_bin`
+- `show_rugby_score_breakdown`
+- `show_rugby_tries`
+- `show_rugby_conversions`
+- `show_rugby_penalties`
+- `show_rugby_drop_goals`
+
+Templates conseillés :
+- `rugby_stade`
+- `rugby_expert`
+
+### 7.4 Football
+Blocs typiques :
+- `show_cards`
+- `show_substitutions`
+- `show_added_time`
+- `show_penalty_shootout`
+- `show_match_phase`
+
+### 7.5 Handball
+Blocs typiques :
+- `show_timeouts`
+- `show_cards`
+- `show_two_min_suspensions`
+- `show_disqualifications`
+- `show_warnings`
+
+### 7.6 Volleyball
+Blocs typiques :
+- `show_sets`
+- `show_set_points`
+- `show_service`
+- `show_current_set`
+- `show_tiebreak`
+
+---
+
+## 8. Rugby / Football — remplacements
+
+Le logiciel supporte les remplacements en Rugby et Football.
+
+### 8.1 Objectifs
+- saisir les remplacements depuis la régie
+- journaliser les remplacements
+- alimenter les statistiques
+- déclencher éventuellement un overlay Display
+
+### 8.2 Journalisation
+Un remplacement peut alimenter :
+- `match_substitutions`
+- `match_events`
+- un overlay live Display
+
+### 8.3 Overlay Display
+Le Display peut afficher un bandeau temporaire de remplacement.
+
+Objectif :
+- informer le public
+- valoriser la régie
+- rester non intrusif
+- ne pas casser la lisibilité du score principal
+
+---
+
+## 9. Statistiques équipe
+
+Les statistiques doivent être construites uniquement à partir de données fiables réellement présentes dans la base.
+
+### 9.1 Statistiques fiables
+#### Bilan global
+- matchs joués
+- victoires
+- nuls
+- défaites
+- points marqués
+- points encaissés
+- différence de points
+- moyennes par match
+
+#### Discipline
+- total cartons jaunes
+- total cartons rouges
+- moyenne de cartons
+- matchs avec au moins un carton
+
+#### Joueurs
+- sélections
+- titularisations
+- total points
+- total fautes
+- total cartons jaunes
+- total cartons rouges
+
+#### Remplacements
+- nombre total de remplacements
+- joueurs les plus remplacés
+- entrants les plus fréquents
+
+### 9.2 Statistiques non garanties à ce stade
+- temps de jeu réel précis
+- joueur du match
+- composition type robuste
+- efficacité individuelle avancée
+- impact exact des remplacements
+
+---
+
+## 10. Vues SQL
+
+Les vues `matches_v`, `matches_canon` et `matches_list` doivent rester alignées avec le contrat live global.
+
+Elles doivent inclure au minimum :
+- `last_event_seq`
+- `last_event_at`
+- `clock_anchor_epoch_ms`
+- `clock_anchor_clock_ms`
+
+Elles ne doivent jamais réintroduire :
+- `display_token`
+- `public_display`
+
+---
+
+## 11. Cohérence DB
+
+### 11.1 `status`
+Valeurs valides :
+- `scheduled`
+- `live`
+- `paused`
+- `finished`
+- `archived`
+
+### 11.2 `is_live`
+`is_live` doit être cohérent avec `status` :
+- `live` → `is_live = true`
+- `scheduled`, `paused`, `finished`, `archived` → `is_live = false`
+
+### 11.3 Séquence
+- `matches.last_event_seq` = dernière mutation live persistée
+- `match_events.seq` = séquence de l’événement
+- `match_substitutions.seq` = séquence du remplacement si applicable
+
+---
+
+## 12. Décisions consolidées
+
+Les décisions suivantes sont considérées comme figées :
+
+- le mode public officiel est l’URL stable par équipe
+- le mode public par token match est supprimé
+- `orgs.sport` est le champ valide pour le sport
+- les paramètres d’affichage sont structurés par couches :
+  - `org_display_settings`
+  - `org_sport_settings`
+  - `org_display_sport_profiles`
+  - `display_templates`
+  - `team_display_settings`
+- toute mutation live est protégée par séquence
+- le chrono se reconstruit depuis une ancre persistée
+- Rugby est le sport pilote prioritaire pour les démonstrations LED
+Remplacements courts à faire dans la Bible existante
+1) Toute mention simpliste du Display
+
+Remplace :
+
+Le Display dépend de org_display_settings.
+
+par :
+
+Le Display dépend d’une résolution multi-couches :
+- org_display_settings
+- org_sport_settings
+- org_display_sport_profiles
+- display_templates
+- team_display_settings
+2) Toute mention ancienne du public par token
+
+Remplace :
+
+affichage public d’un match par token
+display_token
+public_display
+
+par :
+
+affichage public stable par équipe via `teamSlug`
+3) Ajouter la règle contrat live
+
+Ajoute cette phrase si tu veux une version courte dans un résumé d’architecture :
+
+Toute information live diffusée entre Operator, QR Console et Display est protégée par une séquence dominante.
+Le chrono, en plus, est reconstruit à partir d’une ancre persistée.
