@@ -110,6 +110,12 @@ function buildContextFromResponse(json: any): ScoreboardContext {
     show_sets: resolved.show_sets ?? sportSettings.show_sets ?? false,
     show_cards: resolved.show_cards ?? sportSettings.show_cards ?? false,
     show_shot_clock: resolved.show_shot_clock ?? sportSettings.show_shot_clock ?? false,
+    show_sin_bin: resolved.show_sin_bin ?? sportSettings.show_sin_bin ?? true,
+    show_rugby_score_breakdown: resolved.show_rugby_score_breakdown ?? sportSettings.show_rugby_score_breakdown ?? true,
+    show_rugby_tries: resolved.show_rugby_tries ?? sportSettings.show_rugby_tries ?? true,
+    show_rugby_conversions: resolved.show_rugby_conversions ?? sportSettings.show_rugby_conversions ?? true,
+    show_rugby_penalties: resolved.show_rugby_penalties ?? sportSettings.show_rugby_penalties ?? true,
+    show_rugby_drop_goals: resolved.show_rugby_drop_goals ?? sportSettings.show_rugby_drop_goals ?? true,
 
     show_live_overlays: resolved.show_live_overlays ?? displaySettings.show_live_overlays ?? sp.show_live_overlays ?? true,
     show_substitutions: resolved.show_substitutions ?? displaySettings.show_substitutions ?? sp.show_substitutions ?? false,

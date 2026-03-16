@@ -760,50 +760,67 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
         )}
       </div>
 
-      <div
-        style={{
-          padding: "0 40px 28px",
-          display: "flex",
-          justifyContent: hasCards ? "space-between" : "center",
-          alignItems: "center",
-          gap: 16,
-          minHeight: 56,
-        }}
-      >
-        {hasCards ? (
-          <>
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              {showSinBin && homeSinBin > 0 && (
-                <CardBadge color="#f59e0b" label="EXCL. TEMP." count={homeSinBin} />
-              )}
-              {showCards && homeYellow > 0 && <CardBadge color="#eab308" label="J" count={homeYellow} />}
-              {showCards && homeRed > 0 && <CardBadge color="#ef4444" label="R" count={homeRed} />}
-            </div>
-            <div
-              style={{
-                width: 2,
-                height: 36,
-                background: `${text}22`,
-                borderRadius: 2,
-              }}
-            />
-            <div
-              style={{
-                display: "flex",
-                gap: 10,
-                alignItems: "center",
-                flexDirection: "row-reverse",
-              }}
-            >
-              {showSinBin && awaySinBin > 0 && (
-                <CardBadge color="#f59e0b" label="EXCL. TEMP." count={awaySinBin} />
-              )}
-              {showCards && awayYellow > 0 && <CardBadge color="#eab308" label="J" count={awayYellow} />}
-              {showCards && awayRed > 0 && <CardBadge color="#ef4444" label="R" count={awayRed} />}
-            </div>
-          </>
-        ) : null}
-      </div>
+      {(context.show_rugby_score_breakdown !== false || context.show_sin_bin !== false || context.show_cards !== false) && (
+        <div
+          style={{
+            padding: "0 40px 28px",
+            display: "grid",
+            gridTemplateColumns: "1fr auto 1fr",
+            gap: 24,
+            alignItems: "flex-start",
+          }}
+        >
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            {context.show_rugby_score_breakdown !== false && (
+              <>
+                <BreakdownChip label="Essais" value={safeNum(context.rugby_home_tries)} color={accentHome} theme={theme} />
+                <BreakdownChip label="Transfo" value={safeNum(context.rugby_home_conversions)} color={accentHome} theme={theme} />
+                <BreakdownChip label="Pén" value={safeNum(context.rugby_home_penalties)} color={accentHome} theme={theme} />
+                <BreakdownChip label="Drop" value={safeNum(context.rugby_home_drop_goals)} color={accentHome} theme={theme} />
+              </>
+            )}
+            {showSinBin && homeSinBin > 0 && (
+              <BreakdownChip label="Excl. temp." value={homeSinBin} color="#f59e0b" theme={theme} />
+            )}
+            {showCards && homeYellow > 0 && (
+              <BreakdownChip label="J" value={homeYellow} color="#eab308" theme={theme} />
+            )}
+            {showCards && homeRed > 0 && (
+              <BreakdownChip label="R" value={homeRed} color="#ef4444" theme={theme} />
+            )}
+          </div>
+
+          <div
+            style={{
+              width: 2,
+              height: 48,
+              background: `${text}22`,
+              borderRadius: 2,
+              alignSelf: "center",
+            }}
+          />
+
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {context.show_rugby_score_breakdown !== false && (
+              <>
+                <BreakdownChip label="Essais" value={safeNum(context.rugby_away_tries)} color={accentAway} theme={theme} />
+                <BreakdownChip label="Transfo" value={safeNum(context.rugby_away_conversions)} color={accentAway} theme={theme} />
+                <BreakdownChip label="Pén" value={safeNum(context.rugby_away_penalties)} color={accentAway} theme={theme} />
+                <BreakdownChip label="Drop" value={safeNum(context.rugby_away_drop_goals)} color={accentAway} theme={theme} />
+              </>
+            )}
+            {showSinBin && awaySinBin > 0 && (
+              <BreakdownChip label="Excl. temp." value={awaySinBin} color="#f59e0b" theme={theme} />
+            )}
+            {showCards && awayYellow > 0 && (
+              <BreakdownChip label="J" value={awayYellow} color="#eab308" theme={theme} />
+            )}
+            {showCards && awayRed > 0 && (
+              <BreakdownChip label="R" value={awayRed} color="#ef4444" theme={theme} />
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
