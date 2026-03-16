@@ -402,9 +402,15 @@ async function dispatch(dbPatch, opts?: { event?, clock?, overlay? })
 
 ### Migrations requises (Supabase SQL Editor)
 
-| Fichier | Description |
-|---------|-------------|
-| `20260315000001_clock_anchors.sql` | `clock_anchor_epoch_ms` + `clock_anchor_clock_ms` dans `matches` |
-| `20260315000002_live_seq_events.sql` | Index `match_events(match_id, seq)` + `match_substitutions.seq` |
+| Fichier | Description | Statut |
+|---------|-------------|--------|
+| `20260315000001_clock_anchors.sql` | `clock_anchor_epoch_ms` + `clock_anchor_clock_ms` dans `matches` | Peut être skippée si 20260316000001 exécutée |
+| `20260315000002_live_seq_events.sql` | Index `match_events(match_id, seq)` + `match_substitutions.seq` | Peut être skippée si 20260316000001 exécutée |
+| `20260316000001_create_match_events_and_finalize.sql` | **Migration complète** : crée `match_events` si absente, ajoute `seq`, RLS, `clock_anchor_*`, `match_substitutions.seq`. Idempotente. | **À APPLIQUER** |
 
-> **Actions manuelles** : exécuter les 2 migrations dans le SQL Editor Supabase, puis `supabase functions deploy get-display-context`.
+> **Cause du bug 400** : la table `match_events` n'existait dans aucune migration.  
+> Le SELECT `?select=id,seq,...&order=seq.desc` échouait avec 400 si la table ou la colonne `seq` était absente.
+
+> **Actions manuelles** :
+> 1. Exécuter `20260316000001_create_match_events_and_finalize.sql` dans le SQL Editor Supabase
+> 2. `supabase functions deploy get-display-context`
