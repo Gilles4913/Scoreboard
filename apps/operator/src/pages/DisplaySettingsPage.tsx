@@ -51,6 +51,22 @@ type SportSettingsRow = {
   shot_clock_s: number | null;
 };
 
+type SportClockForm = {
+  clock_direction: string;
+  clock_limit_s: number | null;
+  clock_overrun_mode: string;
+};
+
+function defaultClockForSport(sport: string): SportClockForm {
+  switch (sport) {
+    case "rugby":    return { clock_direction: "count_up",   clock_limit_s: 2400, clock_overrun_mode: "continue_red" };
+    case "football": return { clock_direction: "count_up",   clock_limit_s: 2700, clock_overrun_mode: "continue_red" };
+    case "basket":   return { clock_direction: "count_down", clock_limit_s: 600,  clock_overrun_mode: "stop_at_limit" };
+    case "handball": return { clock_direction: "count_down", clock_limit_s: 1800, clock_overrun_mode: "stop_at_limit" };
+    default:         return { clock_direction: "count_down", clock_limit_s: null,  clock_overrun_mode: "stop_at_limit" };
+  }
+}
+
 type RugbyProfileForm = {
   show_rugby_score_breakdown: boolean;
   show_sin_bin: boolean;
@@ -59,9 +75,6 @@ type RugbyProfileForm = {
   show_rugby_conversions: boolean;
   show_rugby_penalties: boolean;
   show_rugby_drop_goals: boolean;
-  clock_direction: string;
-  clock_limit_s: number | null;
-  clock_overrun_mode: string;
 };
 
 type ThemeCardDef = {
@@ -388,6 +401,7 @@ export default function DisplaySettingsPage() {
   const [displayForm, setDisplayForm] = useState<DisplaySettingsRow | null>(null);
   const [sportForm, setSportForm] = useState<SportSettingsRow | null>(null);
   const [rugbyForm, setRugbyForm] = useState<RugbyProfileForm | null>(null);
+  const [clockForm, setClockForm] = useState<SportClockForm | null>(null);
 
   const activeOrgId = useMemo(() => (localStorage.getItem(LS_ACTIVE_ORG_ID) || "").trim(), []);
   const activeOrgSlug = useMemo(() => (localStorage.getItem(LS_ACTIVE_ORG_SLUG) || "").trim(), []);
@@ -427,14 +441,12 @@ export default function DisplaySettingsPage() {
             .select("org_id, sport, period_count, period_duration_s, extra_time_enabled, penalties_enabled, show_team_fouls, show_player_fouls, show_timeouts, show_bonus, show_sets, show_cards, show_shot_clock, max_team_fouls, max_player_fouls, max_timeouts, shot_clock_s")
             .eq("org_id", currentOrg.id)
             .maybeSingle(),
-          normalizeSport(currentOrg.sport) === "rugby"
-            ? supabase
-                .from("org_display_sport_profiles")
-                .select("show_rugby_score_breakdown, show_sin_bin, show_sin_bin_timer, show_rugby_tries, show_rugby_conversions, show_rugby_penalties, show_rugby_drop_goals, clock_direction, clock_limit_s, clock_overrun_mode")
-                .eq("org_id", currentOrg.id)
-                .eq("sport", "rugby")
-                .maybeSingle()
-            : Promise.resolve({ data: null }),
+          supabase
+            .from("org_display_sport_profiles")
+            .select("show_rugby_score_breakdown, show_sin_bin, show_sin_bin_timer, show_rugby_tries, show_rugby_conversions, show_rugby_penalties, show_rugby_drop_goals, clock_direction, clock_limit_s, clock_overrun_mode")
+            .eq("org_id", currentOrg.id)
+            .eq("sport", currentOrg.sport ?? "football")
+            .maybeSingle(),
         ]);
 
       if (cancelled) return;
@@ -495,8 +507,17 @@ export default function DisplaySettingsPage() {
         },
       );
 
+      // Always init clock form from sport profile row (for all sports)
+      const sp = rugbyProfileRow as any;
+      const clockDefaults = defaultClockForSport(sport);
+      setClockForm({
+        clock_direction:   sp?.clock_direction   ?? clockDefaults.clock_direction,
+        clock_limit_s:     sp?.clock_limit_s     ?? clockDefaults.clock_limit_s,
+        clock_overrun_mode: sp?.clock_overrun_mode ?? clockDefaults.clock_overrun_mode,
+      });
+
       if (sport === "rugby") {
-        const rp = rugbyProfileRow as RugbyProfileForm | null;
+        const rp = rugbyProfileRow as any;
         setRugbyForm({
           show_rugby_score_breakdown: rp?.show_rugby_score_breakdown ?? true,
           show_sin_bin:               rp?.show_sin_bin               ?? true,
@@ -505,9 +526,6 @@ export default function DisplaySettingsPage() {
           show_rugby_conversions:     rp?.show_rugby_conversions     ?? true,
           show_rugby_penalties:       rp?.show_rugby_penalties       ?? true,
           show_rugby_drop_goals:      rp?.show_rugby_drop_goals      ?? true,
-          clock_direction:            (rp as any)?.clock_direction   ?? "count_up",
-          clock_limit_s:              (rp as any)?.clock_limit_s     ?? 2400,
-          clock_overrun_mode:         (rp as any)?.clock_overrun_mode ?? "continue_red",
         });
       }
 
@@ -537,6 +555,10 @@ export default function DisplaySettingsPage() {
     setRugbyForm((prev) => (prev ? { ...prev, ...next } : prev));
   }
 
+  function patchClock(next: Partial<SportClockForm>) {
+    setClockForm((prev) => (prev ? { ...prev, ...next } : prev));
+  }
+
   function applySportPreset() {
     if (!org) return;
     patchDisplay(presetDisplayForSport(org.sport || "football"));
@@ -553,46 +575,44 @@ export default function DisplaySettingsPage() {
   }
 
   async function save() {
-    if (!displayForm || !sportForm) return;
+    if (!displayForm || !sportForm || !clockForm) return;
 
     setSaving(true);
 
     const isRugby = normalizeSport(org?.sport) === "rugby";
+    const currentSport = normalizeSport(org?.sport) ?? "football";
 
-    const saves: Promise<any>[] = [
-      supabase.from("org_display_settings").upsert(displayForm, { onConflict: "org_id" }),
-      supabase.from("org_sport_settings").upsert(sportForm, { onConflict: "org_id" }),
-    ];
-
-    if (isRugby && rugbyForm && org?.id) {
-      saves.push(
-        supabase.from("org_display_sport_profiles").upsert(
-          {
-            org_id:                    org.id,
-            sport:                     "rugby",
-            show_rugby_score_breakdown: rugbyForm.show_rugby_score_breakdown,
-            show_sin_bin:              rugbyForm.show_sin_bin,
-            show_sin_bin_timer:        rugbyForm.show_sin_bin_timer,
-            show_rugby_tries:          rugbyForm.show_rugby_tries,
-            show_rugby_conversions:    rugbyForm.show_rugby_conversions,
-            show_rugby_penalties:      rugbyForm.show_rugby_penalties,
-            show_rugby_drop_goals:     rugbyForm.show_rugby_drop_goals,
-            clock_direction:           rugbyForm.clock_direction,
-            clock_limit_s:             rugbyForm.clock_limit_s,
-            clock_overrun_mode:        rugbyForm.clock_overrun_mode,
-          },
-          { onConflict: "org_id,sport" },
-        ),
-      );
+    // Build single profile upsert: clock fields (all sports) + rugby flags (rugby only)
+    const profileUpsert: Record<string, any> = {
+      org_id:            org!.id,
+      sport:             currentSport,
+      clock_direction:   clockForm.clock_direction,
+      clock_limit_s:     clockForm.clock_limit_s,
+      clock_overrun_mode: clockForm.clock_overrun_mode,
+    };
+    if (isRugby && rugbyForm) {
+      Object.assign(profileUpsert, {
+        show_rugby_score_breakdown: rugbyForm.show_rugby_score_breakdown,
+        show_sin_bin:               rugbyForm.show_sin_bin,
+        show_sin_bin_timer:         rugbyForm.show_sin_bin_timer,
+        show_rugby_tries:           rugbyForm.show_rugby_tries,
+        show_rugby_conversions:     rugbyForm.show_rugby_conversions,
+        show_rugby_penalties:       rugbyForm.show_rugby_penalties,
+        show_rugby_drop_goals:      rugbyForm.show_rugby_drop_goals,
+      });
     }
 
-    const [displayRes, sportRes, rugbyRes] = await Promise.all(saves);
+    const [displayRes, sportRes, profileRes] = await Promise.all([
+      supabase.from("org_display_settings").upsert(displayForm, { onConflict: "org_id" }),
+      supabase.from("org_sport_settings").upsert(sportForm, { onConflict: "org_id" }),
+      supabase.from("org_display_sport_profiles").upsert(profileUpsert, { onConflict: "org_id,sport" }),
+    ]);
 
     setSaving(false);
 
     if (displayRes.error) { flash(displayRes.error.message); return; }
     if (sportRes.error)   { flash(sportRes.error.message);   return; }
-    if (rugbyRes?.error)  { flash(rugbyRes.error.message);   return; }
+    if (profileRes.error) { flash(profileRes.error.message); return; }
 
     flash("Paramètres sauvegardés.");
 
@@ -625,6 +645,9 @@ export default function DisplaySettingsPage() {
           show_sets:                 sportForm.show_sets,
           show_cards:                sportForm.show_cards,
           show_shot_clock:           sportForm.show_shot_clock,
+          clock_direction:           clockForm.clock_direction,
+          clock_limit_s:             clockForm.clock_limit_s,
+          clock_overrun_mode:        clockForm.clock_overrun_mode,
           ...(isRugby && rugbyForm ? {
             show_rugby_score_breakdown: rugbyForm.show_rugby_score_breakdown,
             show_sin_bin:              rugbyForm.show_sin_bin,
@@ -633,16 +656,13 @@ export default function DisplaySettingsPage() {
             show_rugby_conversions:    rugbyForm.show_rugby_conversions,
             show_rugby_penalties:      rugbyForm.show_rugby_penalties,
             show_rugby_drop_goals:     rugbyForm.show_rugby_drop_goals,
-            clock_direction:           rugbyForm.clock_direction,
-            clock_limit_s:             rugbyForm.clock_limit_s,
-            clock_overrun_mode:        rugbyForm.clock_overrun_mode,
           } : {}),
         });
       }
     }
   }
 
-  if (loading || !displayForm || !sportForm) {
+  if (loading || !displayForm || !sportForm || !clockForm) {
     return (
       <div style={styles.page}>
         <div style={styles.centerBox}>Chargement des paramètres…</div>
@@ -946,6 +966,51 @@ export default function DisplaySettingsPage() {
             );
           })()}
 
+          <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
+            <div style={styles.sectionTitle}>Chronomètre</div>
+            <div style={styles.sectionText}>
+              Configurez le sens d'affichage du chrono, la durée de la période et le comportement en cas de dépassement.
+            </div>
+            <div style={styles.formGrid}>
+              <Field label="Sens du chrono">
+                <select
+                  value={clockForm.clock_direction}
+                  onChange={(e) => patchClock({ clock_direction: e.target.value })}
+                  style={styles.input}
+                >
+                  <option value="count_down">Décompte (X:XX → 00:00)</option>
+                  <option value="count_up">Comptage (00:00 → X:XX)</option>
+                </select>
+              </Field>
+              <Field label="Durée de la période (secondes)">
+                <input
+                  type="number"
+                  min={60}
+                  value={clockForm.clock_limit_s ?? ""}
+                  onChange={(e) => patchClock({ clock_limit_s: e.target.value ? Number(e.target.value) : null })}
+                  style={styles.input}
+                  placeholder={
+                    currentSport === "rugby"    ? "ex: 2400 (40 min)" :
+                    currentSport === "football" ? "ex: 2700 (45 min)" :
+                    currentSport === "basket"   ? "ex: 600 (10 min)"  :
+                    currentSport === "handball" ? "ex: 1800 (30 min)" : "ex: 600"
+                  }
+                />
+              </Field>
+              <Field label="Fin de période — comportement">
+                <select
+                  value={clockForm.clock_overrun_mode}
+                  onChange={(e) => patchClock({ clock_overrun_mode: e.target.value })}
+                  style={styles.input}
+                >
+                  <option value="stop_at_limit">Arrêt à la limite (figé)</option>
+                  <option value="continue_red">Continue en rouge (dépassement)</option>
+                  <option value="continue_with_plus">Continue avec + (ex: +02:15)</option>
+                </select>
+              </Field>
+            </div>
+          </section>
+
           {currentSport === "rugby" && rugbyForm && (
             <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
               <div style={styles.sectionTitle}>Affichage Rugby</div>
@@ -990,42 +1055,6 @@ export default function DisplaySettingsPage() {
                 />
               </div>
 
-              <div style={{ marginTop: 24 }}>
-                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 12, color: "#94a3b8", letterSpacing: 0.8 }}>CHRONOMÈTRE</div>
-                <div style={styles.formGrid}>
-                  <Field label="Sens du chrono">
-                    <select
-                      value={rugbyForm.clock_direction}
-                      onChange={(e) => patchRugby({ clock_direction: e.target.value })}
-                      style={styles.input}
-                    >
-                      <option value="count_down">Décompte (de X:XX → 00:00)</option>
-                      <option value="count_up">Comptage (de 00:00 → X:XX)</option>
-                    </select>
-                  </Field>
-                  <Field label="Durée de la période (secondes)">
-                    <input
-                      type="number"
-                      min={60}
-                      value={rugbyForm.clock_limit_s ?? ""}
-                      onChange={(e) => patchRugby({ clock_limit_s: e.target.value ? Number(e.target.value) : null })}
-                      style={styles.input}
-                      placeholder="ex: 2400 (= 40 min)"
-                    />
-                  </Field>
-                  <Field label="Comportement en fin de période">
-                    <select
-                      value={rugbyForm.clock_overrun_mode}
-                      onChange={(e) => patchRugby({ clock_overrun_mode: e.target.value })}
-                      style={styles.input}
-                    >
-                      <option value="stop_at_limit">Arrêt à la limite (figé)</option>
-                      <option value="continue_red">Continue en rouge (dépassement)</option>
-                      <option value="continue_with_plus">Continue avec + (ex: +02:15)</option>
-                    </select>
-                  </Field>
-                </div>
-              </div>
             </section>
           )}
 

@@ -1,0 +1,107 @@
+Je veux finaliser proprement le chronomètre paramétrable par sport dans scoreDisplay V2.
+
+Contexte :
+- le backend et le Display supportent déjà :
+  - clock_direction
+  - clock_limit_s
+  - clock_overrun_mode
+- le wording Rugby "Séance de tir au but" a déjà été remplacé par "Procédure de départage"
+- show_sin_bin_timer existe déjà
+- le socle chrono live est déjà synchronisé avec :
+  - live_seq
+  - last_event_seq
+  - clock_anchor_epoch_ms
+  - clock_anchor_clock_ms
+
+Problèmes restants identifiés :
+1. BUG `count_up`
+Dans `apps/display/src/components/Scoreboard.tsx`, la logique de rendu `count_up` n’est pas correcte.
+Le temps affiché se retrouve encore clampé à la limite dans certains cas, alors que pour :
+- Rugby
+- Football
+avec `clock_overrun_mode = continue_red`
+le chrono doit continuer au-delà de la limite.
+
+Exemple attendu :
+- Rugby : 39:52 → 40:00 → 40:11 → 41:07 (en rouge après 40:00)
+- Football : 44:31 → 45:00 → 45:18 → 46:05 (en rouge après 45:00)
+
+2. PARAMÉTRAGE INCOMPLET
+Dans `DisplaySettingsPage.tsx`, les réglages :
+- clock_direction
+- clock_limit_s
+- clock_overrun_mode
+ne sont exposés que pour le Rugby.
+Je veux qu’ils soient disponibles proprement pour tous les sports pertinents :
+- rugby
+- football
+- basket
+- handball
+- volleyball si maintenu
+
+3. VALIDATION DU RENDU
+Il faut vérifier que le rendu en rouge au dépassement fonctionne bien dans les layouts concernés.
+
+OBJECTIF FINAL
+- Rugby : count_up + continue_red + limite 40:00
+- Football : count_up + continue_red + limite 45:00
+- Basket : count_down + stop_at_limit
+- Handball : count_down + stop_at_limit
+- Volley : comportement simple, sans régression
+
+TRAVAIL DEMANDÉ
+
+A. Corriger Scoreboard.tsx
+Je veux que tu corriges la logique de rendu `count_up` pour qu’elle respecte réellement `clock_overrun_mode` :
+- stop_at_limit :
+  - afficher la limite figée
+- continue_red :
+  - afficher le chrono qui continue réellement après la limite
+  - le chrono doit passer en rouge après la limite
+- continue_with_plus :
+  - afficher un mode additionnel clair, par exemple +MM:SS ou équivalent lisible
+
+Important :
+- ne pas casser `count_down`
+- ne pas casser la synchro live existante
+- la logique doit rester cohérente avec l’ancre temps déjà en place
+
+B. Étendre DisplaySettingsPage.tsx
+Je veux que les réglages suivants soient exposés proprement dans l’UI pour tous les sports concernés :
+- clock_direction
+- clock_limit_s
+- clock_overrun_mode
+
+Exigences :
+- labels clairs
+- UX cohérente
+- pas de duplication absurde
+- garder Rugby/Football plus orientés count_up
+- Basket/Handball plus orientés count_down
+- Volley simple mais non cassé
+
+C. Vérifier le rendu des couleurs
+Je veux vérifier que le chrono passe bien en rouge dans les cas `continue_red`.
+Si nécessaire, corriger les styles ou les branches de rendu.
+
+D. Audit court final
+Je veux que tu me dises à la fin :
+1. ce qui était cassé
+2. ce qui a été corrigé
+3. quels sports sont réellement opérationnels après ce lot
+4. s’il reste un cas ambigu
+
+LIVRABLES
+Je veux :
+1. liste des fichiers modifiés
+2. fichiers complets modifiés
+3. résumé clair du comportement final par sport
+4. mini plan de test manuel
+
+CONTRAINTES
+- partir du code existant
+- pas de refonte gratuite
+- ne pas casser la synchro live
+- ne pas casser le mode Display stable par équipe
+- ne pas réintroduire de logique legacy
+- garder la lisibilité LED comme priorité

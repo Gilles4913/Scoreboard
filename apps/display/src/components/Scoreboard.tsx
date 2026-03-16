@@ -193,49 +193,50 @@ function fmtClock(ms?: number | null) {
   return `${mm}:${ss}`;
 }
 
+function fmtMs(ms: number): string {
+  const val = Math.max(0, Math.floor(ms));
+  const s = Math.floor(val / 1000);
+  const mm = Math.floor(s / 60).toString().padStart(2, "0");
+  const ss = (s % 60).toString().padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
 function computeClockDisplay(ctx: ScoreboardContext): { text: string; isOverrun: boolean } {
   const direction = ctx.clock_direction ?? "count_down";
   const limitMs = typeof ctx.clock_limit_s === "number" ? ctx.clock_limit_s * 1000 : null;
   const overrunMode = ctx.clock_overrun_mode ?? "stop_at_limit";
+
+  // rawMs: counts DOWN from limitMs → 0 → negative (overtime). Unclamped by main.tsx.
   const rawMs = ctx.clock_ms_unclamped ?? ctx.clock_ms ?? 0;
 
   if (direction === "count_up") {
     if (limitMs === null) {
-      // No limit defined: show elapsed using clock_ms (counts down from init, so elapsed = limitless)
-      return { text: fmtClock(ctx.clock_ms), isOverrun: false };
+      // No period limit configured — just display clock_ms as-is (shouldn't normally happen)
+      return { text: fmtMs(ctx.clock_ms ?? 0), isOverrun: false };
     }
-    // rawMs counts DOWN from limitMs to 0, then negative in overtime
+
+    // elapsedMs: 0 at kick-off → limitMs at end of regulation → > limitMs in overtime
     const elapsedMs = limitMs - rawMs;
     const isOverrun = elapsedMs > limitMs;
 
-    if (isOverrun) {
-      if (overrunMode === "stop_at_limit") {
-        return { text: fmtCountUp(limitMs, limitMs), isOverrun: false };
-      }
-      const overtimeMs = elapsedMs - limitMs;
-      if (overrunMode === "continue_with_plus") {
-        return { text: "+" + fmtClock(overtimeMs), isOverrun: true };
-      }
-      return { text: fmtCountUp(elapsedMs, limitMs), isOverrun: true };
+    if (!isOverrun) {
+      return { text: fmtMs(Math.max(0, elapsedMs)), isOverrun: false };
     }
-    return { text: fmtCountUp(Math.max(0, elapsedMs), limitMs), isOverrun: false };
+
+    // Overtime
+    if (overrunMode === "stop_at_limit") {
+      return { text: fmtMs(limitMs), isOverrun: false };
+    }
+    if (overrunMode === "continue_with_plus") {
+      const overtimeMs = elapsedMs - limitMs;
+      return { text: "+" + fmtMs(overtimeMs), isOverrun: true };
+    }
+    // continue_red: keep counting past limit, show in red
+    return { text: fmtMs(elapsedMs), isOverrun: true };
   }
 
+  // count_down: normal display using clamped clock_ms
   return { text: fmtClock(ctx.clock_ms), isOverrun: false };
-}
-
-function fmtCountUp(elapsedMs: number, limitMs: number | null) {
-  const val = Math.max(0, Math.floor(elapsedMs));
-  const s = Math.floor(val / 1000);
-  const mm = Math.floor(s / 60).toString().padStart(2, "0");
-  const ss = (s % 60).toString().padStart(2, "0");
-  if (limitMs !== null && elapsedMs >= limitMs) {
-    const limSec = Math.floor(limitMs / 1000);
-    const lm = Math.floor(limSec / 60).toString().padStart(2, "0");
-    const ls = (limSec % 60).toString().padStart(2, "0");
-    return `${lm}:${ls}`;
-  }
-  return `${mm}:${ss}`;
 }
 
 function sportLabel(s?: string) {
