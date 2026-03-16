@@ -86,6 +86,50 @@ Org système : `master`
 
 La priorité visuelle actuelle est l'amélioration de la lisibilité LED, avec **Rugby comme sport pilote**.
 
+### 2.5 Source de vérité DB / Schéma (règle fondamentale)
+
+La source de vérité du schéma suit l'ordre de priorité suivant :
+
+1. **La base de données réelle** (colonnes, contraintes, vues, fonctions présentes en production)
+2. **L'ensemble des migrations SQL appliquées** (dans `supabase/migrations/`)
+3. ~~`supabase/schema.sql`~~ — fichier snapshot documentaire uniquement
+
+> **Un fichier `schema.sql` qui diverge de la base réelle ou des migrations est incorrect. Il ne fait jamais foi.**
+
+#### Ce que toute vérification sérieuse doit porter sur
+
+- les colonnes réellement présentes en base
+- les contraintes réellement présentes
+- les vues réellement présentes (`matches_v`, `matches_canon`, `matches_list`)
+- les fonctions / triggers réellement présents
+- les migrations SQL effectivement appliquées
+
+#### Colonnes obligatoires dans `matches` (contrat live global)
+
+Ces colonnes doivent exister réellement en base :
+
+| Colonne | Type | Rôle |
+|---------|------|------|
+| `last_event_seq` | `INTEGER NOT NULL DEFAULT 0` | Séquence dominante persistée |
+| `last_event_at` | `TIMESTAMPTZ NULL` | Timestamp de la dernière mutation live |
+| `clock_anchor_epoch_ms` | `BIGINT NULL` | Epoch JS (ms) de la dernière ancre chrono |
+| `clock_anchor_clock_ms` | `INTEGER NULL` | Valeur chrono (ms) au moment de l'ancre |
+
+#### Cohérence `matches.is_live` (invariant métier géré côté DB)
+
+`is_live` n'est pas autonome — il doit rester aligné avec `status` :
+
+| Valeur `status` | Valeur attendue `is_live` |
+|-----------------|--------------------------|
+| `'live'` | `true` |
+| `'scheduled'`, `'paused'`, `'finished'`, `'archived'` | `false` |
+
+Cette cohérence est gérée côté DB (trigger ou computed). Le code ne doit jamais écrire `is_live` de façon indépendante.
+
+#### Vues à maintenir alignées
+
+`matches_v`, `matches_canon`, `matches_list` doivent inclure les colonnes `last_event_seq`, `last_event_at`, `clock_anchor_epoch_ms`, `clock_anchor_clock_ms` dès lors que ces colonnes existent sur `matches`.
+
 ---
 
 ## 3. Architecture produit V3
@@ -230,8 +274,13 @@ Champs V2 structurants :
 
 Champs V3 contrat live ajoutés (migrations 20260313000004, 20260315000001) :
 - `last_event_seq INTEGER NOT NULL DEFAULT 0` — séquence dominante persistée (dernière mutation live)
+- `last_event_at TIMESTAMPTZ NULL` — timestamp de la dernière mutation live
 - `clock_anchor_epoch_ms BIGINT NULL` — epoch JS (ms) de la dernière ancre chrono
 - `clock_anchor_clock_ms INTEGER NULL` — valeur chrono (ms) au moment de l'ancre
+
+> **Invariant `is_live`** : `status = 'live'` ↔ `is_live = true`. Toute autre valeur de `status` → `is_live = false`. Cette cohérence est gérée côté DB. Le code ne doit jamais écrire `is_live` de façon indépendante de `status`.
+
+> **Vues `matches_v`, `matches_canon`, `matches_list`** : doivent exposer les 4 colonnes live ci-dessus. Toute migration ajoutant des colonnes à `matches` doit vérifier l'alignement des vues.
 
 Statuts valides (`match_status` enum) :
 - `scheduled` — planifié
@@ -652,7 +701,7 @@ async function dispatch(dbPatch, opts?: { event?, clock?, overlay? })
 1. matchSeqRef++ → seq
 2. broadcast live : { ...livePatch, live_seq: seq, emitted_at: Date.now(),
                        clock_anchor_epoch?, clock_anchor_ms? }
-3. persist DB : { ...dbPatch, last_event_seq: seq,
+3. persist DB : { ...dbPatch, last_event_seq: seq, last_event_at: now(),
                   clock_anchor_epoch_ms?, clock_anchor_clock_ms? }
 4. insert match_events : { seq, event_type, ... } si event fourni
 ```
@@ -940,7 +989,7 @@ Migrations dans `supabase/migrations/` :
 | `20260314000005_show_live_badge.sql` | Ajoute `show_live_badge BOOLEAN DEFAULT false` à `org_display_settings` et `org_display_sport_profiles` | À appliquer |
 | `20260315000001_clock_anchors.sql` | Ajoute `clock_anchor_epoch_ms` + `clock_anchor_clock_ms` à `matches` | Couvert par 20260316000001 |
 | `20260315000002_live_seq_events.sql` | Index `match_events(match_id, seq)` + `match_substitutions.seq` | Couvert par 20260316000001 |
-| `20260316000001_create_match_events_and_finalize.sql` | **Rattrapage complet** : crée `match_events` (avec `seq`), RLS, colonnes `clock_anchor_*`, `match_substitutions.seq`. **Idempotente.** | **Appliquée** |
+| `20260316000001_create_match_events_and_finalize.sql` | **Rattrapage complet** : crée `match_events` (avec `seq`), RLS, colonnes `clock_anchor_epoch_ms`, `clock_anchor_clock_ms`, `last_event_seq`, `last_event_at` sur `matches`, `match_substitutions.seq`. **Idempotente.** | **Appliquée** |
 | `20260316000002_catchup_missing_migrations.sql` | **Rattrapage enum + tables** : `match_status` enum 'paused'/'cancelled', `match_players` colonnes, `match_substitutions`, `org_display_settings` colonnes, `display_templates`. **Idempotente.** | **À appliquer** |
 
 > **Stratégie recommandée** : appliquer `20260316000001` (déjà fait) puis `20260316000002` dans le SQL Editor Supabase. Ces deux migrations couvrent l'intégralité du schéma V3 de manière idempotente. Les migrations individuelles 20260313-20260315 peuvent être appliquées en complément sans risque de conflit.
@@ -1051,12 +1100,15 @@ Des pages et composants obsolètes peuvent encore exister. Les déplacer en `_le
 ### 23.3 Contrat live global (validé)
 - ✅ `dispatch()` — point d'entrée unique, 45 call sites
 - ✅ `emitLiveMutation()` — pipeline seq + broadcast + persist + journal
+- ✅ `last_event_seq` + `last_event_at` persistés à chaque mutation live
 - ✅ `clock_anchor_epoch_ms` / `clock_anchor_clock_ms` persistés sur Start/Pause/Reset
 - ✅ Display reconstruit le chrono depuis l'ancre à froid
 - ✅ MobileControlPage émet les ancres temps
 - ✅ Polling HTTP Display n'écrase plus l'horloge live
 - ✅ `match_events` créée avec `seq`
 - ✅ `match_status` enum étendu avec `'paused'`
+- ✅ `is_live` cohérence gérée côté DB, jamais écrit indépendamment de `status`
+- ✅ Vues `matches_v`, `matches_canon`, `matches_list` doivent exposer les colonnes live
 
 ---
 
@@ -1121,3 +1173,9 @@ scoreDisplay est un produit multi-apps (Home, Operator, Display, Admin) basé su
 - Toute mutation live passe par `dispatch()` → `emitLiveMutation()` → seq + broadcast + persist + journal
 - Le chrono se reconstruit depuis l'ancre persistée `clock_anchor_epoch_ms` / `clock_anchor_clock_ms`
 - Jamais réintroduire : `token`, `display_token`, `public_display`, ni le PATCH de `status:"paused"` sans que l'enum l'inclue
+
+**Source de vérité DB (règle fondamentale)** :
+- Ordre de priorité : **base réelle** > **migrations appliquées** > ~~schema.sql~~ (snapshot documentaire)
+- Colonnes obligatoires dans `matches` : `last_event_seq`, `last_event_at`, `clock_anchor_epoch_ms`, `clock_anchor_clock_ms`
+- `is_live` est dérivé de `status` côté DB — jamais écrit de façon indépendante
+- Toute migration qui touche `matches` doit vérifier l'alignement des vues `matches_v`, `matches_canon`, `matches_list`
