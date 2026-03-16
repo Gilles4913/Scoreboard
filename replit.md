@@ -406,11 +406,12 @@ async function dispatch(dbPatch, opts?: { event?, clock?, overlay? })
 |---------|-------------|--------|
 | `20260315000001_clock_anchors.sql` | `clock_anchor_epoch_ms` + `clock_anchor_clock_ms` dans `matches` | Peut être skippée si 20260316000001 exécutée |
 | `20260315000002_live_seq_events.sql` | Index `match_events(match_id, seq)` + `match_substitutions.seq` | Peut être skippée si 20260316000001 exécutée |
-| `20260316000001_create_match_events_and_finalize.sql` | **Migration complète** : crée `match_events` si absente, ajoute `seq`, RLS, `clock_anchor_*`, `match_substitutions.seq`. Idempotente. | **À APPLIQUER** |
+| `20260316000001_create_match_events_and_finalize.sql` | Crée `match_events` + `seq`, RLS, `clock_anchor_*`, `match_substitutions.seq` | Appliquée |
+| `20260316000002_catchup_missing_migrations.sql` | **Rattrapage complet** : `match_status` enum ('paused','cancelled'), `match_players` colonnes substitution, `match_substitutions` table+RLS, `org_display_settings` colonnes, `display_templates` table+colonnes. Idempotente. | **À APPLIQUER** |
 
-> **Cause du bug 400** : la table `match_events` n'existait dans aucune migration.  
-> Le SELECT `?select=id,seq,...&order=seq.desc` échouait avec 400 si la table ou la colonne `seq` était absente.
+> **Cause du bug 400 PATCH Pause** : `match_status` enum sans la valeur 'paused' (migration 20260313000005 non appliquée).  
+> Le PATCH avec `status:"paused"` échouait avec 400 car la valeur n'existait pas dans le type Postgres.
 
 > **Actions manuelles** :
-> 1. Exécuter `20260316000001_create_match_events_and_finalize.sql` dans le SQL Editor Supabase
+> 1. Exécuter `20260316000002_catchup_missing_migrations.sql` dans le SQL Editor Supabase (note : les 2 premières lignes ALTER TYPE s'exécutent hors transaction, les suivantes dans BEGIN...COMMIT — coller le fichier entier)
 > 2. `supabase functions deploy get-display-context`
