@@ -25,6 +25,7 @@ type DisplaySettingsRow = {
   show_logos: boolean;
   show_sponsors: boolean;
   show_substitution_banner: boolean;
+  show_live_badge: boolean;
   dual_language: boolean;
   lang_primary: string;
   lang_secondary: string;
@@ -106,6 +107,7 @@ function presetDisplayForSport(sport: string): Partial<DisplaySettingsRow> {
       show_logos: true,
       show_sponsors: true,
       show_substitution_banner: true,
+      show_live_badge: false,
       dual_language: false,
       lang_primary: "FR",
       lang_secondary: "EN",
@@ -125,6 +127,7 @@ function presetDisplayForSport(sport: string): Partial<DisplaySettingsRow> {
       show_logos: true,
       show_sponsors: true,
       show_substitution_banner: true,
+      show_live_badge: false,
       dual_language: false,
       lang_primary: "FR",
       lang_secondary: "EN",
@@ -144,6 +147,7 @@ function presetDisplayForSport(sport: string): Partial<DisplaySettingsRow> {
       show_logos: true,
       show_sponsors: true,
       show_substitution_banner: true,
+      show_live_badge: false,
       dual_language: false,
       lang_primary: "FR",
       lang_secondary: "EN",
@@ -163,6 +167,7 @@ function presetDisplayForSport(sport: string): Partial<DisplaySettingsRow> {
       show_logos: true,
       show_sponsors: true,
       show_substitution_banner: true,
+      show_live_badge: false,
       dual_language: false,
       lang_primary: "FR",
       lang_secondary: "EN",
@@ -181,6 +186,7 @@ function presetDisplayForSport(sport: string): Partial<DisplaySettingsRow> {
     show_logos: true,
     show_sponsors: true,
     show_substitution_banner: true,
+    show_live_badge: false,
     dual_language: false,
     lang_primary: "FR",
     lang_secondary: "EN",
@@ -435,7 +441,7 @@ export default function DisplaySettingsPage() {
         await Promise.all([
           supabase
             .from("org_display_settings")
-            .select("org_id, theme, layout_mode, show_score, show_clock, show_period, show_status, show_lower_third, show_logos, show_sponsors, show_substitution_banner, dual_language, lang_primary, lang_secondary, sponsor_rotate_s")
+            .select("org_id, theme, layout_mode, show_score, show_clock, show_period, show_status, show_lower_third, show_logos, show_sponsors, show_substitution_banner, show_live_badge, dual_language, lang_primary, lang_secondary, sponsor_rotate_s")
             .eq("org_id", currentOrg.id)
             .maybeSingle(),
           supabase
@@ -480,6 +486,7 @@ export default function DisplaySettingsPage() {
           show_logos: true,
           show_sponsors: true,
           show_substitution_banner: true,
+          show_live_badge: false,
           dual_language: false,
           lang_primary: "FR",
           lang_secondary: "EN",
@@ -640,6 +647,7 @@ export default function DisplaySettingsPage() {
           show_logos:                displayForm.show_logos,
           show_sponsors:             displayForm.show_sponsors,
           show_substitution_banner:  displayForm.show_substitution_banner,
+          show_live_badge:           displayForm.show_live_badge,
           layout_mode:               displayForm.layout_mode,
           show_team_fouls:           sportForm.show_team_fouls,
           show_player_fouls:         sportForm.show_player_fouls,
@@ -853,6 +861,7 @@ export default function DisplaySettingsPage() {
               <Toggle label="Afficher bandeau bas d’écran" value={displayForm.show_lower_third} onChange={(v) => patchDisplay({ show_lower_third: v })} />
               <Toggle label="Afficher logos club" value={displayForm.show_logos} onChange={(v) => patchDisplay({ show_logos: v })} />
               <Toggle label="Afficher bandeau de remplacement" value={displayForm.show_substitution_banner} onChange={(v) => patchDisplay({ show_substitution_banner: v })} />
+              <Toggle label="Badge EN COURS / PAUSE" value={displayForm.show_live_badge} onChange={(v) => patchDisplay({ show_live_badge: v })} />
               <Toggle label="Afficher une seconde langue" value={displayForm.dual_language} onChange={(v) => patchDisplay({ dual_language: v })} />
             </div>
           </section>

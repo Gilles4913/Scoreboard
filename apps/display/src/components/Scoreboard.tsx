@@ -1361,15 +1361,25 @@ export default function Scoreboard({ context, activeOverlay }: Props) {
     if (context.volleyball_away_serving) awayStats.push({ label: "Service", value: "ON" });
   }
 
-  if (isRugby) {
-    homeStats.push({ label: "E", value: safeNum(context.rugby_home_tries) });
-    awayStats.push({ label: "E", value: safeNum(context.rugby_away_tries) });
-    homeStats.push({ label: "T", value: safeNum(context.rugby_home_conversions) });
-    awayStats.push({ label: "T", value: safeNum(context.rugby_away_conversions) });
-    homeStats.push({ label: "P", value: safeNum(context.rugby_home_penalties) });
-    awayStats.push({ label: "P", value: safeNum(context.rugby_away_penalties) });
-    homeStats.push({ label: "D", value: safeNum(context.rugby_home_drop_goals) });
-    awayStats.push({ label: "D", value: safeNum(context.rugby_away_drop_goals) });
+  if (isRugby && context.show_rugby_score_breakdown !== false) {
+    if (context.show_rugby_tries !== false) {
+      homeStats.push({ label: "E", value: safeNum(context.rugby_home_tries) });
+      awayStats.push({ label: "E", value: safeNum(context.rugby_away_tries) });
+    }
+    if (context.show_rugby_conversions !== false) {
+      homeStats.push({ label: "T", value: safeNum(context.rugby_home_conversions) });
+      awayStats.push({ label: "T", value: safeNum(context.rugby_away_conversions) });
+    }
+    if (context.show_rugby_penalties !== false) {
+      homeStats.push({ label: "P", value: safeNum(context.rugby_home_penalties) });
+      awayStats.push({ label: "P", value: safeNum(context.rugby_away_penalties) });
+    }
+    if (context.show_rugby_drop_goals !== false) {
+      homeStats.push({ label: "D", value: safeNum(context.rugby_home_drop_goals) });
+      awayStats.push({ label: "D", value: safeNum(context.rugby_away_drop_goals) });
+    }
+  }
+  if (isRugby && context.show_sin_bin !== false) {
     homeStats.push({ label: "Excl. temp.", value: safeNum(context.rugby_home_sin_bin_active) });
     awayStats.push({ label: "Excl. temp.", value: safeNum(context.rugby_away_sin_bin_active) });
   }
