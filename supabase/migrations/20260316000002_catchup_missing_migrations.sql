@@ -87,6 +87,25 @@ ALTER TABLE public.org_display_settings
 ALTER TABLE public.org_display_sport_profiles
   ADD COLUMN IF NOT EXISTS show_live_badge boolean NULL;
 
+-- ─── display_templates : activer show_rugby_score_breakdown pour rugby_stade / rugby_club ──
+-- Les templates rugby_stade et rugby_club avaient show_rugby_score_breakdown:false par erreur.
+-- Le breakdown Essais/Transfo/Pén/Drop est fondamental à l'affichage rugby stade.
+UPDATE public.display_templates
+  SET config_json = config_json || '{"show_rugby_score_breakdown":true}'::jsonb,
+      updated_at  = now()
+  WHERE code IN ('rugby_stade', 'rugby_club');
+
+-- ─── org_display_sport_profiles : activer show_rugby_score_breakdown pour tous les orgs rugby ──
+UPDATE public.org_display_sport_profiles
+  SET show_rugby_score_breakdown = true,
+      show_sin_bin               = true,
+      show_rugby_tries           = true,
+      show_rugby_conversions     = true,
+      show_rugby_penalties       = true,
+      show_rugby_drop_goals      = true,
+      updated_at                 = now()
+  WHERE sport = 'rugby';
+
 -- ─── display_templates : table + colonnes complètes (20260313000002 + 20260314000004) ──
 CREATE TABLE IF NOT EXISTS public.display_templates (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),

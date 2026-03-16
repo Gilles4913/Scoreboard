@@ -51,6 +51,15 @@ type SportSettingsRow = {
   shot_clock_s: number | null;
 };
 
+type RugbyProfileForm = {
+  show_rugby_score_breakdown: boolean;
+  show_sin_bin: boolean;
+  show_rugby_tries: boolean;
+  show_rugby_conversions: boolean;
+  show_rugby_penalties: boolean;
+  show_rugby_drop_goals: boolean;
+};
+
 type ThemeCardDef = {
   id: string;
   title: string;
@@ -374,6 +383,7 @@ export default function DisplaySettingsPage() {
   const [org, setOrg] = useState<OrgRow | null>(null);
   const [displayForm, setDisplayForm] = useState<DisplaySettingsRow | null>(null);
   const [sportForm, setSportForm] = useState<SportSettingsRow | null>(null);
+  const [rugbyForm, setRugbyForm] = useState<RugbyProfileForm | null>(null);
 
   const activeOrgId = useMemo(() => (localStorage.getItem(LS_ACTIVE_ORG_ID) || "").trim(), []);
   const activeOrgSlug = useMemo(() => (localStorage.getItem(LS_ACTIVE_ORG_SLUG) || "").trim(), []);
@@ -401,7 +411,7 @@ export default function DisplaySettingsPage() {
       const currentOrg = orgRow as OrgRow;
       setOrg(currentOrg);
 
-      const [{ data: displaySettingsRow, error: displayErr }, { data: sportSettingsRow, error: sportErr }] =
+      const [{ data: displaySettingsRow, error: displayErr }, { data: sportSettingsRow, error: sportErr }, { data: rugbyProfileRow }] =
         await Promise.all([
           supabase
             .from("org_display_settings")
@@ -413,6 +423,14 @@ export default function DisplaySettingsPage() {
             .select("org_id, sport, period_count, period_duration_s, extra_time_enabled, penalties_enabled, show_team_fouls, show_player_fouls, show_timeouts, show_bonus, show_sets, show_cards, show_shot_clock, max_team_fouls, max_player_fouls, max_timeouts, shot_clock_s")
             .eq("org_id", currentOrg.id)
             .maybeSingle(),
+          normalizeSport(currentOrg.sport) === "rugby"
+            ? supabase
+                .from("org_display_sport_profiles")
+                .select("show_rugby_score_breakdown, show_sin_bin, show_rugby_tries, show_rugby_conversions, show_rugby_penalties, show_rugby_drop_goals")
+                .eq("org_id", currentOrg.id)
+                .eq("sport", "rugby")
+                .maybeSingle()
+            : Promise.resolve({ data: null }),
         ]);
 
       if (cancelled) return;
@@ -473,6 +491,18 @@ export default function DisplaySettingsPage() {
         },
       );
 
+      if (sport === "rugby") {
+        const rp = rugbyProfileRow as RugbyProfileForm | null;
+        setRugbyForm({
+          show_rugby_score_breakdown: rp?.show_rugby_score_breakdown ?? true,
+          show_sin_bin:               rp?.show_sin_bin               ?? true,
+          show_rugby_tries:           rp?.show_rugby_tries           ?? true,
+          show_rugby_conversions:     rp?.show_rugby_conversions     ?? true,
+          show_rugby_penalties:       rp?.show_rugby_penalties       ?? true,
+          show_rugby_drop_goals:      rp?.show_rugby_drop_goals      ?? true,
+        });
+      }
+
       setLoading(false);
     }
 
@@ -495,6 +525,10 @@ export default function DisplaySettingsPage() {
     setSportForm((prev) => (prev ? { ...prev, ...next } : prev));
   }
 
+  function patchRugby(next: Partial<RugbyProfileForm>) {
+    setRugbyForm((prev) => (prev ? { ...prev, ...next } : prev));
+  }
+
   function applySportPreset() {
     if (!org) return;
     patchDisplay(presetDisplayForSport(org.sport || "football"));
@@ -515,22 +549,38 @@ export default function DisplaySettingsPage() {
 
     setSaving(true);
 
-    const [displayRes, sportRes] = await Promise.all([
+    const isRugby = normalizeSport(org?.sport) === "rugby";
+
+    const saves: Promise<any>[] = [
       supabase.from("org_display_settings").upsert(displayForm, { onConflict: "org_id" }),
       supabase.from("org_sport_settings").upsert(sportForm, { onConflict: "org_id" }),
-    ]);
+    ];
+
+    if (isRugby && rugbyForm && org?.id) {
+      saves.push(
+        supabase.from("org_display_sport_profiles").upsert(
+          {
+            org_id:                    org.id,
+            sport:                     "rugby",
+            show_rugby_score_breakdown: rugbyForm.show_rugby_score_breakdown,
+            show_sin_bin:              rugbyForm.show_sin_bin,
+            show_rugby_tries:          rugbyForm.show_rugby_tries,
+            show_rugby_conversions:    rugbyForm.show_rugby_conversions,
+            show_rugby_penalties:      rugbyForm.show_rugby_penalties,
+            show_rugby_drop_goals:     rugbyForm.show_rugby_drop_goals,
+          },
+          { onConflict: "org_id,sport" },
+        ),
+      );
+    }
+
+    const [displayRes, sportRes, rugbyRes] = await Promise.all(saves);
 
     setSaving(false);
 
-    if (displayRes.error) {
-      flash(displayRes.error.message);
-      return;
-    }
-
-    if (sportRes.error) {
-      flash(sportRes.error.message);
-      return;
-    }
+    if (displayRes.error) { flash(displayRes.error.message); return; }
+    if (sportRes.error)   { flash(sportRes.error.message);   return; }
+    if (rugbyRes?.error)  { flash(rugbyRes.error.message);   return; }
 
     flash("Paramètres sauvegardés.");
 
@@ -547,22 +597,30 @@ export default function DisplaySettingsPage() {
 
       if (matchRow?.id) {
         void sendTvBroadcast(matchRow.id, {
-          show_score:       displayForm.show_score,
-          show_clock:       displayForm.show_clock,
-          show_period:      displayForm.show_period,
-          show_status:      displayForm.show_status,
+          show_score:                displayForm.show_score,
+          show_clock:                displayForm.show_clock,
+          show_period:               displayForm.show_period,
+          show_status:               displayForm.show_status,
           show_lower_third:          displayForm.show_lower_third,
           show_logos:                displayForm.show_logos,
           show_sponsors:             displayForm.show_sponsors,
           show_substitution_banner:  displayForm.show_substitution_banner,
           layout_mode:               displayForm.layout_mode,
-          show_team_fouls:  sportForm.show_team_fouls,
-          show_player_fouls: sportForm.show_player_fouls,
-          show_timeouts:    sportForm.show_timeouts,
-          show_bonus:       sportForm.show_bonus,
-          show_sets:        sportForm.show_sets,
-          show_cards:       sportForm.show_cards,
-          show_shot_clock:  sportForm.show_shot_clock,
+          show_team_fouls:           sportForm.show_team_fouls,
+          show_player_fouls:         sportForm.show_player_fouls,
+          show_timeouts:             sportForm.show_timeouts,
+          show_bonus:                sportForm.show_bonus,
+          show_sets:                 sportForm.show_sets,
+          show_cards:                sportForm.show_cards,
+          show_shot_clock:           sportForm.show_shot_clock,
+          ...(isRugby && rugbyForm ? {
+            show_rugby_score_breakdown: rugbyForm.show_rugby_score_breakdown,
+            show_sin_bin:              rugbyForm.show_sin_bin,
+            show_rugby_tries:          rugbyForm.show_rugby_tries,
+            show_rugby_conversions:    rugbyForm.show_rugby_conversions,
+            show_rugby_penalties:      rugbyForm.show_rugby_penalties,
+            show_rugby_drop_goals:     rugbyForm.show_rugby_drop_goals,
+          } : {}),
         });
       }
     }
@@ -871,6 +929,47 @@ export default function DisplaySettingsPage() {
               </section>
             );
           })()}
+
+          {currentSport === "rugby" && rugbyForm && (
+            <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
+              <div style={styles.sectionTitle}>Affichage Rugby</div>
+              <div style={styles.sectionText}>
+                Ces options contrôlent les éléments spécifiques au rugby sur le Display (breakdown des points, exclusions temporaires, etc.).
+              </div>
+              <div style={styles.flagsGrid}>
+                <Toggle
+                  label="Détail des points (Essais / Transfo / Pén / Drop)"
+                  value={rugbyForm.show_rugby_score_breakdown}
+                  onChange={(v) => patchRugby({ show_rugby_score_breakdown: v })}
+                />
+                <Toggle
+                  label="Exclusions temporaires (carton jaune)"
+                  value={rugbyForm.show_sin_bin}
+                  onChange={(v) => patchRugby({ show_sin_bin: v })}
+                />
+                <Toggle
+                  label="Afficher Essais"
+                  value={rugbyForm.show_rugby_tries}
+                  onChange={(v) => patchRugby({ show_rugby_tries: v })}
+                />
+                <Toggle
+                  label="Afficher Transformations"
+                  value={rugbyForm.show_rugby_conversions}
+                  onChange={(v) => patchRugby({ show_rugby_conversions: v })}
+                />
+                <Toggle
+                  label="Afficher Pénalités"
+                  value={rugbyForm.show_rugby_penalties}
+                  onChange={(v) => patchRugby({ show_rugby_penalties: v })}
+                />
+                <Toggle
+                  label="Afficher Drops"
+                  value={rugbyForm.show_rugby_drop_goals}
+                  onChange={(v) => patchRugby({ show_rugby_drop_goals: v })}
+                />
+              </div>
+            </section>
+          )}
 
           <section style={{ ...styles.panel, gridColumn: "1 / -1" }}>
             <div style={styles.sectionTitle}>Sponsors</div>

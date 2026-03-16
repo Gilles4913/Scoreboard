@@ -1,0 +1,57 @@
+Voici un prompt Replit prêt à coller pour sécuriser immédiatement supabase/schema.sql tant qu’il n’a pas été régénéré.
+
+Le fichier `supabase/schema.sql` du projet n’est plus aligné avec la base Supabase réelle.
+
+Je ne veux PAS qu’il soit utilisé comme source de vérité tant qu’il n’a pas été régénéré depuis la DB réelle.
+
+Je veux que tu modifies `supabase/schema.sql` pour ajouter tout en haut un bloc d’avertissement très visible, en commentaire SQL, indiquant clairement :
+
+1. que ce fichier est obsolète / non fiable à ce stade
+2. que la source de vérité est :
+   - la base de données réelle
+   - les migrations SQL appliquées
+3. qu’il ne faut pas utiliser ce fichier pour reconstruire ou comparer le schéma tant qu’il n’a pas été régénéré
+4. que toute vérification structurelle doit se faire contre :
+   - les colonnes réelles en base
+   - les vues réelles
+   - les contraintes réelles
+   - les fonctions / triggers réels
+5. qu’une régénération future du fichier est prévue via dump depuis la DB
+
+Je veux :
+- le fichier complet si tu le réécris
+ou, si tu préfères une modification minimale,
+- les premières lignes exactes à ajouter en tête du fichier
+
+Le ton doit être clair, technique, sans ambiguïté.
+
+Et voici le bloc exact à mettre en tête de supabase/schema.sql :
+
+-- =========================================================
+-- ATTENTION — FICHIER TEMPORAIREMENT OBSOLÈTE
+-- =========================================================
+-- Le présent fichier `supabase/schema.sql` n'est pas
+-- actuellement aligné avec la base Supabase réelle.
+--
+-- IL NE DOIT PAS ÊTRE UTILISÉ COMME SOURCE DE VÉRITÉ.
+--
+-- La source de vérité du schéma est, dans l'ordre :
+-- 1. la base de données réelle
+-- 2. les migrations SQL effectivement appliquées
+--
+-- Tant que ce fichier n'a pas été régénéré depuis la DB réelle,
+-- il ne doit pas servir pour :
+-- - reconstruire le schéma
+-- - comparer le schéma réel
+-- - valider l'existence de colonnes / vues / contraintes / fonctions
+--
+-- Toute vérification structurelle doit être faite contre :
+-- - les colonnes réellement présentes en base
+-- - les vues réellement présentes
+-- - les contraintes réellement présentes
+-- - les fonctions / triggers réellement présents
+-- - les migrations SQL du projet
+--
+-- Une régénération complète de ce fichier depuis la base réelle
+-- est prévue afin de réaligner le repo avec l'état effectif de la DB.
+-- =========================================================
