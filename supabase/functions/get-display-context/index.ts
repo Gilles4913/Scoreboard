@@ -621,12 +621,37 @@ serve(async (req) => {
         ? (sport_profile as any).show_live_badge
         : (orgDisplaySettings as any)?.show_live_badge ?? false;
 
+    // 3-level resolution for clock_direction, clock_limit_s, clock_overrun_mode
+    const clockDirection: string =
+      typeof resolvedTplConfig.clock_direction === "string"
+        ? resolvedTplConfig.clock_direction
+        : typeof (sport_profile as any)?.clock_direction === "string"
+        ? (sport_profile as any).clock_direction
+        : "count_down";
+
+    const clockLimitS: number | null =
+      typeof resolvedTplConfig.clock_limit_s === "number"
+        ? (resolvedTplConfig.clock_limit_s as number)
+        : typeof (sport_profile as any)?.clock_limit_s === "number"
+        ? (sport_profile as any).clock_limit_s
+        : null;
+
+    const clockOverrunMode: string =
+      typeof resolvedTplConfig.clock_overrun_mode === "string"
+        ? resolvedTplConfig.clock_overrun_mode
+        : typeof (sport_profile as any)?.clock_overrun_mode === "string"
+        ? (sport_profile as any).clock_overrun_mode
+        : "stop_at_limit";
+
     const display_settings = {
       ...baseDisplayDefaults,
       ...(orgDisplaySettings ?? {}),
       ...(resolvedTemplate?.config_json ?? {}),
       ...(resolvedTemplate?.layout_mode ? { layout_mode: resolvedTemplate.layout_mode } : {}),
       show_live_badge: showLiveBadge,
+      clock_direction: clockDirection,
+      clock_limit_s: clockLimitS,
+      clock_overrun_mode: clockOverrunMode,
     };
 
     // Build clean sport_profile for payload (remove nested display_templates object)

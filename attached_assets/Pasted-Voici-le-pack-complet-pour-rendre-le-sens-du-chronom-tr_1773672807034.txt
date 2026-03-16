@@ -1,0 +1,223 @@
+Voici le pack complet pour rendre le sens du chronomètre paramétrable par sport sur tout le projet.
+
+1) Migration SQL
+
+Exécute ceci dans Supabase.
+
+begin;
+
+alter table public.org_display_sport_profiles
+  add column if not exists clock_direction text not null default 'count_down',
+  add column if not exists clock_limit_s integer null,
+  add column if not exists clock_overrun_mode text not null default 'stop_at_limit';
+
+alter table public.org_display_sport_profiles
+  drop constraint if exists org_display_sport_profiles_clock_direction_check;
+
+alter table public.org_display_sport_profiles
+  add constraint org_display_sport_profiles_clock_direction_check
+  check (clock_direction in ('count_down', 'count_up'));
+
+alter table public.org_display_sport_profiles
+  drop constraint if exists org_display_sport_profiles_clock_overrun_mode_check;
+
+alter table public.org_display_sport_profiles
+  add constraint org_display_sport_profiles_clock_overrun_mode_check
+  check (clock_overrun_mode in ('stop_at_limit', 'continue_red', 'continue_with_plus'));
+
+update public.org_display_sport_profiles
+set
+  clock_direction = case
+    when sport in ('rugby', 'football') then 'count_up'
+    else 'count_down'
+  end,
+  clock_limit_s = case
+    when sport = 'rugby' then 2400
+    when sport = 'football' then 2700
+    when sport = 'basket' then 600
+    when sport = 'handball' then 1800
+    else null
+  end,
+  clock_overrun_mode = case
+    when sport in ('rugby', 'football') then 'continue_red'
+    when sport in ('basket', 'handball') then 'stop_at_limit'
+    else 'stop_at_limit'
+  end
+where true;
+
+commit;
+2) Prompt Replit complet
+Je veux rendre le sens du chronomètre paramétrable par sport dans scoreDisplay V2.
+
+Contexte :
+- React + TypeScript + Supabase
+- Operator = console live
+- Display = écran public
+- le chrono est déjà synchronisé avec :
+  - live_seq
+  - last_event_seq
+  - clock_anchor_epoch_ms
+  - clock_anchor_clock_ms
+- il existe déjà une matrice d’affichage par sport via :
+  - org_display_sport_profiles
+  - org_sport_settings
+  - display_templates
+  - team_display_settings
+
+Objectif :
+implémenter un comportement de chronomètre configurable par sport, sans casser l’existant.
+
+Décisions produit validées :
+
+1. Rugby
+- sens du chrono : count_up
+- départ à 00:00
+- limite réglementaire visuelle : 40:00 par mi-temps
+- au-delà : le chrono continue et passe en rouge
+- mode = continue_red
+
+2. Football
+- sens du chrono : count_up
+- départ à 00:00
+- limite réglementaire visuelle : 45:00 par mi-temps
+- au-delà : le chrono continue et passe en rouge
+- mode = continue_red
+
+3. Basket
+- sens du chrono : count_down
+- mode = stop_at_limit
+
+4. Handball
+- sens du chrono : count_down
+- mode = stop_at_limit
+
+5. Volleyball
+- le chrono principal n’est pas prioritaire
+- garder un comportement simple et compatible
+- ne rien casser
+
+Structure de paramètres déjà ajoutée en SQL :
+- org_display_sport_profiles.clock_direction
+  - count_down
+  - count_up
+- org_display_sport_profiles.clock_limit_s
+- org_display_sport_profiles.clock_overrun_mode
+  - stop_at_limit
+  - continue_red
+  - continue_with_plus
+
+TRAVAIL DEMANDÉ
+
+A. Backend / edge function
+Modifier get-display-context pour exposer dans la config résolue :
+- clock_direction
+- clock_limit_s
+- clock_overrun_mode
+
+Je veux le fichier complet si modifié.
+
+B. Display
+Modifier le Display / Scoreboard pour utiliser ces paramètres :
+- si count_down :
+  - comportement actuel conservé
+- si count_up :
+  - affichage à partir de 00:00 et incrémentation
+- si clock_overrun_mode = continue_red :
+  - au-delà de la limite, le chrono continue
+  - le rendu du chrono passe en rouge
+- si clock_overrun_mode = continue_with_plus :
+  - le chrono peut afficher un mode additionnel ou “+”
+- si stop_at_limit :
+  - comportement de blocage visuel au seuil
+
+Important :
+- ne pas casser la synchronisation live existante
+- continuer à utiliser l’ancre persistée
+- ne pas casser les autres sports
+- ne pas casser les layouts LED
+- priorité à la lisibilité
+
+C. Operator
+Vérifier que l’Operator reste cohérent avec le sens du chrono :
+- pour count_up :
+  - le calcul local doit être cohérent
+  - start/pause/reset doivent rester justes
+- pour count_down :
+  - conserver le fonctionnement actuel
+- s’il faut adapter la logique de calcul du temps courant, le faire proprement
+
+D. UX / rendu
+Je veux une implémentation claire :
+- Rugby / Football :
+  - chrono normal en couleur standard avant la limite
+  - chrono rouge après la limite
+- Basket / Handball :
+  - comportement standard de compte à rebours
+- Volleyball :
+  - ne pas casser, rester simple
+
+E. Audit final
+Je veux que tu me dises aussi :
+- quels sports utilisent déjà bien le chrono après ce changement
+- s’il reste des cas ambigus
+- s’il faut prévoir plus tard un paramètre par période / mi-temps
+
+Livrables attendus :
+1. liste des fichiers modifiés
+2. fichiers complets modifiés
+3. résumé du comportement final par sport
+4. mini plan de test manuel
+
+Contraintes :
+- partir du code existant
+- pas de refonte gratuite
+- ne pas casser la synchro live
+- ne pas casser teamSlug / Display stable
+- rester compatible Supabase
+3) Règle métier simple à viser
+
+Après implémentation :
+
+Rugby / Football
+
+l’affichage montre un chrono croissant
+
+clock_ms reste la source technique
+
+le rendu convertit correctement vers un affichage count_up
+
+dépassement de la limite = chrono rouge
+
+Basket / Handball
+
+affichage décroissant classique
+
+Volley
+
+comportement inchangé tant que tu ne veux pas un mode plus fin
+
+4) Mini checklist de test
+1. Rugby
+- démarrer chrono
+- vérifier affichage 00:00 puis incrémentation
+- dépasser 40:00
+- vérifier chrono rouge
+
+2. Football
+- démarrer chrono
+- vérifier affichage croissant
+- dépasser 45:00
+- vérifier chrono rouge
+
+3. Basket
+- vérifier comportement compte à rebours inchangé
+
+4. Handball
+- vérifier comportement compte à rebours inchangé
+
+5. Display ouvert à froid
+- ouvrir un nouvel écran en cours de match
+- vérifier que le sens du chrono est correct immédiatement
+
+6. QR Console
+- vérifier que start/pause/reset restent cohérents

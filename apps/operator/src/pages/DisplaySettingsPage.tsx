@@ -59,6 +59,9 @@ type RugbyProfileForm = {
   show_rugby_conversions: boolean;
   show_rugby_penalties: boolean;
   show_rugby_drop_goals: boolean;
+  clock_direction: string;
+  clock_limit_s: number | null;
+  clock_overrun_mode: string;
 };
 
 type ThemeCardDef = {
@@ -427,7 +430,7 @@ export default function DisplaySettingsPage() {
           normalizeSport(currentOrg.sport) === "rugby"
             ? supabase
                 .from("org_display_sport_profiles")
-                .select("show_rugby_score_breakdown, show_sin_bin, show_sin_bin_timer, show_rugby_tries, show_rugby_conversions, show_rugby_penalties, show_rugby_drop_goals")
+                .select("show_rugby_score_breakdown, show_sin_bin, show_sin_bin_timer, show_rugby_tries, show_rugby_conversions, show_rugby_penalties, show_rugby_drop_goals, clock_direction, clock_limit_s, clock_overrun_mode")
                 .eq("org_id", currentOrg.id)
                 .eq("sport", "rugby")
                 .maybeSingle()
@@ -502,6 +505,9 @@ export default function DisplaySettingsPage() {
           show_rugby_conversions:     rp?.show_rugby_conversions     ?? true,
           show_rugby_penalties:       rp?.show_rugby_penalties       ?? true,
           show_rugby_drop_goals:      rp?.show_rugby_drop_goals      ?? true,
+          clock_direction:            (rp as any)?.clock_direction   ?? "count_up",
+          clock_limit_s:              (rp as any)?.clock_limit_s     ?? 2400,
+          clock_overrun_mode:         (rp as any)?.clock_overrun_mode ?? "continue_red",
         });
       }
 
@@ -571,6 +577,9 @@ export default function DisplaySettingsPage() {
             show_rugby_conversions:    rugbyForm.show_rugby_conversions,
             show_rugby_penalties:      rugbyForm.show_rugby_penalties,
             show_rugby_drop_goals:     rugbyForm.show_rugby_drop_goals,
+            clock_direction:           rugbyForm.clock_direction,
+            clock_limit_s:             rugbyForm.clock_limit_s,
+            clock_overrun_mode:        rugbyForm.clock_overrun_mode,
           },
           { onConflict: "org_id,sport" },
         ),
@@ -624,6 +633,9 @@ export default function DisplaySettingsPage() {
             show_rugby_conversions:    rugbyForm.show_rugby_conversions,
             show_rugby_penalties:      rugbyForm.show_rugby_penalties,
             show_rugby_drop_goals:     rugbyForm.show_rugby_drop_goals,
+            clock_direction:           rugbyForm.clock_direction,
+            clock_limit_s:             rugbyForm.clock_limit_s,
+            clock_overrun_mode:        rugbyForm.clock_overrun_mode,
           } : {}),
         });
       }
@@ -976,6 +988,43 @@ export default function DisplaySettingsPage() {
                   value={rugbyForm.show_rugby_drop_goals}
                   onChange={(v) => patchRugby({ show_rugby_drop_goals: v })}
                 />
+              </div>
+
+              <div style={{ marginTop: 24 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 12, color: "#94a3b8", letterSpacing: 0.8 }}>CHRONOMÈTRE</div>
+                <div style={styles.formGrid}>
+                  <Field label="Sens du chrono">
+                    <select
+                      value={rugbyForm.clock_direction}
+                      onChange={(e) => patchRugby({ clock_direction: e.target.value })}
+                      style={styles.input}
+                    >
+                      <option value="count_down">Décompte (de X:XX → 00:00)</option>
+                      <option value="count_up">Comptage (de 00:00 → X:XX)</option>
+                    </select>
+                  </Field>
+                  <Field label="Durée de la période (secondes)">
+                    <input
+                      type="number"
+                      min={60}
+                      value={rugbyForm.clock_limit_s ?? ""}
+                      onChange={(e) => patchRugby({ clock_limit_s: e.target.value ? Number(e.target.value) : null })}
+                      style={styles.input}
+                      placeholder="ex: 2400 (= 40 min)"
+                    />
+                  </Field>
+                  <Field label="Comportement en fin de période">
+                    <select
+                      value={rugbyForm.clock_overrun_mode}
+                      onChange={(e) => patchRugby({ clock_overrun_mode: e.target.value })}
+                      style={styles.input}
+                    >
+                      <option value="stop_at_limit">Arrêt à la limite (figé)</option>
+                      <option value="continue_red">Continue en rouge (dépassement)</option>
+                      <option value="continue_with_plus">Continue avec + (ex: +02:15)</option>
+                    </select>
+                  </Field>
+                </div>
               </div>
             </section>
           )}

@@ -154,6 +154,10 @@ export type ScoreboardContext = {
   show_disqualifications?: boolean;
   show_warnings?: boolean;
   show_sin_bin_timer?: boolean;
+  clock_direction?: string;
+  clock_limit_s?: number | null;
+  clock_overrun_mode?: string;
+  clock_ms_unclamped?: number | null;
   overlay_position?: "top" | "bottom";
   overlay_duration_ms?: number;
   density_mode?: "low" | "medium" | "high";
@@ -186,6 +190,51 @@ function fmtClock(ms?: number | null) {
   const s = Math.floor(val / 1000);
   const mm = Math.floor(s / 60).toString().padStart(2, "0");
   const ss = (s % 60).toString().padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
+function computeClockDisplay(ctx: ScoreboardContext): { text: string; isOverrun: boolean } {
+  const direction = ctx.clock_direction ?? "count_down";
+  const limitMs = typeof ctx.clock_limit_s === "number" ? ctx.clock_limit_s * 1000 : null;
+  const overrunMode = ctx.clock_overrun_mode ?? "stop_at_limit";
+  const rawMs = ctx.clock_ms_unclamped ?? ctx.clock_ms ?? 0;
+
+  if (direction === "count_up") {
+    if (limitMs === null) {
+      // No limit defined: show elapsed using clock_ms (counts down from init, so elapsed = limitless)
+      return { text: fmtClock(ctx.clock_ms), isOverrun: false };
+    }
+    // rawMs counts DOWN from limitMs to 0, then negative in overtime
+    const elapsedMs = limitMs - rawMs;
+    const isOverrun = elapsedMs > limitMs;
+
+    if (isOverrun) {
+      if (overrunMode === "stop_at_limit") {
+        return { text: fmtCountUp(limitMs, limitMs), isOverrun: false };
+      }
+      const overtimeMs = elapsedMs - limitMs;
+      if (overrunMode === "continue_with_plus") {
+        return { text: "+" + fmtClock(overtimeMs), isOverrun: true };
+      }
+      return { text: fmtCountUp(elapsedMs, limitMs), isOverrun: true };
+    }
+    return { text: fmtCountUp(Math.max(0, elapsedMs), limitMs), isOverrun: false };
+  }
+
+  return { text: fmtClock(ctx.clock_ms), isOverrun: false };
+}
+
+function fmtCountUp(elapsedMs: number, limitMs: number | null) {
+  const val = Math.max(0, Math.floor(elapsedMs));
+  const s = Math.floor(val / 1000);
+  const mm = Math.floor(s / 60).toString().padStart(2, "0");
+  const ss = (s % 60).toString().padStart(2, "0");
+  if (limitMs !== null && elapsedMs >= limitMs) {
+    const limSec = Math.floor(limitMs / 1000);
+    const lm = Math.floor(limSec / 60).toString().padStart(2, "0");
+    const ls = (limSec % 60).toString().padStart(2, "0");
+    return `${lm}:${ls}`;
+  }
   return `${mm}:${ss}`;
 }
 
@@ -619,7 +668,7 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
   const homeBump = useBumpOnChange(homeScore);
   const awayBump = useBumpOnChange(awayScore);
 
-  const clockText = fmtClock(context.clock_ms);
+  const { text: clockText, isOverrun: clockIsOverrun } = computeClockDisplay(context);
   const period = (context.period_label || "").trim();
   const status = statusLabel(context.status);
   const isRunning = !!context.clock_running;
@@ -791,9 +840,9 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
               fontWeight: 900,
               fontSize: "clamp(80px,14vw,190px)",
               lineHeight: 1,
-              color: isRunning ? "#22d3ee" : isPaused ? "#f59e0b" : text,
+              color: clockIsOverrun ? "#ef4444" : isRunning ? "#22d3ee" : isPaused ? "#f59e0b" : text,
               letterSpacing: 4,
-              textShadow: isRunning ? "0 0 28px #22d3ee88" : "none",
+              textShadow: clockIsOverrun ? "0 0 28px #ef444488" : isRunning ? "0 0 28px #22d3ee88" : "none",
             }}
           >
             {clockText}
@@ -931,7 +980,7 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
   const homeBump = useBumpOnChange(homeScore);
   const awayBump = useBumpOnChange(awayScore);
 
-  const clockText = fmtClock(context.clock_ms);
+  const { text: clockText, isOverrun: clockIsOverrun } = computeClockDisplay(context);
   const period = (context.period_label || "").trim();
   const status = statusLabel(context.status);
   const isRunning = !!context.clock_running;
@@ -1097,9 +1146,9 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
               fontWeight: 900,
               fontSize: "clamp(72px,12vw,160px)",
               lineHeight: 1,
-              color: isRunning ? "#22d3ee" : isPaused ? "#f59e0b" : text,
+              color: clockIsOverrun ? "#ef4444" : isRunning ? "#22d3ee" : isPaused ? "#f59e0b" : text,
               letterSpacing: 4,
-              textShadow: isRunning ? "0 0 20px #22d3ee88" : "none",
+              textShadow: clockIsOverrun ? "0 0 20px #ef444488" : isRunning ? "0 0 20px #22d3ee88" : "none",
             }}
           >
             {clockText}
@@ -1281,7 +1330,7 @@ export default function Scoreboard({ context, activeOverlay }: Props) {
   const period = (context.period_label || "").trim();
   const venue = (context.venue || "").trim();
   const matchName = (context.match_name || `${homeName} vs ${awayName}`).trim();
-  const clockText = fmtClock(context.clock_ms);
+  const { text: clockText, isOverrun: clockIsOverrun } = computeClockDisplay(context);
 
   const homeStats: Array<{ label: string; value: string | number | boolean }> = [];
   const awayStats: Array<{ label: string; value: string | number | boolean }> = [];
@@ -1535,7 +1584,7 @@ export default function Scoreboard({ context, activeOverlay }: Props) {
               {showClock ? (
                 <>
                   <div style={{ color: sub, fontSize: 12, fontWeight: 900, letterSpacing: 1.6 }}>TEMPS</div>
-                  <SegmentDigits value={clockText} theme={theme} accent={accent} size={86} />
+                  <SegmentDigits value={clockText} theme={theme} accent={clockIsOverrun ? "#ef4444" : accent} size={86} />
                 </>
               ) : null}
 

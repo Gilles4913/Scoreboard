@@ -112,6 +112,9 @@ function buildContextFromResponse(json: any): ScoreboardContext {
     show_shot_clock: resolved.show_shot_clock ?? sportSettings.show_shot_clock ?? false,
     show_sin_bin: resolved.show_sin_bin ?? sp.show_sin_bin ?? sportSettings.show_sin_bin ?? true,
     show_sin_bin_timer: resolved.show_sin_bin_timer ?? sp.show_sin_bin_timer ?? false,
+    clock_direction: resolved.clock_direction ?? sp.clock_direction ?? "count_down",
+    clock_limit_s: resolved.clock_limit_s ?? sp.clock_limit_s ?? null,
+    clock_overrun_mode: resolved.clock_overrun_mode ?? sp.clock_overrun_mode ?? "stop_at_limit",
     show_rugby_score_breakdown: resolved.show_rugby_score_breakdown ?? sp.show_rugby_score_breakdown ?? sportSettings.show_rugby_score_breakdown ?? true,
     show_rugby_tries: resolved.show_rugby_tries ?? sp.show_rugby_tries ?? sportSettings.show_rugby_tries ?? true,
     show_rugby_conversions: resolved.show_rugby_conversions ?? sp.show_rugby_conversions ?? sportSettings.show_rugby_conversions ?? true,
@@ -141,6 +144,14 @@ function buildContextFromResponse(json: any): ScoreboardContext {
       match.clock_anchor_epoch_ms ?? null,
       match.clock_anchor_clock_ms ?? null,
     ),
+    clock_ms_unclamped: (() => {
+      const anchorEpoch = match.clock_anchor_epoch_ms;
+      const anchorClockMs = match.clock_anchor_clock_ms;
+      if (match.clock_running && typeof anchorEpoch === "number" && typeof anchorClockMs === "number") {
+        return anchorClockMs - (Date.now() - anchorEpoch);
+      }
+      return match.clock_ms ?? 0;
+    })(),
     clock_running: match.clock_running ?? false,
     period_label: match.period_label ?? "",
 
@@ -357,12 +368,16 @@ function App() {
 
     const elapsed = Date.now() - lastBaseTsRef.current;
     const baseClockMs = typeof lastBaseClockRef.current === "number" ? lastBaseClockRef.current : 0;
-    const computedClockMs = Math.max(0, baseClockMs - elapsed);
+    const rawClockMs = baseClockMs - elapsed; // unclamped, can be negative in overtime
+    const computedClockMs = Math.max(0, rawClockMs);
 
-    if (computedClockMs <= 0) {
+    const clockDirection = (ctx as any).clock_direction ?? "count_down";
+
+    if (rawClockMs <= 0 && clockDirection !== "count_up") {
       return {
         ...ctx,
         clock_ms: 0,
+        clock_ms_unclamped: rawClockMs,
         clock_running: false,
       };
     }
@@ -370,6 +385,7 @@ function App() {
     return {
       ...ctx,
       clock_ms: computedClockMs,
+      clock_ms_unclamped: rawClockMs,
     };
   }, [ctx, localTick]);
 
