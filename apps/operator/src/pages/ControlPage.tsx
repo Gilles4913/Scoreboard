@@ -1899,7 +1899,27 @@ export default function ControlPage() {
         .select("id, team_side, player_id, player_name_snapshot, shirt_number_snapshot, started_game_clock_ms, duration_s, ended_game_clock_ms, is_active, created_at")
         .maybeSingle();
 
-      if (data) setRugbySuspensions((prev) => [data as SuspensionRow, ...prev]);
+      if (data) {
+        setRugbySuspensions((prev) => [data as SuspensionRow, ...prev]);
+
+        // Broadcast updated sin bin lists immediately (don't wait for next poll)
+        const clock = clockMsRef.current;
+        const enrichForBroadcast = (s: SuspensionRow) => {
+          const endClock = s.started_game_clock_ms - s.duration_s * 1000;
+          const remaining_ms = Math.max(0, clock - endClock);
+          return { ...s, remaining_ms, remaining_s: Math.ceil(remaining_ms / 1000) };
+        };
+        const newBin = enrichForBroadcast(data as SuspensionRow);
+        const existingActive = rugbySuspensions
+          .filter((s) => s.is_active)
+          .map(enrichForBroadcast)
+          .filter((s) => s.remaining_ms > 0);
+        const allActive = [newBin, ...existingActive];
+        void sendTvBroadcast(match!.id, {
+          home_active_sin_bins: allActive.filter((s) => s.team_side === "home"),
+          away_active_sin_bins: allActive.filter((s) => s.team_side === "away"),
+        });
+      }
 
       // Also update player.yellow_cards in local state + DB
       if (player?.id) {
@@ -1937,6 +1957,22 @@ export default function ControlPage() {
         { rugby_home_sin_bin_active: nextHomeActive, rugby_away_sin_bin_active: nextAwayActive },
         { event: { event_type: "rugby_sin_bin_end", team_side: row.team_side, player_id: row.player_id, payload: { player_name: row.player_name_snapshot, shirt_number: row.shirt_number_snapshot } } },
       );
+
+      // Broadcast updated sin bin detail lists immediately
+      const clock = clockMsRef.current;
+      const enrichForBroadcast = (s: SuspensionRow) => {
+        const endClock = s.started_game_clock_ms - s.duration_s * 1000;
+        const remaining_ms = Math.max(0, clock - endClock);
+        return { ...s, remaining_ms, remaining_s: Math.ceil(remaining_ms / 1000) };
+      };
+      const stillActive = nextRows
+        .filter((r) => r.is_active)
+        .map(enrichForBroadcast)
+        .filter((r) => r.remaining_ms > 0);
+      void sendTvBroadcast(match!.id, {
+        home_active_sin_bins: stillActive.filter((s) => s.team_side === "home"),
+        away_active_sin_bins: stillActive.filter((s) => s.team_side === "away"),
+      });
     } catch {}
   }
 
@@ -2929,13 +2965,13 @@ export default function ControlPage() {
                         title={`${homeName} • Cartons jaunes`}
                         value={isRugby ? rugbyHomeYellowSinBin : isFootball ? footballHomeYellows : homeYellowCards}
                         onPlus={isRugby ? async () => { const p = await pick({ title: `Carton jaune — ${homeName}`, players: homePlayers }); if (p !== undefined) issueRugbyYellow("home", p ? { id: p.id, team_id: "", name: p.name, number: p.number, fouls: 0 } : null); } : isFootball ? async () => { const picked = await pick({ title: `Carton jaune — ${homeName}`, players: homePlayers }); if (picked === undefined) return; const n = footballHomeYellows + 1; setFootballHomeYellows(n); if (picked?.id) { setHomePlayers((rows) => rows.map((p) => p.id === picked.id ? { ...p, yellow_cards: (p.yellow_cards || 0) + 1 } : p)); void supabase.from("match_players").update({ yellow_cards: (homePlayers.find((p) => p.id === picked.id)?.yellow_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", picked.id); } try { await dispatch({ football_home_yellow_cards: n, home_yellow_cards: n }); } catch {} } : async () => { const picked = await pick({ title: `Carton jaune — ${homeName}`, players: homePlayers }); if (picked === undefined) return; const n = homeYellowCards + 1; setHomeYellowCards(n); if (picked?.id) { setHomePlayers((rows) => rows.map((p) => p.id === picked.id ? { ...p, yellow_cards: (p.yellow_cards || 0) + 1 } : p)); void supabase.from("match_players").update({ yellow_cards: (homePlayers.find((p) => p.id === picked.id)?.yellow_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", picked.id); } try { await dispatch({ home_yellow_cards: n }); } catch {} }}
-                        onMinus={async () => { if (isRugby) { const n = Math.max(0, rugbyHomeYellowSinBin - 1); const na = Math.max(0, rugbyHomeSinBinActive - 1); setRugbyHomeYellowSinBin(n); setRugbyHomeSinBinActive(na); try { await dispatch({ rugby_home_yellow_sin_bin: n, rugby_home_sin_bin_active: na }); } catch {} } else if (isFootball) { const n = Math.max(0, footballHomeYellows - 1); setFootballHomeYellows(n); try { await dispatch({ football_home_yellow_cards: n, home_yellow_cards: n }); } catch {} } else { const n = Math.max(0, homeYellowCards - 1); setHomeYellowCards(n); try { await dispatch({ home_yellow_cards: n }); } catch {} } }}
+                        onMinus={async () => { if (isRugby) { const homeActive = rugbySuspensions.filter((s) => s.is_active && s.team_side === "home"); if (homeActive.length > 0) { const mostRecent = [...homeActive].sort((a, b) => b.created_at.localeCompare(a.created_at))[0]; await endRugbySinBin(mostRecent); } else { const n = Math.max(0, rugbyHomeYellowSinBin - 1); setRugbyHomeYellowSinBin(n); try { await dispatch({ rugby_home_yellow_sin_bin: n }); } catch {} } } else if (isFootball) { const n = Math.max(0, footballHomeYellows - 1); setFootballHomeYellows(n); try { await dispatch({ football_home_yellow_cards: n, home_yellow_cards: n }); } catch {} } else { const n = Math.max(0, homeYellowCards - 1); setHomeYellowCards(n); try { await dispatch({ home_yellow_cards: n }); } catch {} } }}
                       />
                       <MiniStat
                         title={`${awayName} • Cartons jaunes`}
                         value={isRugby ? rugbyAwayYellowSinBin : isFootball ? footballAwayYellows : awayYellowCards}
                         onPlus={isRugby ? async () => { const p = await pick({ title: `Carton jaune — ${awayName}`, players: awayPlayers }); if (p !== undefined) issueRugbyYellow("away", p ? { id: p.id, team_id: "", name: p.name, number: p.number, fouls: 0 } : null); } : isFootball ? async () => { const picked = await pick({ title: `Carton jaune — ${awayName}`, players: awayPlayers }); if (picked === undefined) return; const n = footballAwayYellows + 1; setFootballAwayYellows(n); if (picked?.id) { setAwayPlayers((rows) => rows.map((p) => p.id === picked.id ? { ...p, yellow_cards: (p.yellow_cards || 0) + 1 } : p)); void supabase.from("match_players").update({ yellow_cards: (awayPlayers.find((p) => p.id === picked.id)?.yellow_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", picked.id); } try { await dispatch({ football_away_yellow_cards: n, away_yellow_cards: n }); } catch {} } : async () => { const picked = await pick({ title: `Carton jaune — ${awayName}`, players: awayPlayers }); if (picked === undefined) return; const n = awayYellowCards + 1; setAwayYellowCards(n); if (picked?.id) { setAwayPlayers((rows) => rows.map((p) => p.id === picked.id ? { ...p, yellow_cards: (p.yellow_cards || 0) + 1 } : p)); void supabase.from("match_players").update({ yellow_cards: (awayPlayers.find((p) => p.id === picked.id)?.yellow_cards || 0) + 1 }).eq("match_id", match!.id).eq("player_id", picked.id); } try { await dispatch({ away_yellow_cards: n }); } catch {} }}
-                        onMinus={async () => { if (isRugby) { const n = Math.max(0, rugbyAwayYellowSinBin - 1); const na = Math.max(0, rugbyAwaySinBinActive - 1); setRugbyAwayYellowSinBin(n); setRugbyAwaySinBinActive(na); try { await dispatch({ rugby_away_yellow_sin_bin: n, rugby_away_sin_bin_active: na }); } catch {} } else if (isFootball) { const n = Math.max(0, footballAwayYellows - 1); setFootballAwayYellows(n); try { await dispatch({ football_away_yellow_cards: n, away_yellow_cards: n }); } catch {} } else { const n = Math.max(0, awayYellowCards - 1); setAwayYellowCards(n); try { await dispatch({ away_yellow_cards: n }); } catch {} } }}
+                        onMinus={async () => { if (isRugby) { const awayActive = rugbySuspensions.filter((s) => s.is_active && s.team_side === "away"); if (awayActive.length > 0) { const mostRecent = [...awayActive].sort((a, b) => b.created_at.localeCompare(a.created_at))[0]; await endRugbySinBin(mostRecent); } else { const n = Math.max(0, rugbyAwayYellowSinBin - 1); setRugbyAwayYellowSinBin(n); try { await dispatch({ rugby_away_yellow_sin_bin: n }); } catch {} } } else if (isFootball) { const n = Math.max(0, footballAwayYellows - 1); setFootballAwayYellows(n); try { await dispatch({ football_away_yellow_cards: n, away_yellow_cards: n }); } catch {} } else { const n = Math.max(0, awayYellowCards - 1); setAwayYellowCards(n); try { await dispatch({ away_yellow_cards: n }); } catch {} } }}
                       />
                       <MiniStat
                         title={`${homeName} • Cartons rouges`}

@@ -428,7 +428,16 @@ function App() {
 
     setCtx((prev) => {
       if (!prev) return prev;
-      return mergeContext(prev, normalized);
+      const merged = mergeContext(prev, normalized);
+      // If a patch drives rugby sin bin counter to 0 but carries no detail list,
+      // clear any stale detail list so a phantom timer never stays visible.
+      if ((normalized as any).rugby_home_sin_bin_active === 0 && !("home_active_sin_bins" in normalized)) {
+        (merged as any).home_active_sin_bins = [];
+      }
+      if ((normalized as any).rugby_away_sin_bin_active === 0 && !("away_active_sin_bins" in normalized)) {
+        (merged as any).away_active_sin_bins = [];
+      }
+      return merged;
     });
   }
 

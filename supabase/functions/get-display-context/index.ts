@@ -580,8 +580,14 @@ serve(async (req) => {
       return { ...sb, remaining_ms, remaining_s };
     };
 
-    const home_active_sin_bins = activeSinBinsRaw.filter((sb) => sb.team_side === "home").map(enrichSinBin);
-    const away_active_sin_bins = activeSinBinsRaw.filter((sb) => sb.team_side === "away").map(enrichSinBin);
+    const home_active_sin_bins = activeSinBinsRaw
+      .filter((sb) => sb.team_side === "home")
+      .map(enrichSinBin)
+      .filter((sb) => sb.remaining_ms > 0);
+    const away_active_sin_bins = activeSinBinsRaw
+      .filter((sb) => sb.team_side === "away")
+      .map(enrichSinBin)
+      .filter((sb) => sb.remaining_ms > 0);
 
     // Resolve display template:
     // 1. team_display_settings override
@@ -766,8 +772,8 @@ serve(async (req) => {
         rugby_away_penalties: match.rugby_away_penalties ?? 0,
         rugby_home_drop_goals: match.rugby_home_drop_goals ?? 0,
         rugby_away_drop_goals: match.rugby_away_drop_goals ?? 0,
-        rugby_home_sin_bin_active: match.rugby_home_sin_bin_active ?? 0,
-        rugby_away_sin_bin_active: match.rugby_away_sin_bin_active ?? 0,
+        rugby_home_sin_bin_active: home_active_sin_bins.length,
+        rugby_away_sin_bin_active: away_active_sin_bins.length,
 
         handball_home_2min_active: match.handball_home_2min_active ?? 0,
         handball_away_2min_active: match.handball_away_2min_active ?? 0,
