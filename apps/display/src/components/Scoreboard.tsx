@@ -733,6 +733,9 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
 
   const sponsor = useRotatingSponsor(context.sponsors || [], context.sponsor_rotate_s || 10);
   const showSponsors = context.show_sponsors !== false;
+  const showLogos = context.show_logos !== false;
+  const homeLogo = context.home?.logo_url || null;
+  const awayLogo = context.away?.logo_url || null;
 
   return (
     <div
@@ -757,20 +760,29 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
           gap: 24,
         }}
       >
-        <div
-          style={{
-            fontWeight: 900,
-            fontSize: "clamp(26px,5vw,64px)",
-            textTransform: "uppercase",
-            letterSpacing: 2,
-            lineHeight: 1,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            color: accentHome,
-          }}
-        >
-          {homeName}
+        <div style={{ display: "flex", alignItems: "center", gap: 14, overflow: "hidden" }}>
+          {showLogos && homeLogo && (
+            <img
+              src={homeLogo}
+              alt=""
+              style={{ height: "clamp(36px,5vw,72px)", width: "auto", objectFit: "contain", flexShrink: 0 }}
+            />
+          )}
+          <div
+            style={{
+              fontWeight: 900,
+              fontSize: "clamp(26px,5vw,64px)",
+              textTransform: "uppercase",
+              letterSpacing: 2,
+              lineHeight: 1,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              color: accentHome,
+            }}
+          >
+            {homeName}
+          </div>
         </div>
 
         <div
@@ -824,21 +836,30 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
           ) : null}
         </div>
 
-        <div
-          style={{
-            fontWeight: 900,
-            fontSize: "clamp(26px,5vw,64px)",
-            textTransform: "uppercase",
-            letterSpacing: 2,
-            lineHeight: 1,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            textAlign: "right",
-            color: accentAway,
-          }}
-        >
-          {awayName}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 14, overflow: "hidden" }}>
+          <div
+            style={{
+              fontWeight: 900,
+              fontSize: "clamp(26px,5vw,64px)",
+              textTransform: "uppercase",
+              letterSpacing: 2,
+              lineHeight: 1,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              textAlign: "right",
+              color: accentAway,
+            }}
+          >
+            {awayName}
+          </div>
+          {showLogos && awayLogo && (
+            <img
+              src={awayLogo}
+              alt=""
+              style={{ height: "clamp(36px,5vw,72px)", width: "auto", objectFit: "contain", flexShrink: 0 }}
+            />
+          )}
         </div>
       </div>
 
@@ -1062,6 +1083,9 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
 
   const sponsor = useRotatingSponsor(context.sponsors || [], context.sponsor_rotate_s || 10);
   const showSponsors = context.show_sponsors !== false;
+  const showLogos = context.show_logos !== false;
+  const homeLogo = context.home?.logo_url || null;
+  const awayLogo = context.away?.logo_url || null;
 
   return (
     <div
@@ -1086,20 +1110,29 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
           gap: 24,
         }}
       >
-        <div
-          style={{
-            fontWeight: 900,
-            fontSize: "clamp(20px,4vw,52px)",
-            textTransform: "uppercase",
-            letterSpacing: 2,
-            lineHeight: 1,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            color: accentHome,
-          }}
-        >
-          {homeName}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, overflow: "hidden" }}>
+          {showLogos && homeLogo && (
+            <img
+              src={homeLogo}
+              alt=""
+              style={{ height: "clamp(28px,4vw,56px)", width: "auto", objectFit: "contain", flexShrink: 0 }}
+            />
+          )}
+          <div
+            style={{
+              fontWeight: 900,
+              fontSize: "clamp(20px,4vw,52px)",
+              textTransform: "uppercase",
+              letterSpacing: 2,
+              lineHeight: 1,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              color: accentHome,
+            }}
+          >
+            {homeName}
+          </div>
         </div>
 
         <div
@@ -1153,21 +1186,30 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
           ) : null}
         </div>
 
-        <div
-          style={{
-            fontWeight: 900,
-            fontSize: "clamp(20px,4vw,52px)",
-            textTransform: "uppercase",
-            letterSpacing: 2,
-            lineHeight: 1,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            textAlign: "right",
-            color: accentAway,
-          }}
-        >
-          {awayName}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, overflow: "hidden" }}>
+          <div
+            style={{
+              fontWeight: 900,
+              fontSize: "clamp(20px,4vw,52px)",
+              textTransform: "uppercase",
+              letterSpacing: 2,
+              lineHeight: 1,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              textAlign: "right",
+              color: accentAway,
+            }}
+          >
+            {awayName}
+          </div>
+          {showLogos && awayLogo && (
+            <img
+              src={awayLogo}
+              alt=""
+              style={{ height: "clamp(28px,4vw,56px)", width: "auto", objectFit: "contain", flexShrink: 0 }}
+            />
+          )}
         </div>
       </div>
 
