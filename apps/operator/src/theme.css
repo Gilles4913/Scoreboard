@@ -444,3 +444,33 @@ select option {
   background-color: #121316;
   color: #eaeaea;
 }
+
+/* Statistiques joueurs — spinner compact */
+input.stat-spinner {
+  width: 62px;
+  height: 28px !important;
+  min-height: unset !important;
+  padding: 0 2px 0 8px !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  text-align: left;
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
+  border-radius: 6px !important;
+  color: #e7eefc !important;
+  cursor: default;
+}
+input.stat-spinner::-webkit-inner-spin-button,
+input.stat-spinner::-webkit-outer-spin-button {
+  opacity: 1;
+  height: 26px;
+  cursor: pointer;
+}
+input.stat-spinner.danger {
+  color: #fca5a5 !important;
+  border-color: rgba(252,165,165,0.35) !important;
+}
+input.stat-spinner:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}

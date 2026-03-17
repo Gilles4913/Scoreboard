@@ -3353,20 +3353,20 @@ function PlayerStatsTable({
                 <td style={{ padding: "5px 8px 5px 0", fontWeight: 600, whiteSpace: "nowrap", verticalAlign: "middle", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis" }}>
                   {player.name}
                 </td>
-                <td style={{ padding: "5px 4px", verticalAlign: "middle" }}>
+                <td style={{ padding: "5px 4px", verticalAlign: "middle", textAlign: "center" }}>
                   <CompactStatControl value={player.fouls || 0} danger={isCritical} onMinus={() => onChange(player.id, "fouls", -1)} onPlus={() => onChange(player.id, "fouls", 1)} />
                 </td>
                 {showPoints && (
-                  <td style={{ padding: "5px 4px", verticalAlign: "middle" }}>
+                  <td style={{ padding: "5px 4px", verticalAlign: "middle", textAlign: "center" }}>
                     <CompactStatControl value={player.points || 0} onMinus={() => onChange(player.id, "points", -1)} onPlus={() => onChange(player.id, "points", 1)} />
                   </td>
                 )}
                 {showCards && (
                   <>
-                    <td style={{ padding: "5px 4px", verticalAlign: "middle" }}>
+                    <td style={{ padding: "5px 4px", verticalAlign: "middle", textAlign: "center" }}>
                       <CompactStatControl value={player.yellow_cards || 0} onMinus={() => onChange(player.id, "yellow_cards", -1)} onPlus={() => onChange(player.id, "yellow_cards", 1)} />
                     </td>
-                    <td style={{ padding: "5px 4px", verticalAlign: "middle" }}>
+                    <td style={{ padding: "5px 4px", verticalAlign: "middle", textAlign: "center" }}>
                       <CompactStatControl value={player.red_cards || 0} danger={(player.red_cards || 0) > 0} onMinus={() => onChange(player.id, "red_cards", -1)} onPlus={() => onChange(player.id, "red_cards", 1)} />
                     </td>
                   </>
@@ -3391,16 +3391,20 @@ function CompactStatControl({
   onPlus: () => void;
   danger?: boolean;
 }) {
-  const btn: React.CSSProperties = {
-    width: 22, height: 22, borderRadius: 5, border: "none", cursor: "pointer",
-    fontSize: 13, fontWeight: 700, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center",
-  };
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const next = Math.max(0, parseInt(e.target.value, 10) || 0);
+    const delta = next - value;
+    if (delta > 0) for (let i = 0; i < delta; i++) onPlus();
+    else if (delta < 0) for (let i = 0; i < -delta; i++) onMinus();
+  }
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
-      <button onClick={onMinus} style={{ ...btn, background: "rgba(255,255,255,0.08)", color: "#cbd5e1" }}>−</button>
-      <span style={{ minWidth: 20, textAlign: "center", fontWeight: 700, fontSize: 14, color: danger ? "#fca5a5" : "#e7eefc" }}>{value}</span>
-      <button onClick={onPlus} style={{ ...btn, background: "#1d4ed8", color: "#fff" }}>+</button>
-    </div>
+    <input
+      type="number"
+      min={0}
+      value={value}
+      onChange={handleChange}
+      className={`stat-spinner${danger ? " danger" : ""}`}
+    />
   );
 }
 
