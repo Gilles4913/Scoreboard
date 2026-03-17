@@ -464,7 +464,16 @@ export default function MobileControlPage() {
   }
 
   async function resetClock() {
-    if (!window.confirm("Réinitialiser le chrono ?")) return;
+    const hasActiveSinBins = isRugby && rugbySinBins.some((s) => s.is_active);
+    if (hasActiveSinBins) {
+      const ok = window.confirm(
+        "⚠️ Une exclusion temporaire Rugby est en cours.\n\n" +
+        "Réinitialiser le chrono seul rendra son timer incohérent (il restera ancré sur l'ancien temps de jeu).\n\n" +
+        "Utilisez « Réinitialiser tout » pour aussi effacer les exclusions.\n\n" +
+        "Continuer quand même ?",
+      );
+      if (!ok) return;
+    } else if (!window.confirm("Réinitialiser le chrono ?")) return;
     const ms = defaultClockMs(sport, periodDurationS);
     const now = Date.now();
     clockMsRef.current = ms;

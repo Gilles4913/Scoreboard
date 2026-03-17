@@ -1425,7 +1425,22 @@ export default function ControlPage() {
     } catch {}
   }
 
+  /** Retourne vrai si au moins un sin bin Rugby est encore actif. */
+  function hasActiveSinBins(): boolean {
+    return isRugby && rugbySuspensions.some((s) => s.is_active);
+  }
+
   async function resetClock() {
+    if (hasActiveSinBins()) {
+      const ok = window.confirm(
+        "⚠️ Une exclusion temporaire Rugby est en cours.\n\n" +
+        "Réinitialiser le chrono seul rendra son timer incohérent (il restera ancré sur l'ancien temps de jeu).\n\n" +
+        "Utilisez « Réinitialiser tout » pour aussi effacer les exclusions.\n\n" +
+        "Continuer quand même ?",
+      );
+      if (!ok) return;
+    }
+
     const next = defaultClockMsBySport(sport, sportSettings?.period_duration_s);
     const now = Date.now();
 
@@ -1602,6 +1617,15 @@ export default function ControlPage() {
   }
 
   async function adjustClock(deltaMs: number) {
+    if (hasActiveSinBins()) {
+      const ok = window.confirm(
+        "⚠️ Une exclusion temporaire Rugby est en cours.\n\n" +
+        "Ajuster le chrono manuellement rendra son timer incohérent (le temps restant d'exclusion ne sera plus exact).\n\n" +
+        "Continuer quand même ?",
+      );
+      if (!ok) return;
+    }
+
     const next = Math.max(0, clockMsRef.current + deltaMs);
     clockMsRef.current = next;
     clockAnchorRef.current = { epoch: Date.now(), ms: next };

@@ -1,0 +1,269 @@
+Après vérification du dernier repo, voilà le diagnostic utile sur la cohérence des chronos Rugby et du timer d’exclusion temporaire.
+
+Ce qui est cohérent aujourd’hui
+Start / Pause / Reprise
+
+Le socle chrono principal est cohérent entre :
+
+Operator
+
+QR Console
+
+Display
+
+Pour le Rugby :
+
+le rendu visible est bien en count_up
+
+la pause du match fige aussi le timer d’exclusion côté Display
+
+la reprise relance bien les deux
+
+Donc sur la séquence :
+
+Start
+
+Pause
+
+Start
+
+c’est globalement bon.
+
+resetAll()
+
+resetAll() remet bien :
+
+le chrono match
+
+les scores / états
+
+les compteurs rugby
+
+supprime aussi les lignes match_sin_bins
+
+Donc un reset total de régie est cohérent métierment.
+
+Le vrai problème restant
+resetClock() seul n’est pas cohérent avec les exclusions Rugby
+
+C’est le point le plus important.
+
+Pourquoi
+
+Le timer d’exclusion Rugby est calculé à partir de :
+
+started_game_clock_ms
+
+duration_s
+
+et du chrono interne du match
+
+Or :
+
+resetClock() remet juste le chrono principal à la valeur par défaut
+
+mais ne touche pas du tout aux match_sin_bins actifs
+
+Conséquence
+
+Si tu fais :
+
+carton jaune
+
+exclusion temporaire active
+
+reset du chrono seul
+
+alors :
+
+le chrono de match repart de 40:00
+
+mais l’exclusion reste active avec un started_game_clock_ms ancien
+
+le calcul du remaining_ms devient alors incohérent
+
+En pratique, le timer d’exclusion peut :
+
+repartir sur une valeur absurde
+
+devenir trop long
+
+ou ne plus refléter la vraie situation de jeu
+
+Conclusion nette
+resetAll() = cohérent
+resetClock() = pas cohérent si des sin bins sont actifs
+Deuxième problème connexe
+adjustClock() manuel casse aussi potentiellement la cohérence des sin bins
+
+Même logique :
+
+si tu modifies fortement le chrono match à la main
+
+les match_sin_bins actifs restent ancrés sur un ancien started_game_clock_ms
+
+Donc :
+
+l’exclusion temporaire n’est plus garantie correcte
+
+En clair
+
+Pour le Rugby, dès qu’une exclusion temporaire est active :
+
+resetClock()
+
+adjustClock()
+sont des opérations sensibles
+
+Troisième point
+resetAll() efface bien la DB, mais le Display peut rester brièvement “stale”
+
+Dans resetAll() :
+
+tu dispatches d’abord un patch de reset
+
+ensuite tu supprimes :
+
+match_events
+
+match_sin_bins
+
+match_two_min_suspensions
+
+Donc il peut y avoir une petite fenêtre où :
+
+le Display a déjà reçu les compteurs remis à zéro
+
+mais garde encore ses tableaux home_active_sin_bins / away_active_sin_bins jusqu’au prochain refresh / resync
+
+Ce n’est pas dramatique, mais c’est un petit résidu possible.
+
+Recommandation produit / métier
+Règle à adopter pour le Rugby
+
+Quand il y a un sin bin actif, il faut définir une règle claire :
+
+Option recommandée
+
+interdire ou confirmer resetClock() et adjustClock() si une exclusion temporaire est active
+
+Exemple :
+
+message :
+
+Une exclusion temporaire est en cours. Réinitialiser ou ajuster le chrono rendra son timer incohérent. Voulez-vous continuer ?
+
+Option plus stricte
+
+si sin bin actif :
+
+resetClock() impossible
+
+adjustClock() impossible
+
+seul resetAll() reste autorisé car il remet aussi les exclusions à zéro
+
+C’est la solution la plus propre métierment.
+
+État précis des cas demandés
+1. Start → Pause → Start
+Chrono match
+
+Cohérent.
+
+Timer d’exclusion Rugby
+
+Cohérent aussi maintenant, car il s’arrête pendant la pause.
+
+2. resetAll()
+Chrono match
+
+Cohérent.
+
+Timer d’exclusion Rugby
+
+Cohérent, car les sin bins sont supprimés.
+
+3. resetClock()
+Chrono match
+
+Techniquement OK.
+
+Timer d’exclusion Rugby
+
+Pas cohérent si un sin bin est actif.
+
+4. adjustClock()
+Chrono match
+
+Techniquement OK.
+
+Timer d’exclusion Rugby
+
+Pas cohérent si un sin bin est actif.
+
+Ma conclusion
+Ce qui est bon
+
+chrono Operator / QR / Display
+
+pause / reprise
+
+reset total
+
+timer d’exclusion visible et stoppé pendant pause
+
+Ce qui ne l’est pas encore
+
+reset du chrono seul avec exclusion active
+
+ajustement manuel du chrono avec exclusion active
+
+Ce sont les deux vrais cas à verrouiller maintenant.
+
+Prompt Replit ciblé pour finir proprement
+Je veux finaliser la cohérence des chronos Rugby avec les exclusions temporaires (sin bins).
+
+Contexte :
+- le chrono principal est maintenant cohérent entre Operator / QR Console / Display
+- le timer d’exclusion temporaire Rugby s’arrête bien pendant les pauses
+- resetAll() est cohérent car il efface aussi les sin bins
+- mais resetClock() et adjustClock() ne sont pas cohérents si un sin bin Rugby est actif
+
+Problème :
+le timer d’exclusion temporaire est calculé à partir de :
+- started_game_clock_ms
+- duration_s
+- chrono interne du match
+
+Donc si on fait :
+- resetClock()
+ou
+- adjustClock()
+pendant qu’un sin bin est actif,
+le timer devient incohérent.
+
+Objectif :
+empêcher ou encadrer ces actions pour garder une logique métier correcte.
+
+Je veux :
+
+1. détecter si un sin bin Rugby actif existe
+2. dans ce cas :
+   - soit empêcher resetClock() et adjustClock()
+   - soit demander une confirmation claire
+3. le message doit expliquer que cela rendrait l’exclusion temporaire incohérente
+4. resetAll() doit rester autorisé car il remet aussi les exclusions à zéro
+
+Je veux la solution la plus propre et la plus sûre pour la démo club.
+
+Livrables :
+- fichiers complets modifiés
+- logique retenue
+- mini plan de test manuel
+
+Contraintes :
+- ne pas casser le contrat live global
+- ne pas casser la synchro chrono
+- partir du code existant
+- solution simple, robuste, compréhensible
