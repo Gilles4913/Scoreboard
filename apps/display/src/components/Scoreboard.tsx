@@ -155,6 +155,10 @@ export type ScoreboardContext = {
   show_two_min_suspensions?: boolean;
   show_disqualifications?: boolean;
   show_warnings?: boolean;
+  show_set_points?: boolean;
+  show_service?: boolean;
+  show_current_set?: boolean;
+  show_tiebreak?: boolean;
   show_sin_bin_timer?: boolean;
   clock_direction?: string;
   clock_limit_s?: number | null;
@@ -1405,10 +1409,14 @@ export default function Scoreboard({ context, activeOverlay }: Props) {
   }
 
   if (isVolleyball) {
-    homeStats.push({ label: "Pts set", value: safeNum(context.volleyball_home_set_points) });
-    awayStats.push({ label: "Pts set", value: safeNum(context.volleyball_away_set_points) });
-    if (context.volleyball_home_serving) homeStats.push({ label: "Service", value: "ON" });
-    if (context.volleyball_away_serving) awayStats.push({ label: "Service", value: "ON" });
+    if (context.show_set_points !== false) {
+      homeStats.push({ label: "Pts set", value: safeNum(context.volleyball_home_set_points) });
+      awayStats.push({ label: "Pts set", value: safeNum(context.volleyball_away_set_points) });
+    }
+    if (context.show_service !== false) {
+      if (context.volleyball_home_serving) homeStats.push({ label: "Service", value: "ON" });
+      if (context.volleyball_away_serving) awayStats.push({ label: "Service", value: "ON" });
+    }
   }
 
   if (isRugby && context.show_rugby_score_breakdown !== false) {
@@ -1435,17 +1443,25 @@ export default function Scoreboard({ context, activeOverlay }: Props) {
   }
 
   if (isHandball) {
-    homeStats.push({ label: "2 min", value: safeNum(context.handball_home_2min_active) });
-    awayStats.push({ label: "2 min", value: safeNum(context.handball_away_2min_active) });
-    homeStats.push({ label: "Avert.", value: safeNum(context.handball_home_warnings) });
-    awayStats.push({ label: "Avert.", value: safeNum(context.handball_away_warnings) });
-    homeStats.push({ label: "Disq.", value: safeNum(context.handball_home_disqualifications) });
-    awayStats.push({ label: "Disq.", value: safeNum(context.handball_away_disqualifications) });
+    if (context.show_two_min_suspensions !== false) {
+      homeStats.push({ label: "2 min", value: safeNum(context.handball_home_2min_active) });
+      awayStats.push({ label: "2 min", value: safeNum(context.handball_away_2min_active) });
+    }
+    if (context.show_warnings !== false) {
+      homeStats.push({ label: "Avert.", value: safeNum(context.handball_home_warnings) });
+      awayStats.push({ label: "Avert.", value: safeNum(context.handball_away_warnings) });
+    }
+    if (context.show_disqualifications !== false) {
+      homeStats.push({ label: "Disq.", value: safeNum(context.handball_home_disqualifications) });
+      awayStats.push({ label: "Disq.", value: safeNum(context.handball_away_disqualifications) });
+    }
   }
 
   if (isFootball) {
-    homeStats.push({ label: "TAB", value: safeNum(context.football_home_penalty_shootout) });
-    awayStats.push({ label: "TAB", value: safeNum(context.football_away_penalty_shootout) });
+    if (context.show_penalty_shootout !== false) {
+      homeStats.push({ label: "TAB", value: safeNum(context.football_home_penalty_shootout) });
+      awayStats.push({ label: "TAB", value: safeNum(context.football_away_penalty_shootout) });
+    }
   }
 
   const isDetailedMode = showPlayerFouls;
@@ -1461,24 +1477,31 @@ export default function Scoreboard({ context, activeOverlay }: Props) {
   const bottomSummary = useMemo(() => {
     if (isFootball) {
       const extra =
-        period === "1MT"
-          ? safeNum(context.football_added_time_first_half)
-          : period === "2MT"
-          ? safeNum(context.football_added_time_second_half)
+        context.show_added_time !== false
+          ? period === "1MT"
+            ? safeNum(context.football_added_time_first_half)
+            : period === "2MT"
+            ? safeNum(context.football_added_time_second_half)
+            : 0
           : 0;
       return `${sport}${showStatus ? ` • ${status}` : ""}${showPeriod && period ? ` • ${period}` : ""}${extra ? ` • +${extra} min` : ""}`;
     }
 
     if (isVolleyball) {
-      return `${sport}${showStatus ? ` • ${status}` : ""} • Set ${safeNum(context.volleyball_current_set || 1)}${context.volleyball_is_tiebreak ? " • Tie-break" : ""}`;
+      const setLabel = context.show_current_set !== false ? ` • Set ${safeNum(context.volleyball_current_set || 1)}` : "";
+      const tiebreakLabel = context.show_tiebreak !== false && context.volleyball_is_tiebreak ? " • Tie-break" : "";
+      return `${sport}${showStatus ? ` • ${status}` : ""}${setLabel}${tiebreakLabel}`;
     }
 
     return `${sport}${showStatus ? ` • ${status}` : ""}${showPeriod && period ? ` • ${period}` : ""}`;
   }, [
     context.football_added_time_first_half,
     context.football_added_time_second_half,
+    context.show_added_time,
     context.volleyball_current_set,
     context.volleyball_is_tiebreak,
+    context.show_current_set,
+    context.show_tiebreak,
     isFootball,
     isVolleyball,
     period,

@@ -1113,7 +1113,7 @@ export default function ControlPage() {
         player_out_number: sub.playerOut.number,
         player_in_name: sub.playerIn.name,
         player_in_number: sub.playerIn.number,
-        duration_ms: 5000,
+        duration_ms: 10000,
         event_id: `sub-${nowMs}`,
         emitted_at: nowMs,
       },

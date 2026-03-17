@@ -126,7 +126,7 @@ function buildContextFromResponse(json: any): ScoreboardContext {
     show_substitution_banner: resolved.show_substitution_banner ?? displaySettings.show_substitution_banner ?? true,
     show_live_badge: resolved.show_live_badge ?? false,
     overlay_position: resolved.overlay_position ?? displaySettings.overlay_position ?? sp.overlay_position ?? "bottom",
-    overlay_duration_ms: resolved.overlay_duration_ms ?? displaySettings.overlay_duration_ms ?? sp.overlay_duration_ms ?? 5000,
+    overlay_duration_ms: resolved.overlay_duration_ms ?? displaySettings.overlay_duration_ms ?? sp.overlay_duration_ms ?? 10000,
 
     match_id: match.id,
     match_name: match.name ?? "",
@@ -408,7 +408,7 @@ function App() {
           setActiveOverlay(ov);
           overlayTimerRef.current = setTimeout(
             () => setActiveOverlay(null),
-            ov.duration_ms && ov.duration_ms > 0 ? ov.duration_ms : 5000,
+            ov.duration_ms && ov.duration_ms > 0 ? ov.duration_ms : (prev?.overlay_duration_ms ?? 10000),
           );
         }
         return prev;

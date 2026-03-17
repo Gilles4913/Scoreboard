@@ -1,0 +1,286 @@
+J’ai fait la vérification du dernier repo sur les 3 sujets :
+
+cohérence des chronos Operator / QR Console / Display
+
+paramètres d’affichage ON/OFF
+
+bandeau de remplacement 10 secondes
+
+1) Chronos Operator / Display / QR Console
+Ce qui est bon
+
+La valeur visible du chrono est maintenant cohérente entre :
+
+ControlPage.tsx
+
+MobileControlPage.tsx
+
+Scoreboard.tsx
+
+Les 3 utilisent la même logique computeDisplayClock(...) :
+
+Rugby / Football : count_up
+
+Basket / Handball : count_down
+
+Donc le bug précédent :
+
+Régie = 40:00
+
+Display = 00:00
+
+semble bien corrigé dans le code actuel.
+
+Ce qui reste vrai
+
+Le moteur interne reste encore largement un moteur “temps restant”, mais ce n’est plus gênant tant que :
+
+la représentation visible est identique partout
+
+ce qui semble maintenant le cas
+
+Point positif supplémentaire
+
+Le timer d’exclusion rugby prend enfin en compte clockRunning et ne décrémente plus pendant les pauses.
+C’était un vrai bug, maintenant corrigé.
+
+2) Paramètres d’affichage ON/OFF — état réel
+Réellement opérationnels dans le rendu
+
+Ces paramètres sont bien branchés jusqu’au Display :
+
+show_score
+
+show_clock
+
+show_period
+
+show_status
+
+show_lower_third
+
+show_logos
+
+show_sponsors
+
+show_live_badge
+
+show_team_fouls
+
+show_player_fouls
+
+show_timeouts
+
+show_bonus
+
+show_sets
+
+show_cards
+
+show_shot_clock
+
+show_live_overlays
+
+show_substitution_banner
+
+show_rugby_score_breakdown
+
+show_sin_bin
+
+show_sin_bin_timer
+
+show_rugby_tries
+
+show_rugby_conversions
+
+show_rugby_penalties
+
+show_rugby_drop_goals
+
+Sur ces points, le comportement attendu est bien :
+
+ON → ça s’affiche
+
+OFF → ça ne s’affiche pas
+
+Paramètres présents mais pas réellement implémentés dans le rendu
+
+Ceux-ci existent encore comme champs / types / contexte, mais je ne vois pas de rendu effectif dans Scoreboard.tsx :
+
+show_substitutions
+
+show_added_time
+
+show_penalty_shootout
+
+show_match_phase
+
+show_two_min_suspensions
+
+show_disqualifications
+
+show_warnings
+
+show_set_points
+
+show_service
+
+show_current_set
+
+show_tiebreak
+
+Donc pour ceux-là, on ne peut pas encore dire qu’ils sont opérationnels en ON/OFF.
+
+Conclusion ON/OFF
+Oui
+
+Les flags généraux et les flags rugby principaux sont bien branchés.
+
+Non
+
+Tous les flags sport spécifiques ne sont pas encore finalisés.
+
+3) Horloge des exclusions Rugby
+Ce qui est bon
+
+Le chemin est désormais cohérent :
+
+get-display-context calcule remaining_ms / remaining_s
+
+le Display reçoit :
+
+home_active_sin_bins
+
+away_active_sin_bins
+
+SinBinTimer affiche un timer compact
+
+le timer local s’arrête quand clock_running = false
+
+Donc l’horloge d’exclusion temporaire est maintenant beaucoup plus propre qu’avant.
+
+Limite restante
+
+Le rendu actuel affiche surtout :
+
+Excl. temp. • 07:32
+ou
+
+Excl. temp. 2 • 03:11
+
+C’est bien pour un mode compact LED.
+Je n’ai pas vu de mode détail par joueur, mais ce n’est pas un bug.
+
+4) Bandeau de remplacement — ton point des 10 secondes
+
+Là, il y a encore un problème clair.
+
+Ce que fait le code actuel
+
+Dans ControlPage.tsx, l’overlay de remplacement est envoyé avec :
+
+duration_ms: 5000
+
+Dans apps/display/src/main.tsx, si rien n’est fourni, le fallback est aussi :
+
+5000
+
+Et LiveOverlayBanner.tsx anime le bandeau une seule fois, sur la durée reçue.
+
+Donc aujourd’hui
+
+Le bandeau de remplacement reste affiché environ 5 secondes, pas 10.
+
+Et en plus
+
+Le paramètre overlay_duration_ms existe dans le contexte Display, mais il n’est pas utilisé pour piloter la durée du bandeau de remplacement au moment du broadcast.
+
+Ce qu’il faut faire
+
+Pour respecter ton besoin :
+
+minimum
+
+Passer la durée à 10000 ms :
+
+dans ControlPage.tsx
+
+et dans le fallback de main.tsx
+
+mieux
+
+Faire utiliser la valeur résolue :
+
+overlay_duration_ms
+ou un paramètre dédié :
+
+substitution_overlay_duration_ms
+
+Mon verdict final
+Cohérence chrono Operator / Display
+
+Oui, c’est globalement cohérent maintenant.
+
+Horloge des exclusions Rugby
+
+Oui, elle est maintenant bien mieux gérée et cohérente.
+
+Paramètres ON/OFF
+
+Partiellement oui :
+
+les principaux fonctionnent
+
+plusieurs flags avancés restent encore “déclarés mais non rendus”
+
+Bandeau remplacement 10 secondes
+
+Non, pas encore :
+
+il est encore réglé à 5 secondes
+
+Correctif précis à faire pour le bandeau 10 secondes
+1. Dans apps/operator/src/pages/ControlPage.tsx
+
+Trouve l’overlay substitution envoyé avec :
+
+duration_ms: 5000
+
+et remplace par :
+
+duration_ms: 10000
+2. Dans apps/display/src/main.tsx
+
+Trouve le fallback :
+
+ov.duration_ms && ov.duration_ms > 0 ? ov.duration_ms : 5000
+
+et remplace par :
+
+ov.duration_ms && ov.duration_ms > 0 ? ov.duration_ms : 10000
+3. Option plus propre
+
+Si tu veux que ça suive les réglages Display, il faut utiliser :
+
+prev?.overlay_duration_ms ?? 10000
+
+au lieu d’un 5000 codé en dur.
+
+Réponse nette
+Ce qui est propre
+
+chrono visible
+
+pause / reprise
+
+timer d’exclusion rugby
+
+principaux ON/OFF
+
+Ce qui ne l’est pas encore totalement
+
+tous les flags sport avancés
+
+la durée du bandeau remplacement
+
+le bandeau n’utilise pas encore vraiment une durée paramétrable centralisée

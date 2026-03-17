@@ -1,0 +1,133 @@
+Voici le prompt Replit final pour terminer proprement les derniers points restants :
+
+Je veux finaliser proprement les derniers points de scoreDisplay V2 sur le Display et les paramètres d’affichage.
+
+Contexte :
+- le socle live est maintenant globalement bon
+- la cohérence visuelle du chrono entre Régie / QR Console / Display est en place
+- le timer d’exclusion temporaire Rugby fonctionne déjà beaucoup mieux
+- plusieurs paramètres ON/OFF sont déjà opérationnels
+- mais il reste encore quelques trous fonctionnels à fermer
+
+Objectifs de ce lot :
+1. faire durer le bandeau de remplacement 10 secondes
+2. faire utiliser une durée de bandeau paramétrable proprement
+3. auditer et finaliser les paramètres ON/OFF qui existent mais ne sont pas réellement rendus
+4. rendre le comportement ON/OFF fiable et explicite côté Display
+
+POINT 1 — Bandeau de remplacement
+Aujourd’hui, le bandeau de remplacement côté Display reste affiché trop peu longtemps.
+Je veux :
+- affichage pendant 10 secondes
+- pas une seule apparition trop rapide
+- comportement propre sur écran LED
+
+Travail demandé :
+A. remplacer la durée codée en dur actuelle (5000 ms) par 10000 ms
+B. utiliser de préférence une valeur paramétrable cohérente issue de la config résolue Display
+C. si `overlay_duration_ms` existe déjà dans le contexte résolu, s’en servir comme base
+D. si aucun réglage n’est défini, fallback propre à 10000 ms
+
+Je veux que le bandeau de remplacement :
+- reste visible 10 secondes
+- soit stable
+- ne disparaisse pas trop vite
+- reste compatible avec la file ou le remplacement de bandeau déjà en place
+
+POINT 2 — Paramètres ON/OFF réellement opérationnels
+Je veux un audit concret du dernier code sur les paramètres d’affichage.
+
+Je veux que tu distingues clairement :
+1. paramètres réellement branchés jusqu’au rendu
+2. paramètres présents mais partiellement branchés
+3. paramètres présents mais non branchés
+
+Je veux ensuite finaliser les paramètres qui doivent être réellement opérationnels maintenant, en priorité pour :
+- Rugby
+- Football
+- Basket
+- Handball
+- Volleyball
+
+POINT 3 — Liste des paramètres à rendre effectivement opérationnels
+Vérifier et finaliser au minimum les cas suivants si les champs existent déjà :
+- show_substitutions
+- show_added_time
+- show_penalty_shootout
+- show_match_phase
+- show_two_min_suspensions
+- show_disqualifications
+- show_warnings
+- show_set_points
+- show_service
+- show_current_set
+- show_tiebreak
+
+Règle :
+- si ON : le bloc concerné doit réellement s’afficher
+- si OFF : il ne doit pas s’afficher
+- pas de faux ON/OFF
+- pas de flag mort
+
+Si certains de ces paramètres existent mais ne sont pas mûrs ou n’ont pas encore de vraie source de données fiable, je veux que tu me le dises explicitement au lieu de brancher quelque chose de bancal.
+
+POINT 4 — Rugby
+Je veux vérifier que les paramètres Rugby suivants sont bien propres et cohérents :
+- show_cards
+- show_sin_bin
+- show_sin_bin_timer
+- show_rugby_score_breakdown
+- show_rugby_tries
+- show_rugby_conversions
+- show_rugby_penalties
+- show_rugby_drop_goals
+
+Je veux une granularité propre :
+- si ON : ça apparaît
+- si OFF : ça disparaît
+- pas de mélange implicite non maîtrisé entre breakdown global et sous-blocs
+
+POINT 5 — DisplaySettingsPage
+Je veux que l’UI des settings reflète uniquement des paramètres réellement utiles et branchés.
+Si certains paramètres existent mais ne servent à rien à l’affichage, je veux qu’ils soient :
+- soit branchés réellement
+- soit explicitement signalés comme restant pour un lot ultérieur
+- mais pas laissés dans un état ambigu
+
+POINT 6 — Livrables
+Je veux :
+1. la liste des fichiers modifiés
+2. les fichiers complets modifiés
+3. un résumé structuré :
+   - ce qui a été corrigé
+   - ce qui est maintenant vraiment opérationnel
+   - ce qui reste volontairement hors périmètre si non fiable
+4. un mini plan de test manuel
+
+Mini checklist à produire à la fin :
+- bandeau remplacement visible 10 secondes
+- Rugby ON/OFF vérifiés
+- Football ON/OFF vérifiés
+- Basket ON/OFF vérifiés
+- Handball ON/OFF vérifiés
+- Volleyball ON/OFF vérifiés
+- aucun faux ON/OFF restant sur les paramètres traités
+
+Contraintes :
+- partir du code existant
+- ne pas casser le contrat live global
+- ne pas casser la synchro chrono
+- ne pas casser teamSlug / Display stable
+- ne pas faire une refonte gratuite
+- garder la lisibilité LED comme priorité
+- être honnête sur ce qui est réellement finalisé ou non
+
+Et voici le mini correctif attendu si Replit ne le fait pas automatiquement pour le bandeau :
+
+dans apps/operator/src/pages/ControlPage.tsx
+duration_ms: 5000 → duration_ms: 10000
+
+dans apps/display/src/main.tsx
+fallback 5000 → 10000
+
+Le mieux reste de le faire dépendre de overlay_duration_ms avec fallback à 10000.
