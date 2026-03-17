@@ -1432,13 +1432,8 @@ export default function ControlPage() {
 
   async function resetClock() {
     if (hasActiveSinBins()) {
-      const ok = window.confirm(
-        "⚠️ Une exclusion temporaire Rugby est en cours.\n\n" +
-        "Réinitialiser le chrono seul rendra son timer incohérent (il restera ancré sur l'ancien temps de jeu).\n\n" +
-        "Utilisez « Réinitialiser tout » pour aussi effacer les exclusions.\n\n" +
-        "Continuer quand même ?",
-      );
-      if (!ok) return;
+      toast('Impossible de modifier le chronomètre : une exclusion temporaire Rugby est en cours. Utilisez "Réinitialiser tout" si vous souhaitez remettre aussi les exclusions à zéro.', "warning");
+      return;
     }
 
     const next = defaultClockMsBySport(sport, sportSettings?.period_duration_s);
@@ -1618,12 +1613,8 @@ export default function ControlPage() {
 
   async function adjustClock(deltaMs: number) {
     if (hasActiveSinBins()) {
-      const ok = window.confirm(
-        "⚠️ Une exclusion temporaire Rugby est en cours.\n\n" +
-        "Ajuster le chrono manuellement rendra son timer incohérent (le temps restant d'exclusion ne sera plus exact).\n\n" +
-        "Continuer quand même ?",
-      );
-      if (!ok) return;
+      toast('Impossible de modifier le chronomètre : une exclusion temporaire Rugby est en cours. Utilisez "Réinitialiser tout" si vous souhaitez remettre aussi les exclusions à zéro.', "warning");
+      return;
     }
 
     const next = Math.max(0, clockMsRef.current + deltaMs);
