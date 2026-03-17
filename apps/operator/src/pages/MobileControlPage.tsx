@@ -758,7 +758,6 @@ export default function MobileControlPage() {
       cursor: "pointer", background: color, color: "#fff", marginBottom: 8,
     }),
     subRow: { display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: "1px solid #1e2d42", fontSize: 12, color: "#94a3b8" } as React.CSSProperties,
-    fullRegieLink: { display: "block", textAlign: "center" as const, marginTop: 20, color: "#3b82f6", fontSize: 13, textDecoration: "underline", cursor: "pointer", background: "none", border: "none" },
   };
 
   /* ─── render ─────────────────────────────────────────────────────────────── */
@@ -849,7 +848,7 @@ export default function MobileControlPage() {
         <div style={s.clockActions}>
           {clockRunning
             ? <button style={s.clockBtn("#b91c1c")} onClick={pauseClock}>⏸ Pause</button>
-            : <button style={s.clockBtn("#16a34a")} onClick={startClock}>▶ {status === "scheduled" ? "Démarrer" : "Reprendre"}</button>
+            : <button style={s.clockBtn("#16a34a")} onClick={startClock}>▶ Démarrer</button>
           }
           <button style={{ ...s.clockBtn("#334155"), flex: "none", minWidth: 80 }} onClick={resetClock}>⟳ Reset</button>
         </div>
@@ -975,11 +974,6 @@ export default function MobileControlPage() {
           )}
         </div>
       )}
-
-      {/* ── lien régie complète ── */}
-      <button style={s.fullRegieLink} onClick={() => nav(`/matches/${matchId}/control`)}>
-        Ouvrir la régie complète →
-      </button>
 
       {/* ── debug overlay ── */}
       {debugClock && (
