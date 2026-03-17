@@ -1,0 +1,138 @@
+Le retour Replit est partiellement juste.
+
+Ce que je confirme
+1) Le problème “Régie 40:00 / Display 00:00” semble bien déjà résolu
+
+J’ai bien vu computeDisplayClock(...) utilisé dans :
+
+ControlPage.tsx
+
+MobileControlPage.tsx
+
+Scoreboard.tsx
+
+Donc le reviewer précédent regardait probablement une version antérieure sur ce point.
+
+2) Le calcul backend du sin bin est une vraie amélioration
+
+Le fait de calculer côté get-display-context :
+
+remaining_ms
+
+remaining_s
+
+à partir de l’ancre chrono est la bonne direction.
+La formule utilisée est cohérente avec le moteur interne en countdown.
+
+Mais il reste un vrai problème important
+Le SinBinTimer côté Display continue à décrémenter même quand le match est en pause
+
+Dans Scoreboard.tsx, le composant SinBinTimer fait :
+
+un seed depuis remaining_ms
+
+puis un setInterval(... every 1000 ms ...)
+
+qui décrémente localement sans tenir compte de clock_running
+
+Pourquoi c’est un problème
+
+En rugby, la suspension temporaire est en temps de jeu.
+Donc si le match est en pause :
+
+le chrono principal doit s’arrêter
+
+le chrono d’exclusion doit s’arrêter aussi
+
+Or actuellement, le timer local continue de descendre même si :
+
+clock_running = false
+
+la régie a mis le match en pause
+
+Conséquence
+
+Le timer d’exclusion va dériver jusqu’au prochain refresh backend.
+
+Donc le lot n’est pas complètement finalisé
+
+Le point critique restant est :
+
+le SinBinTimer doit être asservi à l’état réel du match (clock_running) ou, encore mieux, recalculé localement à partir d’une base backend autoritaire sans décrément autonome aveugle.
+
+Ce qu’il faut corriger maintenant
+Option recommandée
+
+Modifier SinBinTimer pour qu’il reçoive au moins :
+
+clockRunning
+
+et que son intervalle local :
+
+ne décrémente que si clockRunning === true
+
+Encore mieux
+
+Lui passer aussi :
+
+un timestamp / base backend
+
+ou recalculer depuis une valeur de référence
+
+Mais le correctif minimal propre est déjà :
+
+pause du décompte local si le match est en pause
+
+Réponse nette sur le retour Replit
+Oui
+
+sur le chrono visuel Régie / Display, le retour semble correct
+
+sur le calcul backend remaining_ms, c’est une bonne correction
+
+Non, pas complètement fini
+
+il reste un bug métier réel :
+
+le timer d’exclusion continue pendant les pauses
+
+Prompt Replit ultra-ciblé pour ce dernier point
+Le dernier correctif sur le SinBinTimer Rugby n’est pas encore totalement correct.
+
+Contexte :
+- get-display-context calcule déjà remaining_ms / remaining_s côté backend
+- c’est bien
+- mais dans Scoreboard.tsx, le composant SinBinTimer continue ensuite à décrémenter localement toutes les secondes
+- il ne tient pas compte de l’état réel du match
+
+Problème métier :
+en Rugby, l’exclusion temporaire est en temps de jeu.
+Donc si le match est en pause :
+- le chrono principal s’arrête
+- le timer d’exclusion doit s’arrêter aussi
+
+Objectif :
+corriger SinBinTimer pour qu’il ne dérive plus pendant les pauses.
+
+Travail demandé :
+1. Modifier SinBinTimer pour qu’il prenne en compte l’état du chrono du match
+   - au minimum : clockRunning
+2. Le décompte local ne doit progresser que si clockRunning = true
+3. Si le match est en pause :
+   - le timer reste figé
+4. Quand le match repart :
+   - le timer reprend
+5. Garder la resynchronisation backend déjà en place
+6. Ne pas casser le comportement d’ouverture à froid d’un nouvel écran
+
+Je veux :
+- le fichier complet modifié
+- un résumé court du bug et du correctif
+- un mini plan de test manuel
+
+Test attendu :
+- lancer un sin bin rugby
+- mettre le match en pause
+- vérifier que le timer ne bouge plus
+- relancer le match
+- vérifier que le timer reprend

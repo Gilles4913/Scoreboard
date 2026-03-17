@@ -585,9 +585,11 @@ function BreakdownChip({
 
 function SinBinTimer({
   sinBins,
+  clockRunning,
   theme,
 }: {
   sinBins: ActiveSinBin[];
+  clockRunning: boolean;
   theme: ThemeMode;
 }) {
   // remainingMap: { [sinBinId]: remaining_ms } — local countdown seeded from backend
@@ -599,8 +601,15 @@ function SinBinTimer({
     return init;
   });
 
+  // Keep a ref to clockRunning so the interval callback always reads the latest value
+  // without needing to be recreated on each pause/resume.
+  const clockRunningRef = useRef(clockRunning);
+  useEffect(() => {
+    clockRunningRef.current = clockRunning;
+  }, [clockRunning]);
+
   // When backend refreshes sin bins (polling), reseed remaining values
-  // Only reset a sin bin if it's new or the backend value is meaningfully different
+  // Only correct if drift exceeds 5 s to avoid visible jumps during normal play
   useEffect(() => {
     setRemainingMap((prev) => {
       const next: Record<string, number> = {};
@@ -618,10 +627,11 @@ function SinBinTimer({
     });
   }, [sinBins]);
 
-  // Tick down every second
+  // Tick down every second — only when the match clock is running
   useEffect(() => {
     if (sinBins.length === 0) return;
     const interval = window.setInterval(() => {
+      if (!clockRunningRef.current) return; // match is paused — do not decrement
       setRemainingMap((prev) => {
         const next: Record<string, number> = {};
         for (const [id, ms] of Object.entries(prev)) {
@@ -939,7 +949,7 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
               <BreakdownChip label="Excl. temp." value={homeSinBin} color="#f59e0b" theme={theme} />
             )}
             {context.show_sin_bin_timer && (context.home_active_sin_bins?.length ?? 0) > 0 && (
-              <SinBinTimer sinBins={context.home_active_sin_bins!} theme={theme} />
+              <SinBinTimer sinBins={context.home_active_sin_bins!} clockRunning={!!context.clock_running} theme={theme} />
             )}
             {showCards && homeYellow > 0 && (
               <BreakdownChip label="J" value={homeYellow} color="#eab308" theme={theme} />
@@ -972,7 +982,7 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
               <BreakdownChip label="Excl. temp." value={awaySinBin} color="#f59e0b" theme={theme} />
             )}
             {context.show_sin_bin_timer && (context.away_active_sin_bins?.length ?? 0) > 0 && (
-              <SinBinTimer sinBins={context.away_active_sin_bins!} theme={theme} />
+              <SinBinTimer sinBins={context.away_active_sin_bins!} clockRunning={!!context.clock_running} theme={theme} />
             )}
             {showCards && awayYellow > 0 && (
               <BreakdownChip label="J" value={awayYellow} color="#eab308" theme={theme} />
@@ -1245,7 +1255,7 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
               <BreakdownChip label="Excl. temp." value={homeSinBin} color="#f59e0b" theme={theme} />
             )}
             {context.show_sin_bin_timer && (context.home_active_sin_bins?.length ?? 0) > 0 && (
-              <SinBinTimer sinBins={context.home_active_sin_bins!} theme={theme} />
+              <SinBinTimer sinBins={context.home_active_sin_bins!} clockRunning={!!context.clock_running} theme={theme} />
             )}
             {context.show_cards !== false && homeYellow > 0 && (
               <BreakdownChip label="J" value={homeYellow} color="#eab308" theme={theme} />
@@ -1278,7 +1288,7 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
               <BreakdownChip label="Excl. temp." value={awaySinBin} color="#f59e0b" theme={theme} />
             )}
             {context.show_sin_bin_timer && (context.away_active_sin_bins?.length ?? 0) > 0 && (
-              <SinBinTimer sinBins={context.away_active_sin_bins!} theme={theme} />
+              <SinBinTimer sinBins={context.away_active_sin_bins!} clockRunning={!!context.clock_running} theme={theme} />
             )}
             {context.show_cards !== false && awayYellow > 0 && (
               <BreakdownChip label="J" value={awayYellow} color="#eab308" theme={theme} />
