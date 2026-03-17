@@ -1448,12 +1448,14 @@ export default function ControlPage() {
   async function resetAll() {
     const defaultClock = defaultClockMsBySport(sport, sportSettings?.period_duration_s);
     const firstPeriod = periodOptions[0] || periodLabel;
+    const defaultShotClock = Number(sportSettings?.shot_clock_s || 24);
 
     clockMsRef.current = defaultClock;
     clockRunningRef.current = false;
     clockAnchorRef.current = { epoch: Date.now(), ms: defaultClock };
     setClockMs(defaultClock);
     setClockRunning(false);
+    setStatus("scheduled");
     setHomeScore(0);
     setAwayScore(0);
     setPeriodLabel(firstPeriod);
@@ -1469,7 +1471,7 @@ export default function ControlPage() {
     setAwaySetsWon(0);
     setHomeBonus(false);
     setAwayBonus(false);
-    setShotClockS(0);
+    setShotClockS(defaultShotClock);
     setPossessionArrow("home");
     setHomeTimeouts(0);
     setAwayTimeouts(0);
@@ -1511,6 +1513,7 @@ export default function ControlPage() {
     setFootballAddedEx2(0);
 
     const resetPatch = {
+      status: "scheduled",
       home_score: 0,
       away_score: 0,
       clock_ms: defaultClock,
@@ -1528,7 +1531,7 @@ export default function ControlPage() {
       away_sets_won: 0,
       home_bonus: false,
       away_bonus: false,
-      shot_clock_s: 0,
+      shot_clock_s: defaultShotClock,
       possession_arrow: "home",
       home_timeouts: 0,
       away_timeouts: 0,
