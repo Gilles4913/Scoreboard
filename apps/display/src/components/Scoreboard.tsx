@@ -756,7 +756,7 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
           padding: "28px 40px 0",
           display: "grid",
           gridTemplateColumns: "1fr auto 1fr",
-          alignItems: "center",
+          alignItems: "flex-start",
           gap: 24,
         }}
       >
@@ -791,6 +791,7 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
+            alignSelf: "center",
             gap: 8,
           }}
         >
@@ -1106,7 +1107,7 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
           padding: "20px 40px 0",
           display: "grid",
           gridTemplateColumns: "1fr auto 1fr",
-          alignItems: "center",
+          alignItems: "flex-start",
           gap: 24,
         }}
       >
@@ -1141,6 +1142,7 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
+            alignSelf: "center",
             gap: 6,
           }}
         >
