@@ -932,35 +932,6 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
         )}
       </div>
 
-      {context.show_sin_bin_timer && (() => {
-        const homeValid = (context.home_active_sin_bins ?? []).filter((sb) => (sb.remaining_ms ?? Infinity) > 0);
-        const awayValid = (context.away_active_sin_bins ?? []).filter((sb) => (sb.remaining_ms ?? Infinity) > 0);
-        if (homeValid.length === 0 && awayValid.length === 0) return null;
-        return (
-          <div
-            style={{
-              padding: "0 40px 16px",
-              display: "grid",
-              gridTemplateColumns: "1fr auto 1fr",
-              gap: 24,
-              alignItems: "flex-start",
-            }}
-          >
-            <div>
-              {homeValid.length > 0 && (
-                <SinBinTimer sinBins={homeValid} clockRunning={!!context.clock_running} theme={theme} large />
-              )}
-            </div>
-            <div style={{ width: 2 }} />
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              {awayValid.length > 0 && (
-                <SinBinTimer sinBins={awayValid} clockRunning={!!context.clock_running} theme={theme} large />
-              )}
-            </div>
-          </div>
-        );
-      })()}
-
       {(context.show_rugby_score_breakdown !== false || context.show_sin_bin !== false || context.show_cards !== false) && (
         <div
           style={{
@@ -1022,6 +993,35 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
           </div>
         </div>
       )}
+
+      {context.show_sin_bin_timer && (() => {
+        const homeValid = (context.home_active_sin_bins ?? []).filter((sb) => (sb.remaining_ms ?? Infinity) > 0);
+        const awayValid = (context.away_active_sin_bins ?? []).filter((sb) => (sb.remaining_ms ?? Infinity) > 0);
+        if (homeValid.length === 0 && awayValid.length === 0) return null;
+        return (
+          <div
+            style={{
+              padding: "0 40px 16px",
+              display: "grid",
+              gridTemplateColumns: "1fr auto 1fr",
+              gap: 24,
+              alignItems: "flex-start",
+            }}
+          >
+            <div>
+              {homeValid.length > 0 && (
+                <SinBinTimer sinBins={homeValid} clockRunning={!!context.clock_running} theme={theme} large />
+              )}
+            </div>
+            <div style={{ width: 2 }} />
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              {awayValid.length > 0 && (
+                <SinBinTimer sinBins={awayValid} clockRunning={!!context.clock_running} theme={theme} large />
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -1261,35 +1261,6 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
         )}
       </div>
 
-      {context.show_sin_bin_timer && (() => {
-        const homeValid = (context.home_active_sin_bins ?? []).filter((sb) => (sb.remaining_ms ?? Infinity) > 0);
-        const awayValid = (context.away_active_sin_bins ?? []).filter((sb) => (sb.remaining_ms ?? Infinity) > 0);
-        if (homeValid.length === 0 && awayValid.length === 0) return null;
-        return (
-          <div
-            style={{
-              padding: "0 40px 14px",
-              display: "grid",
-              gridTemplateColumns: "1fr auto 1fr",
-              gap: 24,
-              alignItems: "flex-start",
-            }}
-          >
-            <div>
-              {homeValid.length > 0 && (
-                <SinBinTimer sinBins={homeValid} clockRunning={!!context.clock_running} theme={theme} large />
-              )}
-            </div>
-            <div style={{ width: 2 }} />
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              {awayValid.length > 0 && (
-                <SinBinTimer sinBins={awayValid} clockRunning={!!context.clock_running} theme={theme} large />
-              )}
-            </div>
-          </div>
-        );
-      })()}
-
       {(context.show_rugby_score_breakdown !== false || context.show_sin_bin !== false || context.show_cards !== false) && (
         <div
           style={{
@@ -1351,6 +1322,35 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
           </div>
         </div>
       )}
+
+      {context.show_sin_bin_timer && (() => {
+        const homeValid = (context.home_active_sin_bins ?? []).filter((sb) => (sb.remaining_ms ?? Infinity) > 0);
+        const awayValid = (context.away_active_sin_bins ?? []).filter((sb) => (sb.remaining_ms ?? Infinity) > 0);
+        if (homeValid.length === 0 && awayValid.length === 0) return null;
+        return (
+          <div
+            style={{
+              padding: "0 40px 14px",
+              display: "grid",
+              gridTemplateColumns: "1fr auto 1fr",
+              gap: 24,
+              alignItems: "flex-start",
+            }}
+          >
+            <div>
+              {homeValid.length > 0 && (
+                <SinBinTimer sinBins={homeValid} clockRunning={!!context.clock_running} theme={theme} large />
+              )}
+            </div>
+            <div style={{ width: 2 }} />
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              {awayValid.length > 0 && (
+                <SinBinTimer sinBins={awayValid} clockRunning={!!context.clock_running} theme={theme} large />
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
