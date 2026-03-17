@@ -187,6 +187,7 @@ type PlayerStatRow = {
   yellow_cards?: number;
   red_cards?: number;
   is_on_field?: boolean;
+  is_starter?: boolean;
 };
 
 type MatchEventRow = {
@@ -398,6 +399,7 @@ function toPlayerStatRows(matchPlayers: MatchPlayerRow[]) {
       yellow_cards: p.yellow_cards || 0,
       red_cards: p.red_cards || 0,
       is_on_field: p.is_on_field ?? p.is_starter,
+      is_starter: p.is_starter,
     }));
 }
 
@@ -1585,7 +1587,7 @@ export default function ControlPage() {
     setHandballSuspensions([]);
 
     const resetPlayers = (rows: PlayerStatRow[]) =>
-      rows.map((p) => ({ ...p, fouls: 0, points: 0, yellow_cards: 0, red_cards: 0 }));
+      rows.map((p) => ({ ...p, fouls: 0, points: 0, yellow_cards: 0, red_cards: 0, is_on_field: !!p.is_starter }));
     setHomePlayers((prev) => resetPlayers(prev));
     setAwayPlayers((prev) => resetPlayers(prev));
 
@@ -1601,7 +1603,9 @@ export default function ControlPage() {
           supabase.from("match_events").delete().eq("match_id", mid),
           supabase.from("match_sin_bins").delete().eq("match_id", mid),
           supabase.from("match_two_min_suspensions").delete().eq("match_id", mid),
-          supabase.from("match_players").update({ fouls: 0, points: 0, yellow_cards: 0, red_cards: 0 }).eq("match_id", mid),
+          supabase.from("match_substitutions").delete().eq("match_id", mid),
+          supabase.from("match_players").update({ fouls: 0, points: 0, yellow_cards: 0, red_cards: 0, is_on_field: true }).eq("match_id", mid).eq("is_starter", true),
+          supabase.from("match_players").update({ fouls: 0, points: 0, yellow_cards: 0, red_cards: 0, is_on_field: false }).eq("match_id", mid).eq("is_starter", false),
         ]);
       }
 
