@@ -1,0 +1,252 @@
+Tu travailles sur le repo Scoreboard-main.
+
+Objectif :
+implémenter une vraie “Régie Mobile” utilisable sur smartphone et tablette, accessible via QR code / URL dédiée, permettant d’exploiter un match en live sans passer par l’interface desktop Operator.
+
+Contexte produit à respecter :
+- ScoreDisplay V2
+- mode public officiel = URL stable par équipe via teamSlug
+- contrat live global déjà en place avec last_event_seq et ancres chrono
+- Rugby et Football en affichage visuel count_up
+- Basket et Handball en count_down
+- bandeau de remplacement = 10 secondes
+- paramètres d’affichage multi-sport partiellement finalisés
+- il existe déjà une app Operator desktop et une app Display
+- il ne faut PAS créer une nouvelle app séparée si ce n’est pas indispensable
+- il faut plutôt ajouter une vue / route mobile dédiée dans l’app Operator existante
+
+Objectif métier de la Régie Mobile :
+la QR régie mobile doit ouvrir une interface web mobile-first, adaptée téléphone et tablette, qui permette au minimum :
+- gestion du score
+- gestion du chronomètre
+- gestion des exclusions temporaires rugby
+- gestion des changements
+- retour visuel immédiat
+- synchronisation live avec le Display et l’Operator principal
+
+Principe d’architecture attendu :
+- réutiliser le backend, les hooks, les services, les mutations et la logique métier existants autant que possible
+- ajouter une route dédiée de type :
+  - /m/:matchId
+  ou
+  - /operator/mobile/:matchId
+- la route doit être optimisée pour mobile
+- ne pas dupliquer inutilement toute la logique du desktop
+- la logique métier doit rester centralisée
+
+Périmètre fonctionnel V1 obligatoire :
+
+1. En-tête mobile
+- nom du match
+- équipes domicile / extérieur
+- sport
+- statut du match
+- période / mi-temps / quart / set si disponible
+- chrono visible en permanence
+- état du chrono : live / pause
+
+2. Bloc Score
+- affichage très lisible du score domicile / extérieur
+- boutons + et - tactiles pour chaque équipe
+- feedback immédiat après action
+- ne pas casser la logique métier existante des sports
+
+3. Bloc Chronomètre
+- démarrer
+- pause
+- reprise
+- reset si autorisé par les règles déjà existantes
+- affichage conforme au sport :
+  - rugby / football = count_up
+  - basket / handball = count_down
+
+4. Bloc Exclusions rugby
+- visible seulement si sport = rugby
+- bouton “Carton jaune” ou “Exclusion”
+- création d’une exclusion temporaire liée au match
+- si des joueurs existent déjà dans le modèle, les exploiter ; sinon permettre une exclusion sans sélection complexe bloquante
+- afficher la liste des exclusions actives
+- afficher le temps restant de chaque exclusion
+- bouton “Lever l’exclusion”
+- la logique doit s’appuyer sur la vraie source de vérité match_sin_bins
+- respecter les flags show_sin_bin et show_sin_bin_timer quand cela a du sens côté exploitation
+- ne pas recréer de logique parallèle incohérente
+
+5. Bloc Changements
+- accessible sur mobile
+- action simple :
+  - choisir équipe
+  - joueur sortant si disponible
+  - joueur entrant si disponible
+  - valider
+- si le modèle joueurs n’est pas totalement prêt, prévoir une UX de secours simple et propre
+- afficher au moins l’historique récent ou la dernière action
+
+6. Navigation mobile
+- interface mono-colonne
+- sections claires
+- idéalement onglets ou accordéons simples :
+  - Score
+  - Chrono
+  - Discipline
+  - Changements
+- éviter les tableaux desktop non lisibles
+- éviter les modales lourdes
+- actions critiques avec confirmation légère si nécessaire
+
+Contraintes UX obligatoires :
+- mobile-first, pas juste un écran desktop compressé
+- doit être confortable sur téléphone ET tablette
+- gros boutons tactiles
+- zones d’appui confortables (minimum 44-48 px)
+- espacement suffisant
+- hiérarchie visuelle claire
+- peu de texte
+- pas de hover nécessaire
+- contraste lisible en extérieur
+- les actions fréquentes doivent être accessibles sans scroll excessif
+- le chrono et le score doivent rester visibles très rapidement
+
+Contraintes techniques fortes :
+- ne casse pas l’Operator desktop existant
+- ne casse pas le Display
+- ne casse pas le contrat live global
+- ne modifie pas le comportement count_up / count_down déjà en place
+- ne modifie pas la règle du bandeau remplacement 10 secondes
+- ne fais pas de refactor massif hors sujet
+- fais des changements localisés, propres, lisibles
+- privilégie TypeScript strict et composants réutilisables
+- réutilise les hooks / services existants quand possible
+- si une logique desktop doit être factorisée pour être partagée, fais-le proprement et minimalement
+
+Ce que je veux que tu fasses :
+
+A. Audit de l’existant
+1. identifie dans le repo :
+- le routeur actuel de l’app Operator
+- les pages Operator existantes
+- les composants de contrôle existants
+- les hooks/mutations/actions déjà disponibles pour :
+  - score
+  - chrono
+  - exclusions rugby
+  - changements
+- la génération ou l’affichage actuel du QR / lien régie mobile s’il existe déjà quelque chose
+
+2. propose l’emplacement exact de la nouvelle vue mobile :
+- quel fichier de route
+- quel composant page
+- quels composants enfants
+- quels hooks partagés
+
+B. Implémentation de la Régie Mobile
+Crée une première version complète et propre comprenant :
+
+1. Route mobile
+- ajoute une route dédiée
+- elle doit charger le match concerné
+- elle doit fonctionner sur smartphone et tablette
+- elle doit être simple à ouvrir via QR code
+
+2. Page mobile principale
+Créer un composant du type :
+- MobileControlPage.tsx
+ou équivalent
+avec une structure claire :
+- header sticky ou compact
+- bloc score
+- bloc chrono
+- bloc discipline rugby
+- bloc changements
+
+3. Score mobile
+- gros score
+- boutons + / -
+- feedback loading / disabled propre pendant mutation
+- pas de double clic sale
+- utilisation de la logique existante du desktop si possible
+
+4. Chrono mobile
+- boutons démarrer / pause / reprise
+- affichage toujours visible
+- réutiliser les ancres chrono existantes
+- ne pas recréer un chrono local qui diverge de la source réelle
+
+5. Exclusions rugby mobile
+- si sport != rugby, ne pas afficher cette section
+- si sport = rugby :
+  - bouton ajout exclusion
+  - liste exclusions actives
+  - temps restant
+  - bouton lever exclusion
+- se brancher sur match_sin_bins et les fonctions existantes si elles existent déjà
+- si nécessaire, factoriser depuis ControlPage.tsx au lieu de dupliquer
+- le comportement doit rester cohérent avec le correctif déjà attendu sur les sin bins
+
+6. Changements mobile
+- section simple et utilisable
+- si l’existant est disponible, brancher la vraie logique
+- sinon créer un conteneur propre prêt à recevoir la logique, mais déjà fonctionnel si possible
+- afficher l’état ou l’historique récent si disponible
+
+C. Accès via QR / lien
+- identifie où le lien régie est généré ou affiché actuellement
+- ajoute le lien vers la version mobile si nécessaire
+- si un QR code existe déjà dans l’Operator, fais en sorte qu’il pointe vers la bonne route mobile
+- sinon, ajoute un affichage simple du lien mobile dans l’Operator
+- ne fais pas une grosse refonte du desktop pour ça
+
+D. Responsive et robustesse
+- vérifie que l’interface soit correcte sur largeur téléphone (~390px) et tablette (~768px+)
+- pas de débordement horizontal
+- pas de boutons trop petits
+- sections compactes mais respirantes
+- header score/chrono toujours lisible
+- les actions critiques doivent être sûres
+
+Fichiers probablement concernés :
+- apps/operator/src/App.tsx
+- apps/operator/src/main.tsx
+- apps/operator/src/pages/ControlPage.tsx
+- apps/operator/src/pages/HomePage.tsx
+- apps/operator/src/components/*
+- apps/operator/src/routes/*
+- éventuellement un composant QR existant
+- éventuellement hooks/services partagés dans apps/operator/src/lib/* ou src/hooks/*
+- éventuellement logique Supabase déjà existante
+- si besoin crée de nouveaux composants dédiés mobile dans un dossier propre
+
+Si tu crées de nouveaux fichiers, fais-le proprement par exemple :
+- apps/operator/src/pages/MobileControlPage.tsx
+- apps/operator/src/components/mobile/MobileMatchHeader.tsx
+- apps/operator/src/components/mobile/MobileScorePad.tsx
+- apps/operator/src/components/mobile/MobileClockControls.tsx
+- apps/operator/src/components/mobile/MobileRugbySinBinPanel.tsx
+- apps/operator/src/components/mobile/MobileSubstitutionsPanel.tsx
+
+Attentes de qualité :
+- code lisible
+- composants courts et clairs
+- peu de duplication
+- nommage propre
+- garde-fous sur les actions asynchrones
+- pas d’effet de bord inutile
+- pas de CSS bricolé illisible
+- si le projet utilise Tailwind, respecte-le
+- si le projet utilise un design system existant, réutilise-le
+
+Livrables attendus :
+1. résumé court de l’architecture choisie
+2. liste des fichiers créés/modifiés
+3. contenu complet de chaque fichier modifié ou créé
+4. explication des points de réutilisation par rapport au desktop
+5. explication de la route mobile retenue
+6. explication de la manière dont le lien / QR régie mobile doit être utilisé
+7. note explicite sur ce qui est pleinement fonctionnel dès maintenant et ce qui reste éventuellement à enrichir
+
+Très important :
+- ne réponds pas avec un simple plan
+- implémente réellement
+- rends les fichiers complets
+- si une partie exacte de la logique changements n’existe pas encore, branche tout ce qui existe et livre une base propre sans bloquer le reste
+- privilégie une V1 exploitable terrain plutôt qu’une architecture théorique parfaite

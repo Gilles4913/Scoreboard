@@ -2,13 +2,14 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../supabase";
 import { sendTvBroadcast } from "../realtime";
-import type { LiveMutationCtx } from "../live/liveMutation";
+import SubstitutionDialog, { type SubstPlayer, type SubstitutionPayload } from "../components/SubstitutionDialog";
 import { usePlayerPicker, PlayerPickerDialog, PlayerOption } from "../components/PlayerPickerDialog";
 
 /* ─── helpers ──────────────────────────────────────────────────────────────── */
 function normalizeSport(v: string | null | undefined) {
   return ((v || "football") + "").toLowerCase().trim();
 }
+
 function computeDisplayClock(
   clockMs: number,
   clockMsUnclamped: number,
@@ -40,6 +41,7 @@ function fmtClock(ms: number) {
   const ss = String(total % 60).padStart(2, "0");
   return `${mm}:${ss}`;
 }
+
 function defaultClockMs(sport: string, periodDurationS?: number | null) {
   if (typeof periodDurationS === "number" && periodDurationS >= 0) return periodDurationS * 1000;
   const s = normalizeSport(sport);
@@ -48,6 +50,7 @@ function defaultClockMs(sport: string, periodDurationS?: number | null) {
   if (s === "rugby") return 40 * 60 * 1000;
   return 45 * 60 * 1000;
 }
+
 function periodOptions(sport: string, periodCount?: number) {
   const s = normalizeSport(sport);
   const count = Math.max(1, Number(periodCount || 2));
@@ -59,35 +62,47 @@ function periodOptions(sport: string, periodCount?: number) {
   if (s === "volleyball") return Array.from({ length: Math.max(3, count) }, (_, i) => `Set ${i + 1}`);
   return ["1MT", "2MT", "Prolongation"];
 }
+
 function recomputeRugbyScore(p: { tries: number; conversions: number; penalties: number; drops: number }) {
   return p.tries * 5 + p.conversions * 2 + p.penalties * 3 + p.drops * 3;
 }
+
 function clamp(n: number, min = 0) { return Math.max(min, n); }
 
 /* ─── types ─────────────────────────────────────────────────────────────────── */
 interface MatchRow { [key: string]: any }
 
+type SuspensionRow = {
+  id: string;
+  team_side: "home" | "away";
+  player_id: string | null;
+  player_name_snapshot: string | null;
+  shirt_number_snapshot: string | null;
+  started_game_clock_ms: number;
+  duration_s: number;
+  ended_game_clock_ms: number | null;
+  is_active: boolean;
+  created_at: string;
+};
+
+type RecentSub = {
+  id: string;
+  team_side: "home" | "away";
+  player_out_name_snapshot: string | null;
+  player_in_name_snapshot: string | null;
+  player_out_number_snapshot: string | null;
+  player_in_number_snapshot: string | null;
+  created_at: string;
+};
+
 /* ─── component ──────────────────────────────────────────────────────────────── */
 function isDebugClockEnabled() {
   try {
     const u = new URL(window.location.href);
-    return u.searchParams.get('debugClock') === '1';
+    return u.searchParams.get("debugClock") === "1";
   } catch {
     return false;
   }
-}
-
-function computeClockFromAnchor(
-  clockMs: number | null | undefined,
-  running: boolean | null | undefined,
-  anchorEpoch: number | null | undefined,
-  anchorClockMs: number | null | undefined,
-) {
-  const baseClock = Number(clockMs || 0);
-  if (!running) return baseClock;
-  if (typeof anchorEpoch !== "number" || typeof anchorClockMs !== "number") return baseClock;
-  const elapsed = Date.now() - anchorEpoch;
-  return Math.max(0, anchorClockMs - elapsed);
 }
 
 export default function MobileControlPage() {
@@ -107,6 +122,7 @@ export default function MobileControlPage() {
   const [periodCount, setPeriodCount] = useState<number | undefined>(undefined);
   const [status, setStatus] = useState("scheduled");
   const [periodLabel, setPeriodLabel] = useState("1MT");
+  const [currentPeriodIndex, setCurrentPeriodIndex] = useState(1);
 
   const [homeScore, setHomeScore] = useState(0);
   const [awayScore, setAwayScore] = useState(0);
@@ -125,8 +141,15 @@ export default function MobileControlPage() {
   /* rugby detail */
   const [rugbyHome, setRugbyHome] = useState({ tries: 0, conversions: 0, penalties: 0, drops: 0 });
   const [rugbyAway, setRugbyAway] = useState({ tries: 0, conversions: 0, penalties: 0, drops: 0 });
-  const [rugbyHomeYellow, setRugbyHomeYellow] = useState(0);
-  const [rugbyAwayYellow, setRugbyAwayYellow] = useState(0);
+
+  /* rugby sin bins */
+  const [rugbySinBins, setRugbySinBins] = useState<SuspensionRow[]>([]);
+  const [sinBinDurationS, setSinBinDurationS] = useState(600);
+  const [, setSinBinTick] = useState(0);
+
+  /* substitutions */
+  const [showSubDialog, setShowSubDialog] = useState(false);
+  const [recentSubs, setRecentSubs] = useState<RecentSub[]>([]);
 
   const clockMsRef = useRef(0);
   const clockRunningRef = useRef(false);
@@ -134,9 +157,12 @@ export default function MobileControlPage() {
   const matchSeqRef = useRef(0);
   const lastAppliedSeqRef = useRef(0);
   const lastPatchAtRef = useRef<number>(0);
+  const matchRef = useRef<MatchRow | null>(null);
   const debugClock = isDebugClockEnabled();
 
   const isRugby = normalizeSport(sport) === "rugby";
+  const isFootball = normalizeSport(sport) === "football";
+  const canSubstitute = isRugby || isFootball;
   const canScore = status === "live";
 
   /* ── load match ─────────────────────────────────────────────────────────── */
@@ -148,32 +174,54 @@ export default function MobileControlPage() {
       if (cancelled) return;
       if (mErr || !m) { setErr(mErr?.message || "Match introuvable."); setLoading(false); return; }
       setMatch(m);
+      matchRef.current = m;
 
-      // Initialise les planchers de séquence depuis la DB
       const initialSeq = Number(m.last_event_seq || 0);
       lastAppliedSeqRef.current = initialSeq;
       if (initialSeq > matchSeqRef.current) matchSeqRef.current = initialSeq;
 
-      const sportVal = normalizeSport(m.home_name ? (m.sport || null) : null);
-      const [{ data: orgRow }, { data: ssRow }, { data: mpData }] = await Promise.all([
+      const [
+        { data: orgRow },
+        { data: ssRow },
+        { data: mpData },
+        { data: sinBinRows },
+        { data: subRows },
+      ] = await Promise.all([
         supabase.from("orgs").select("sport").eq("id", m.org_id).maybeSingle(),
-        supabase.from("org_sport_settings").select("sport, period_count, period_duration_s").eq("org_id", m.org_id).maybeSingle(),
-        supabase.from("match_players").select(`player_id, team_id, shirt_number, player:players(id, name, number)`).eq("match_id", m.id),
+        supabase.from("org_sport_settings")
+          .select("sport, period_count, period_duration_s, rugby_sin_bin_duration_s")
+          .eq("org_id", m.org_id)
+          .maybeSingle(),
+        supabase.from("match_players")
+          .select("player_id, team_id, shirt_number, player:players(id, name, number)")
+          .eq("match_id", m.id),
+        supabase.from("match_sin_bins")
+          .select("id, team_side, player_id, player_name_snapshot, shirt_number_snapshot, started_game_clock_ms, duration_s, ended_game_clock_ms, is_active, created_at")
+          .eq("match_id", m.id)
+          .order("created_at", { ascending: false }),
+        supabase.from("match_substitutions")
+          .select("id, team_side, player_out_name_snapshot, player_in_name_snapshot, player_out_number_snapshot, player_in_number_snapshot, created_at")
+          .eq("match_id", m.id)
+          .order("created_at", { ascending: false })
+          .limit(5),
       ]);
       if (cancelled) return;
 
-      const detectedSport = normalizeSport((orgRow as any)?.sport || sportVal);
+      const detectedSport = normalizeSport((orgRow as any)?.sport || null);
       setSport(detectedSport);
       const pdS = (ssRow as any)?.period_duration_s ?? null;
       const pCnt = (ssRow as any)?.period_count ?? undefined;
+      const sbDur = (ssRow as any)?.rugby_sin_bin_duration_s ?? 600;
       setPeriodDurationS(pdS);
       setPeriodCount(pCnt);
+      setSinBinDurationS(sbDur);
 
       setMatchName(m.name || `${m.home_name || "Domicile"} vs ${m.away_name || "Extérieur"}`);
       setHomeName(m.home_name || "Domicile");
       setAwayName(m.away_name || "Extérieur");
       setStatus((m.status || "scheduled").toLowerCase());
       setPeriodLabel(m.period_label || periodOptions(detectedSport, pCnt)[0] || "1MT");
+      setCurrentPeriodIndex(Number(m.current_period_index || 1));
       setHomeScore(Number(m.home_score || 0));
       setAwayScore(Number(m.away_score || 0));
       setHomeYellow(Number(m.home_yellow_cards || 0));
@@ -192,13 +240,13 @@ export default function MobileControlPage() {
         penalties: Number(m.rugby_away_penalties || 0),
         drops: Number(m.rugby_away_drop_goals || 0),
       });
-      setRugbyHomeYellow(Number(m.rugby_home_yellow_sin_bin || 0));
-      setRugbyAwayYellow(Number(m.rugby_away_yellow_sin_bin || 0));
+
+      setRugbySinBins((sinBinRows as SuspensionRow[]) || []);
+      setRecentSubs((subRows as RecentSub[]) || []);
 
       const initMs = typeof m.clock_ms === "number" ? m.clock_ms : defaultClockMs(detectedSport, pdS);
       const initRunning = !!m.clock_running;
       clockRunningRef.current = initRunning;
-      // Recalculate live clock from persisted anchor if match is already running
       if (
         initRunning &&
         typeof m.clock_anchor_epoch_ms === "number" &&
@@ -218,7 +266,6 @@ export default function MobileControlPage() {
       }
       setClockRunning(initRunning);
 
-      /* players — feuille de match uniquement : titulaires + remplaçants */
       const mp = (mpData || []) as any[];
       const homeTeamId = m.home_team_id || m.team_id || null;
       const awayTeamId = m.away_team_id || null;
@@ -251,12 +298,13 @@ export default function MobileControlPage() {
       clockMsRef.current = next;
       setClockMs(next);
       setClockMsUnclamped(rawNext);
+      setSinBinTick((n) => n + 1);
 
       if (next <= 0) {
         clockRunningRef.current = false;
         setClockRunning(false);
       }
-    }, 100);
+    }, 500);
 
     return () => window.clearInterval(t);
   }, []);
@@ -269,21 +317,16 @@ export default function MobileControlPage() {
     const hasClockRunning = typeof patch.clock_running === "boolean";
 
     if (hasAnchorEpoch && hasAnchorMs) {
-      clockAnchorRef.current = {
-        epoch: patch.clock_anchor_epoch,
-        ms:    patch.clock_anchor_ms,
-      };
+      clockAnchorRef.current = { epoch: patch.clock_anchor_epoch, ms: patch.clock_anchor_ms };
       const nextRunning = hasClockRunning ? !!patch.clock_running : clockRunningRef.current;
       clockRunningRef.current = nextRunning;
       setClockRunning(nextRunning);
-
       const nextClockMs = hasClockMs ? patch.clock_ms : patch.clock_anchor_ms;
       clockMsRef.current = nextClockMs;
       setClockMs(nextClockMs);
       setClockMsUnclamped(nextClockMs);
       return;
     }
-
     if (hasClockMs) {
       clockMsRef.current = patch.clock_ms;
       setClockMs(patch.clock_ms);
@@ -297,20 +340,17 @@ export default function MobileControlPage() {
 
   function applyIncomingLivePatch(patch: Record<string, any>) {
     if (!patch || typeof patch !== "object") return;
-
     const seq = Number(patch.live_seq || 0);
     if (seq && seq < lastAppliedSeqRef.current) return;
     if (seq) {
       lastAppliedSeqRef.current = seq;
-    lastPatchAtRef.current = Date.now();
+      lastPatchAtRef.current = Date.now();
       if (seq > matchSeqRef.current) matchSeqRef.current = seq;
     }
-
     if (typeof patch.status === "string")       setStatus(patch.status);
     if (typeof patch.period_label === "string") setPeriodLabel(patch.period_label);
     if (typeof patch.home_score === "number")   setHomeScore(patch.home_score);
     if (typeof patch.away_score === "number")   setAwayScore(patch.away_score);
-
     applyRemoteClockPatch(patch);
   }
 
@@ -341,6 +381,27 @@ export default function MobileControlPage() {
           });
         },
       )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "match_sin_bins", filter: `match_id=eq.${matchId}` },
+        (payload: any) => {
+          const row = payload?.new as SuspensionRow;
+          if (!row) return;
+          setRugbySinBins((prev) => {
+            if (prev.find((r) => r.id === row.id)) return prev;
+            return [row, ...prev];
+          });
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "match_sin_bins", filter: `match_id=eq.${matchId}` },
+        (payload: any) => {
+          const row = payload?.new as SuspensionRow;
+          if (!row) return;
+          setRugbySinBins((prev) => prev.map((r) => (r.id === row.id ? row : r)));
+        },
+      )
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
@@ -366,7 +427,6 @@ export default function MobileControlPage() {
 
   const persist = useCallback(async (patch: Record<string, any>) => {
     if (!matchId) return;
-    // Auto-inclure last_event_seq si non fourni (contrat live global)
     const dbPatch = "last_event_seq" in patch
       ? patch
       : { ...patch, last_event_seq: matchSeqRef.current };
@@ -377,23 +437,14 @@ export default function MobileControlPage() {
   async function startClock() {
     const ms = clockMsRef.current > 0 ? clockMsRef.current : defaultClockMs(sport, periodDurationS);
     const now = Date.now();
-
     clockMsRef.current = ms;
     clockRunningRef.current = true;
     clockAnchorRef.current = { epoch: now, ms };
-
     setClockMs(ms);
     setClockRunning(true);
     setStatus("live");
-
     try {
-      void push({
-        clock_ms: ms,
-        clock_running: true,
-        status: "live",
-        clock_anchor_epoch: now,
-        clock_anchor_ms: ms,
-      });
+      void push({ clock_ms: ms, clock_running: true, status: "live", clock_anchor_epoch: now, clock_anchor_ms: ms });
       void persist({ clock_ms: ms, clock_running: true, status: "live", clock_anchor_epoch_ms: now, clock_anchor_clock_ms: ms });
     } catch {}
   }
@@ -401,44 +452,28 @@ export default function MobileControlPage() {
   async function pauseClock() {
     const ms = clockMsRef.current;
     const now = Date.now();
-
     clockRunningRef.current = false;
     clockAnchorRef.current = { epoch: now, ms };
-
     setClockMs(ms);
     setClockRunning(false);
     setStatus("paused");
-
     try {
-      void push({
-        clock_running: false,
-        status: "paused",
-        clock_ms: ms,
-        clock_anchor_epoch: now,
-        clock_anchor_ms: ms,
-      });
+      void push({ clock_running: false, status: "paused", clock_ms: ms, clock_anchor_epoch: now, clock_anchor_ms: ms });
       void persist({ clock_running: false, status: "paused", clock_ms: ms, clock_anchor_epoch_ms: now, clock_anchor_clock_ms: ms });
     } catch {}
   }
 
   async function resetClock() {
+    if (!window.confirm("Réinitialiser le chrono ?")) return;
     const ms = defaultClockMs(sport, periodDurationS);
     const now = Date.now();
-
     clockMsRef.current = ms;
     clockRunningRef.current = false;
     clockAnchorRef.current = { epoch: now, ms };
-
     setClockMs(ms);
     setClockRunning(false);
-
     try {
-      void push({
-        clock_ms: ms,
-        clock_running: false,
-        clock_anchor_epoch: now,
-        clock_anchor_ms: ms,
-      });
+      void push({ clock_ms: ms, clock_running: false, clock_anchor_epoch: now, clock_anchor_ms: ms });
       void persist({ clock_ms: ms, clock_running: false, clock_anchor_epoch_ms: now, clock_anchor_clock_ms: ms });
     } catch {}
   }
@@ -482,35 +517,189 @@ export default function MobileControlPage() {
     try { void push({ period_label: label }); void persist({ period_label: label }); } catch {}
   }
 
-  /* ── cards ───────────────────────────────────────────────────────────────── */
+  /* ── cards (non-rugby) ───────────────────────────────────────────────────── */
   async function issueCard(side: "home" | "away", color: "yellow" | "red") {
-    const players = side === "home" ? homePlayers : awayPlayers;
-    const teamName = side === "home" ? homeName : awayName;
-    const label = color === "yellow" ? "Carton jaune" : "Carton rouge";
-    const picked = await pick({ title: `${label} — ${teamName}`, players });
-    if (picked === undefined) return;
-
     if (color === "yellow") {
-      if (isRugby) {
-        const n = (side === "home" ? rugbyHomeYellow : rugbyAwayYellow) + 1;
-        if (side === "home") setRugbyHomeYellow(n); else setRugbyAwayYellow(n);
-        const patch: Record<string, any> = side === "home"
-          ? { rugby_home_yellow_sin_bin: n, home_yellow_cards: n }
-          : { rugby_away_yellow_sin_bin: n, away_yellow_cards: n };
-        try { void push(patch); void persist(patch); } catch {}
-      } else {
-        const n = (side === "home" ? homeYellow : awayYellow) + 1;
-        if (side === "home") setHomeYellow(n); else setAwayYellow(n);
-        const patch: Record<string, any> = side === "home" ? { home_yellow_cards: n } : { away_yellow_cards: n };
-        try { void push(patch); void persist(patch); } catch {}
-      }
+      const n = (side === "home" ? homeYellow : awayYellow) + 1;
+      if (side === "home") setHomeYellow(n); else setAwayYellow(n);
+      const patch: Record<string, any> = side === "home" ? { home_yellow_cards: n } : { away_yellow_cards: n };
+      try { void push(patch); void persist(patch); } catch {}
     } else {
       const n = (side === "home" ? homeRed : awayRed) + 1;
       if (side === "home") setHomeRed(n); else setAwayRed(n);
       const patch: Record<string, any> = side === "home" ? { home_red_cards: n } : { away_red_cards: n };
       try { void push(patch); void persist(patch); } catch {}
     }
+  }
 
+  /* ── rugby sin bins ──────────────────────────────────────────────────────── */
+  function enrichSinBin(row: SuspensionRow) {
+    const clock = clockMsRef.current;
+    const endClock = row.started_game_clock_ms - row.duration_s * 1000;
+    const remaining_ms = Math.max(0, clock - endClock);
+    return { ...row, remaining_ms };
+  }
+
+  async function issueRugbyYellow(side: "home" | "away") {
+    if (!matchRef.current) return;
+    const m = matchRef.current;
+    const players = side === "home" ? homePlayers : awayPlayers;
+    const teamName = side === "home" ? homeName : awayName;
+    const picked = await pick({ title: `Carton jaune — ${teamName}`, players });
+    if (picked === undefined) return;
+
+    const allActive = rugbySinBins.filter((r) => r.is_active);
+    const nextHomeActive = allActive.filter((r) => r.team_side === "home").length + (side === "home" ? 1 : 0);
+    const nextAwayActive = allActive.filter((r) => r.team_side === "away").length + (side === "away" ? 1 : 0);
+    const nextHomeYellow = rugbySinBins.filter((r) => r.team_side === "home").length + (side === "home" ? 1 : 0);
+    const nextAwayYellow = rugbySinBins.filter((r) => r.team_side === "away").length + (side === "away" ? 1 : 0);
+
+    const patch = {
+      rugby_home_yellow_sin_bin: nextHomeYellow,
+      rugby_away_yellow_sin_bin: nextAwayYellow,
+      rugby_home_sin_bin_active: nextHomeActive,
+      rugby_away_sin_bin_active: nextAwayActive,
+    };
+
+    try {
+      void push(patch);
+      void persist(patch);
+
+      const { data } = await supabase
+        .from("match_sin_bins")
+        .insert({
+          org_id: m.org_id,
+          match_id: m.id,
+          team_side: side,
+          team_id: side === "home" ? (m.home_team_id || m.team_id) : m.away_team_id,
+          player_id: picked?.id || null,
+          player_name_snapshot: picked?.name || null,
+          shirt_number_snapshot: picked?.number || null,
+          started_game_clock_ms: clockMsRef.current,
+          duration_s: sinBinDurationS,
+          is_active: true,
+        })
+        .select("id, team_side, player_id, player_name_snapshot, shirt_number_snapshot, started_game_clock_ms, duration_s, ended_game_clock_ms, is_active, created_at")
+        .maybeSingle();
+
+      if (data) {
+        const newRow = data as SuspensionRow;
+        setRugbySinBins((prev) => [newRow, ...prev]);
+
+        const clock = clockMsRef.current;
+        const enrichForBroadcast = (s: SuspensionRow) => {
+          const endClock = s.started_game_clock_ms - s.duration_s * 1000;
+          const remaining_ms = Math.max(0, clock - endClock);
+          return { ...s, remaining_ms, remaining_s: Math.ceil(remaining_ms / 1000) };
+        };
+        const enrichedNew = enrichForBroadcast(newRow);
+        const enrichedExisting = rugbySinBins.filter((r) => r.is_active).map(enrichForBroadcast).filter((r) => r.remaining_ms > 0);
+        const allEnriched = [enrichedNew, ...enrichedExisting];
+        void sendTvBroadcast(m.id, {
+          home_active_sin_bins: allEnriched.filter((s) => s.team_side === "home"),
+          away_active_sin_bins: allEnriched.filter((s) => s.team_side === "away"),
+          rugby_home_sin_bin_active: nextHomeActive,
+          rugby_away_sin_bin_active: nextAwayActive,
+        });
+      }
+    } catch {}
+  }
+
+  async function endRugbySinBin(row: SuspensionRow) {
+    if (!matchRef.current) return;
+    const m = matchRef.current;
+    const { error } = await supabase
+      .from("match_sin_bins")
+      .update({ is_active: false, ended_game_clock_ms: clockMsRef.current })
+      .eq("id", row.id);
+    if (error) return;
+
+    const nextRows = rugbySinBins.map((r) => r.id === row.id ? { ...r, is_active: false, ended_game_clock_ms: clockMsRef.current } : r);
+    setRugbySinBins(nextRows);
+
+    const nextHomeActive = nextRows.filter((r) => r.is_active && r.team_side === "home").length;
+    const nextAwayActive = nextRows.filter((r) => r.is_active && r.team_side === "away").length;
+
+    const patch = { rugby_home_sin_bin_active: nextHomeActive, rugby_away_sin_bin_active: nextAwayActive };
+    try {
+      void push(patch);
+      void persist(patch);
+
+      const clock = clockMsRef.current;
+      const enrichForBroadcast = (s: SuspensionRow) => {
+        const endClock = s.started_game_clock_ms - s.duration_s * 1000;
+        const remaining_ms = Math.max(0, clock - endClock);
+        return { ...s, remaining_ms, remaining_s: Math.ceil(remaining_ms / 1000) };
+      };
+      const stillActive = nextRows.filter((r) => r.is_active).map(enrichForBroadcast).filter((r) => r.remaining_ms > 0);
+      void sendTvBroadcast(m.id, {
+        home_active_sin_bins: stillActive.filter((s) => s.team_side === "home"),
+        away_active_sin_bins: stillActive.filter((s) => s.team_side === "away"),
+        rugby_home_sin_bin_active: nextHomeActive,
+        rugby_away_sin_bin_active: nextAwayActive,
+      });
+    } catch {}
+  }
+
+  /* ── substitutions ───────────────────────────────────────────────────────── */
+  async function handleSubstitution(sub: SubstitutionPayload) {
+    if (!matchRef.current) return;
+    const m = matchRef.current;
+    const eventType = isRugby ? "rugby_substitution" : "football_substitution";
+    const substSeq = nextMatchSeq();
+    lastAppliedSeqRef.current = substSeq;
+
+    await supabase.from("match_substitutions").insert({
+      org_id: m.org_id,
+      match_id: m.id,
+      seq: substSeq,
+      sport,
+      team_side: sub.teamSide,
+      team_id: sub.teamId,
+      player_out_id: sub.playerOut.id,
+      player_in_id: sub.playerIn.id,
+      player_out_name_snapshot: sub.playerOut.name,
+      player_in_name_snapshot: sub.playerIn.name,
+      player_out_number_snapshot: sub.playerOut.number,
+      player_in_number_snapshot: sub.playerIn.number,
+      period_index: currentPeriodIndex,
+      game_clock_ms: clockMsRef.current,
+      reason: sub.reason,
+      is_temporary: sub.isTemporary,
+      is_blood_substitution: sub.isBloodSubstitution,
+    });
+
+    await supabase.from("matches").update({ last_event_seq: substSeq }).eq("id", matchId);
+
+    const newSubRow: RecentSub = {
+      id: `local-${Date.now()}`,
+      team_side: sub.teamSide,
+      player_out_name_snapshot: sub.playerOut.name,
+      player_in_name_snapshot: sub.playerIn.name,
+      player_out_number_snapshot: sub.playerOut.number,
+      player_in_number_snapshot: sub.playerIn.number,
+      created_at: new Date().toISOString(),
+    };
+    setRecentSubs((prev) => [newSubRow, ...prev].slice(0, 5));
+
+    const nowMs = Date.now();
+    void sendTvBroadcast(m.id, {
+      live_seq: substSeq,
+      emitted_at: nowMs,
+      overlay: {
+        type: "substitution",
+        sport,
+        team_side: sub.teamSide,
+        team_name: sub.teamSide === "home" ? homeName : awayName,
+        player_out_name: sub.playerOut.name,
+        player_out_number: sub.playerOut.number,
+        player_in_name: sub.playerIn.name,
+        player_in_number: sub.playerIn.number,
+        duration_ms: 10000,
+        event_id: `sub-${nowMs}`,
+        emitted_at: nowMs,
+      },
+    });
   }
 
   /* ─── styles ─────────────────────────────────────────────────────────────── */
@@ -518,11 +707,11 @@ export default function MobileControlPage() {
     page: { minHeight: "100vh", background: "#0f1117", color: "#e2e8f0", fontFamily: "system-ui, sans-serif", padding: "12px 10px 40px" } as React.CSSProperties,
     header: { display: "flex", alignItems: "center", gap: 10, marginBottom: 16 } as React.CSSProperties,
     backBtn: { background: "transparent", border: "1px solid #334155", borderRadius: 8, color: "#94a3b8", padding: "6px 14px", cursor: "pointer", fontSize: 13, flexShrink: 0 } as React.CSSProperties,
-    matchName: { fontSize: 13, fontWeight: 700, color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
+    matchName: { fontSize: 13, fontWeight: 700, color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, flex: 1 },
     badge: (st: string): React.CSSProperties => ({
       display: "inline-block", borderRadius: 6, padding: "2px 10px", fontSize: 11, fontWeight: 700, letterSpacing: 0.8,
       background: st === "live" ? "#16a34a" : st === "paused" ? "#d97706" : st === "finished" ? "#3b82f6" : "#475569",
-      color: "#fff", marginLeft: 8, flexShrink: 0,
+      color: "#fff", flexShrink: 0,
     }),
     card: { background: "#1e293b", border: "1px solid #334155", borderRadius: 14, padding: "16px 14px", marginBottom: 12 } as React.CSSProperties,
     sectionTitle: { fontSize: 11, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase" as const, color: "#64748b", marginBottom: 12 },
@@ -539,9 +728,8 @@ export default function MobileControlPage() {
     disabledBigBtn: { minWidth: 58, height: 52, borderRadius: 10, border: "none", fontSize: 22, fontWeight: 700, cursor: "not-allowed", background: "#1e293b", color: "#475569" } as React.CSSProperties,
     clockDisplay: { textAlign: "center" as const, fontSize: 48, fontWeight: 900, fontVariantNumeric: "tabular-nums", letterSpacing: 2, color: "#f1f5f9", marginBottom: 14 },
     clockActions: { display: "flex", gap: 10, justifyContent: "center" } as React.CSSProperties,
-    clockBtn: (active: boolean): React.CSSProperties => ({
-      flex: 1, height: 56, borderRadius: 12, border: "none", fontSize: 18, fontWeight: 700, cursor: "pointer",
-      background: active ? "#b91c1c" : "#16a34a", color: "#fff",
+    clockBtn: (color: string): React.CSSProperties => ({
+      flex: 1, height: 56, borderRadius: 12, border: "none", fontSize: 18, fontWeight: 700, cursor: "pointer", background: color, color: "#fff",
     }),
     periodBtns: { display: "flex", gap: 8, flexWrap: "wrap" as const },
     periodBtn: (active: boolean): React.CSSProperties => ({
@@ -556,12 +744,20 @@ export default function MobileControlPage() {
     yellowBtn: { flex: 1, height: 48, borderRadius: 10, border: "none", fontSize: 22, cursor: "pointer", background: "#ca8a04", fontWeight: 700 } as React.CSSProperties,
     redBtn: { flex: 1, height: 48, borderRadius: 10, border: "none", fontSize: 22, cursor: "pointer", background: "#dc2626", fontWeight: 700 } as React.CSSProperties,
     cardCount: { fontSize: 13, textAlign: "center" as const, color: "#94a3b8" },
-    rugbyGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 } as React.CSSProperties,
     rugbyBtn: (color: string): React.CSSProperties => ({
       height: 48, borderRadius: 10, border: "none", cursor: canScore ? "pointer" : "not-allowed",
       background: canScore ? color : "#1e293b", color: canScore ? "#fff" : "#475569",
       fontSize: 12, fontWeight: 700, padding: "0 6px",
     }),
+    sinBinRow: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid #1e293b" } as React.CSSProperties,
+    sinBinTimer: { fontFamily: "monospace", fontSize: 22, fontWeight: 900, letterSpacing: 1, color: "#fbbf24" } as React.CSSProperties,
+    sinBinName: { fontSize: 13, color: "#e2e8f0", flex: 1, margin: "0 8px" },
+    liftBtn: { background: "#15803d", color: "#fff", border: "none", borderRadius: 8, padding: "8px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" as const },
+    actionBtn: (color: string): React.CSSProperties => ({
+      width: "100%", height: 52, borderRadius: 12, border: "none", fontSize: 15, fontWeight: 700,
+      cursor: "pointer", background: color, color: "#fff", marginBottom: 8,
+    }),
+    subRow: { display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: "1px solid #1e2d42", fontSize: 12, color: "#94a3b8" } as React.CSSProperties,
     fullRegieLink: { display: "block", textAlign: "center" as const, marginTop: 20, color: "#3b82f6", fontSize: 13, textDecoration: "underline", cursor: "pointer", background: "none", border: "none" },
   };
 
@@ -571,16 +767,30 @@ export default function MobileControlPage() {
 
   const periods = periodOptions(sport, periodCount);
 
+  const dir = (isRugby || isFootball) ? "count_up" : "count_down";
+  const limitS = periodDurationS ?? null;
+  const ovr = dir === "count_up" ? "continue_red" : "stop_at_limit";
+  const { text: clockText, isOverrun } = computeDisplayClock(clockMs, clockMsUnclamped, dir, limitS, ovr);
+
+  const activeSinBins = rugbySinBins.filter((r) => r.is_active);
+  const homeSinBins = activeSinBins.filter((r) => r.team_side === "home").map(enrichSinBin).filter((r) => r.remaining_ms > 0);
+  const awaySinBins = activeSinBins.filter((r) => r.team_side === "away").map(enrichSinBin).filter((r) => r.remaining_ms > 0);
+
+  const homeSubstPlayers: SubstPlayer[] = homePlayers.map((p) => ({ id: p.id, name: p.name, number: p.number }));
+  const awaySubstPlayers: SubstPlayer[] = awayPlayers.map((p) => ({ id: p.id, name: p.name, number: p.number }));
+
   return (
     <div style={s.page}>
-      {/* header */}
+      {/* ── header ── */}
       <div style={s.header}>
         <button style={s.backBtn} onClick={() => nav(-1)}>← Retour</button>
         <span style={s.matchName}>{matchName}</span>
-        <span style={s.badge(status)}>{status === "live" ? "LIVE" : status === "paused" ? "PAUSE" : status === "finished" ? "TERMINÉ" : "PRÉPA"}</span>
+        <span style={s.badge(status)}>
+          {status === "live" ? "LIVE" : status === "paused" ? "PAUSE" : status === "finished" ? "TERMINÉ" : "PRÉPA"}
+        </span>
       </div>
 
-      {/* score */}
+      {/* ── score ── */}
       <div style={s.card}>
         <div style={s.sectionTitle}>Score</div>
         <div style={s.scoreRow}>
@@ -604,7 +814,7 @@ export default function MobileControlPage() {
         </div>
       </div>
 
-      {/* rugby scoring */}
+      {/* ── rugby scoring ── */}
       {isRugby && (
         <div style={s.card}>
           <div style={s.sectionTitle}>Marquage rugby</div>
@@ -613,11 +823,7 @@ export default function MobileControlPage() {
               {(["tries", "conversions", "penalties", "drops"] as const).map((f) => {
                 const labels = { tries: "Essai +5", conversions: "Transfo +2", penalties: "Pénalité +3", drops: "Drop +3" };
                 const colors = { tries: "#15803d", conversions: "#0369a1", penalties: "#7c3aed", drops: "#c2410c" };
-                return (
-                  <button key={f} style={s.rugbyBtn(colors[f])} onClick={() => rugbyScore("home", f, 1)}>
-                    {labels[f]}
-                  </button>
-                );
+                return <button key={f} style={s.rugbyBtn(colors[f])} onClick={() => rugbyScore("home", f, 1)}>{labels[f]}</button>;
               })}
             </div>
             <div style={{ color: "#475569", fontSize: 20, alignSelf: "center" }}>|</div>
@@ -625,11 +831,7 @@ export default function MobileControlPage() {
               {(["tries", "conversions", "penalties", "drops"] as const).map((f) => {
                 const labels = { tries: "Essai +5", conversions: "Transfo +2", penalties: "Pénalité +3", drops: "Drop +3" };
                 const colors = { tries: "#15803d", conversions: "#0369a1", penalties: "#7c3aed", drops: "#c2410c" };
-                return (
-                  <button key={f} style={s.rugbyBtn(colors[f])} onClick={() => rugbyScore("away", f, 1)}>
-                    {labels[f]}
-                  </button>
-                );
+                return <button key={f} style={s.rugbyBtn(colors[f])} onClick={() => rugbyScore("away", f, 1)}>{labels[f]}</button>;
               })}
             </div>
           </div>
@@ -640,27 +842,22 @@ export default function MobileControlPage() {
         </div>
       )}
 
-      {/* chrono */}
+      {/* ── chrono ── */}
       <div style={s.card}>
         <div style={s.sectionTitle}>Chronomètre</div>
-        {(() => {
-          const dir = (normalizeSport(sport) === "rugby" || normalizeSport(sport) === "football") ? "count_up" : "count_down";
-          const limitS = periodDurationS ?? null;
-          const ovr = dir === "count_up" ? "continue_red" : "stop_at_limit";
-          const { text: clockText, isOverrun } = computeDisplayClock(clockMs, clockMsUnclamped, dir, limitS, ovr);
-          return <div style={{ ...s.clockDisplay, color: isOverrun ? "#ef4444" : s.clockDisplay.color }}>{clockText}</div>;
-        })()}
+        <div style={{ ...s.clockDisplay, color: isOverrun ? "#ef4444" : "#f1f5f9" }}>{clockText}</div>
         <div style={s.clockActions}>
           {clockRunning
-            ? <button style={s.clockBtn(true)} onClick={pauseClock}>⏸ Pause</button>
-            : <button style={s.clockBtn(false)} onClick={startClock}>▶ {status === "scheduled" ? "Démarrer" : "Reprendre"}</button>
+            ? <button style={s.clockBtn("#b91c1c")} onClick={pauseClock}>⏸ Pause</button>
+            : <button style={s.clockBtn("#16a34a")} onClick={startClock}>▶ {status === "scheduled" ? "Démarrer" : "Reprendre"}</button>
           }
+          <button style={{ ...s.clockBtn("#334155"), flex: "none", minWidth: 80 }} onClick={resetClock}>⟳ Reset</button>
         </div>
       </div>
 
-      {/* période */}
+      {/* ── période ── */}
       <div style={s.card}>
-        <div style={s.sectionTitle}>Période actuelle : {periodLabel}</div>
+        <div style={s.sectionTitle}>Période · {periodLabel}</div>
         <div style={s.periodBtns}>
           {periods.map((p) => (
             <button key={p} style={s.periodBtn(p === periodLabel)} onClick={() => setPeriod(p)}>{p}</button>
@@ -668,55 +865,127 @@ export default function MobileControlPage() {
         </div>
       </div>
 
-      {/* cartons */}
-      <div style={s.card}>
-        <div style={s.sectionTitle}>Cartons / sanctions</div>
-        <div style={s.cardGrid}>
-          {(["home", "away"] as const).map((side) => {
-            const yellow = isRugby ? (side === "home" ? rugbyHomeYellow : rugbyAwayYellow) : (side === "home" ? homeYellow : awayYellow);
-            const red = side === "home" ? homeRed : awayRed;
-            const name = side === "home" ? homeName : awayName;
-            return (
-              <div key={side} style={s.cardTeamBlock}>
-                <div style={s.cardTeamName}>{name}</div>
-                <div style={s.cardBtns}>
-                  <button style={s.yellowBtn} onClick={() => issueCard(side, "yellow")}>🟨</button>
-                  <button style={s.redBtn} onClick={() => issueCard(side, "red")}>🟥</button>
-                </div>
-                <div style={s.cardCount}>
-                  🟨 {yellow} &nbsp; 🟥 {red}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      {/* ── exclusions temporaires rugby ── */}
+      {isRugby && (
+        <div style={s.card}>
+          <div style={s.sectionTitle}>Exclusions temporaires</div>
 
-      {/* link to full régie */}
+          {/* boutons carton jaune */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+            <button style={s.actionBtn("#92400e")} onClick={() => issueRugbyYellow("home")}>
+              🟨 Carton {homeName}
+            </button>
+            <button style={s.actionBtn("#92400e")} onClick={() => issueRugbyYellow("away")}>
+              🟨 Carton {awayName}
+            </button>
+          </div>
+
+          {/* liste exclusions actives */}
+          {homeSinBins.length === 0 && awaySinBins.length === 0 ? (
+            <div style={{ fontSize: 12, color: "#475569", textAlign: "center", padding: "8px 0" }}>Aucune exclusion active</div>
+          ) : (
+            <>
+              {homeSinBins.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 4 }}>{homeName}</div>
+                  {homeSinBins.map((sb) => (
+                    <div key={sb.id} style={s.sinBinRow}>
+                      <div style={s.sinBinTimer}>{fmtClock(sb.remaining_ms)}</div>
+                      <div style={s.sinBinName}>
+                        {sb.shirt_number_snapshot ? `#${sb.shirt_number_snapshot} ` : ""}
+                        {sb.player_name_snapshot || "Joueur"}
+                      </div>
+                      <button style={s.liftBtn} onClick={() => endRugbySinBin(sb)}>Lever</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {awaySinBins.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 4 }}>{awayName}</div>
+                  {awaySinBins.map((sb) => (
+                    <div key={sb.id} style={s.sinBinRow}>
+                      <div style={s.sinBinTimer}>{fmtClock(sb.remaining_ms)}</div>
+                      <div style={s.sinBinName}>
+                        {sb.shirt_number_snapshot ? `#${sb.shirt_number_snapshot} ` : ""}
+                        {sb.player_name_snapshot || "Joueur"}
+                      </div>
+                      <button style={s.liftBtn} onClick={() => endRugbySinBin(sb)}>Lever</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── cartons (non-rugby) ── */}
+      {!isRugby && (
+        <div style={s.card}>
+          <div style={s.sectionTitle}>Cartons</div>
+          <div style={s.cardGrid}>
+            {(["home", "away"] as const).map((side) => {
+              const yellow = side === "home" ? homeYellow : awayYellow;
+              const red = side === "home" ? homeRed : awayRed;
+              const name = side === "home" ? homeName : awayName;
+              return (
+                <div key={side} style={s.cardTeamBlock}>
+                  <div style={s.cardTeamName}>{name}</div>
+                  <div style={s.cardBtns}>
+                    <button style={s.yellowBtn} onClick={() => issueCard(side, "yellow")}>🟨</button>
+                    <button style={s.redBtn} onClick={() => issueCard(side, "red")}>🟥</button>
+                  </div>
+                  <div style={s.cardCount}>🟨 {yellow} &nbsp; 🟥 {red}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── changements ── */}
+      {canSubstitute && (
+        <div style={s.card}>
+          <div style={s.sectionTitle}>Changements</div>
+          <button style={s.actionBtn("#1d4ed8")} onClick={() => setShowSubDialog(true)}>
+            ⇄ Effectuer un changement
+          </button>
+          {recentSubs.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, color: "#475569", marginBottom: 6 }}>Derniers changements</div>
+              {recentSubs.map((sub, i) => (
+                <div key={sub.id || i} style={s.subRow}>
+                  <span style={{ fontWeight: 700, color: sub.team_side === "home" ? "#60a5fa" : "#f472b6" }}>
+                    {sub.team_side === "home" ? homeName : awayName}
+                  </span>
+                  <span>
+                    {sub.player_out_number_snapshot ? `#${sub.player_out_number_snapshot} ` : ""}
+                    {sub.player_out_name_snapshot || "?"} → {sub.player_in_number_snapshot ? `#${sub.player_in_number_snapshot} ` : ""}
+                    {sub.player_in_name_snapshot || "?"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {homeSubstPlayers.length === 0 && awaySubstPlayers.length === 0 && (
+            <div style={{ fontSize: 12, color: "#475569", textAlign: "center", marginTop: 4 }}>
+              Aucune feuille de match — les changements seront enregistrés sans joueur.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── lien régie complète ── */}
       <button style={s.fullRegieLink} onClick={() => nav(`/matches/${matchId}/control`)}>
         Ouvrir la régie complète →
       </button>
 
-      {debugClock ? (
-        <div
-          style={{
-            position: 'fixed',
-            left: 12,
-            bottom: 12,
-            zIndex: 9999,
-            background: 'rgba(0,0,0,.82)',
-            color: '#fef3c7',
-            border: '1px solid rgba(255,255,255,.15)',
-            borderRadius: 10,
-            padding: 10,
-            fontFamily: 'monospace',
-            fontSize: 12,
-            lineHeight: 1.45,
-            minWidth: 260,
-          }}
-        >
+      {/* ── debug overlay ── */}
+      {debugClock && (
+        <div style={{ position: "fixed", left: 12, bottom: 12, zIndex: 9999, background: "rgba(0,0,0,.82)", color: "#fef3c7", border: "1px solid rgba(255,255,255,.15)", borderRadius: 10, padding: 10, fontFamily: "monospace", fontSize: 12, lineHeight: 1.45, minWidth: 260 }}>
           <div style={{ fontWeight: 800, marginBottom: 6 }}>DEBUG CLOCK — MOBILE</div>
-          <div>match_id: {matchId || ''}</div>
+          <div>match_id: {matchId || ""}</div>
           <div>status: {status}</div>
           <div>clock_running: {String(clockRunning)}</div>
           <div>clock_ms: {Math.round(Number(clockMs || 0))}</div>
@@ -727,9 +996,28 @@ export default function MobileControlPage() {
           <div>last_patch_at: {lastPatchAtRef.current || 0}</div>
           <div>now: {Date.now()}</div>
         </div>
-      ) : null}
+      )}
 
+      {/* ── dialogs ── */}
       <PlayerPickerDialog state={pickerState} onClose={handlePickerClose} />
+
+      {showSubDialog && match && (
+        <SubstitutionDialog
+          sport={isRugby ? "rugby" : "football"}
+          matchId={match.id}
+          orgId={match.org_id}
+          currentPeriodIndex={currentPeriodIndex}
+          clockMs={clockMs}
+          homeName={homeName}
+          awayName={awayName}
+          homeTeamId={match.home_team_id || match.team_id || null}
+          awayTeamId={match.away_team_id || null}
+          homePlayers={homeSubstPlayers}
+          awayPlayers={awaySubstPlayers}
+          onConfirm={handleSubstitution}
+          onClose={() => setShowSubDialog(false)}
+        />
+      )}
     </div>
   );
 }

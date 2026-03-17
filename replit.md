@@ -354,7 +354,7 @@ Nouveaux champs dans `ScoreboardContext` :
 | `apps/admin/src/App.tsx` | Routes admin |
 | `apps/operator/src/App.tsx` | Routes operator |
 | `apps/operator/src/pages/ControlPage.tsx` | Régie live (2900+ lignes) — CRLF : utiliser `node`/`sed` pour éditions larges |
-| `apps/operator/src/pages/MobileControlPage.tsx` | Régie mobile — sync horloge via `mobile-clock:${matchId}` |
+| `apps/operator/src/pages/MobileControlPage.tsx` | Régie mobile — score, chrono, sin bins rugby, changements |
 | `apps/operator/src/pages/DisplaySettingsPage.tsx` | Paramètres affichage + `sportUiConfig` helper |
 | `apps/operator/src/pages/TeamBrandingPage.tsx` | Branding équipe + sélecteur modèle d'affichage |
 | `apps/operator/src/pages/TeamStatsPage.tsx` | Statistiques équipe |
@@ -415,3 +415,56 @@ async function dispatch(dbPatch, opts?: { event?, clock?, overlay? })
 > **Actions manuelles** :
 > 1. Exécuter `20260316000002_catchup_missing_migrations.sql` dans le SQL Editor Supabase (note : les 2 premières lignes ALTER TYPE s'exécutent hors transaction, les suivantes dans BEGIN...COMMIT — coller le fichier entier)
 > 2. `supabase functions deploy get-display-context`
+
+---
+
+## 18. Régie Mobile — Module "QR Console Terrain"
+
+### 18.1 Route et accès
+
+| Élément | Valeur |
+|---------|--------|
+| Route Operator | `/matches/:matchId/mobile` |
+| Fichier | `apps/operator/src/pages/MobileControlPage.tsx` |
+| Accès | Via QR code "QR régie mobile" dans ControlPage (section QR & accès) |
+| Auth | `RequireAuth` — même session Supabase que l'Operator desktop |
+
+### 18.2 Fonctionnalités V1 (complètes)
+
+| Bloc | Contenu |
+|------|---------|
+| **Header** | Nom du match, badge statut (LIVE/PAUSE/TERMINÉ/PRÉPA) |
+| **Score** | Score domicile/extérieur avec boutons +/− tactiles (48px+), désactivés hors live |
+| **Marquage rugby** | Essai +5, Transfo +2, Pénalité +3, Drop +3 × 2 équipes (si sport = rugby) |
+| **Chronomètre** | Affichage count_up (rugby/football) ou count_down (basket/handball), ▶/⏸/⟳, surcharge rouge si dépassement |
+| **Période** | Sélecteur de période (1MT/2MT/Prolongation ou Q1-Q4/OT selon sport) |
+| **Exclusions rugby** | Carton jaune → créé dans `match_sin_bins` · liste exclusions actives avec timer compte à rebours · bouton "Lever" par exclusion · broadcast immédiat · visible seulement si sport = rugby |
+| **Changements** | Dialog `SubstitutionDialog` (joueur sortant/entrant/équipe/raison) · broadcast bandeau 10s · historique 5 derniers |
+| **Cartons** | Jaune/Rouge non-rugby (football, basket, handball) |
+| **Lien régie complète** | Lien vers `/matches/:matchId/control` |
+
+### 18.3 Architecture technique
+
+- **Pas de `dispatch()`** — utilise `push()` (broadcast) + `persist()` (DB) directement, comme la version précédente
+- **Sin bins** : chargés depuis `match_sin_bins` au mount ; Realtime `INSERT`/`UPDATE` sur `match_sin_bins` ; `enrichSinBin()` calcule `remaining_ms` depuis `clockMsRef.current` (même formule que ControlPage et edge function)
+- **Timer sin bin** : tick via `setInterval(500ms)` → force re-render via `setSinBinTick` → filtrage `remaining_ms > 0` avant affichage
+- **Broadcast sin bins** : après `issueRugbyYellow` et `endRugbySinBin`, envoi immédiat `sendTvBroadcast` avec listes enrichies (comme ControlPage)
+- **Substitutions** : insert `match_substitutions` + update `matches.last_event_seq` + broadcast overlay `type:"substitution"` 10s
+- **Realtime** : canal `match:${matchId}` pour clock/score/status + `postgres_changes` sur `match_sin_bins` pour sync multi-opérateur
+
+### 18.4 Contraintes UX respectées
+
+- Boutons ≥ 48px hauteur sur toutes les actions critiques
+- Actions irréversibles (reset chrono) avec `window.confirm`
+- Sélection joueur via `PlayerPickerDialog` (même composant que ControlPage)
+- `SubstitutionDialog` existant réutilisé tel quel
+- Pas de tableau dense, pas de hover nécessaire
+- Score et chrono toujours visibles en tête de page
+
+### 18.5 Extension future (hors scope V1)
+
+- Mode hors-ligne partiel (Service Worker)
+- Gestes rapides / swipe
+- Multi-opérateurs avec verrouillage anti-doublon
+- Handball : exclusions 2 min (table `match_two_min_suspensions`)
+- Basket/Handball : fautes, temps morts, tirs libres

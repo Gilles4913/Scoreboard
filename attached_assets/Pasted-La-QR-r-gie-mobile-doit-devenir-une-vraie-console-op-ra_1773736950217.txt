@@ -1,0 +1,287 @@
+La QR régie mobile doit devenir une vraie console opérateur mobile, utilisable sur tablette et téléphone, avec accès rapide à toutes les actions de match :
+
+score
+
+chronomètre
+
+exclusions temporaires
+
+changements
+
+et idéalement aussi fautes/cartons/temps morts selon le sport
+
+Pour ScoreDisplay V2, je te recommande de figer ce principe produit :
+
+Cible produit
+
+La QR régie mobile ouvre une interface web mobile dédiée, pensée pour :
+
+usage en bord de terrain
+
+une seule main possible sur téléphone
+
+actions très rapides
+
+très peu de texte
+
+gros boutons
+
+retour visuel immédiat
+
+zéro dépendance au desktop pour l’exploitation live
+
+Portée fonctionnelle minimale
+
+La version mobile doit couvrir au moins :
+
+Commun à tous sports
+
+démarrer / pause / reprise chrono
+
+reset si autorisé
+
+score + / -
+
+affichage état du match
+
+visibilité du temps restant ou écoulé selon le sport
+
+accès rapide à l’écran public concerné
+
+Rugby
+
+essai / transformation / pénalité / drop si présents dans ton modèle
+
+carton jaune
+
+gestion exclusion temporaire
+
+lever exclusion
+
+changements
+
+Football
+
+score
+
+chrono
+
+cartons / changements si inclus dans ton modèle
+
+Basket / Handball
+
+score rapide
+
+chrono
+
+fautes / exclusions / temps morts / changements selon règles retenues
+
+Contraintes UX à imposer
+
+Sur mobile, il ne faut pas reprendre l’écran desktop tel quel.
+Il faut une UI mobile-first avec :
+
+1. Barre haute compacte
+
+nom du match
+
+période
+
+chrono
+
+état live / pause
+
+2. Zone score centrale
+
+gros score domicile / extérieur
+
+boutons + et - très accessibles
+
+3. Onglets ou blocs d’actions
+
+Exemple :
+
+Score
+
+Chrono
+
+Discipline
+
+Joueurs
+
+Remplacements
+
+4. Actions critiques protégées
+
+Pour éviter les erreurs sur téléphone :
+
+reset match
+
+fin de match
+
+annulation d’action importante
+
+suppression d’une exclusion
+
+correction de score
+
+avec confirmation légère ou appui long
+
+5. Composants adaptés tactile
+
+boutons 48px mini
+
+espacement suffisant
+
+pas de tableau dense
+
+pas de hover
+
+pas de modale complexe si possible
+
+Point important sur les exclusions rugby
+
+Comme on vient de le traiter, sur mobile il faut une UX dédiée :
+
+bouton Carton jaune
+
+sélection équipe
+
+éventuellement sélection joueur
+
+création immédiate de l’exclusion
+
+liste des exclusions actives
+
+timer visible
+
+bouton Lever l’exclusion
+
+cohérence directe avec match_sin_bins
+
+Donc la régie mobile ne doit pas juste afficher le compteur, elle doit aussi permettre le pilotage complet de l’exclusion.
+
+Point important sur les changements
+
+Pour les changements, sur mobile il faut rester simple :
+
+bouton Changement
+
+équipe
+
+joueur sortant
+
+joueur entrant
+
+validation rapide
+
+historique récent visible
+
+Si l’effectif détaillé n’est pas encore complètement prêt, tu peux prévoir une V1 avec :
+
+changement simple
+
+sans schéma terrain
+
+sans animation complexe
+
+historique des derniers changements
+
+Architecture recommandée
+
+Je te conseille de ne pas faire une seconde app séparée.
+
+Le plus propre :
+
+conserver l’app Operator
+
+ajouter une vue mobile dédiée
+
+accessible via la QR régie mobile
+
+avec route du type :
+
+/m/:matchId
+
+ou /operator/mobile/:matchId
+
+Comme ça :
+
+même backend
+
+mêmes règles métier
+
+mêmes edge functions
+
+même contrat live
+
+moins de divergence
+
+Règle produit à figer
+
+Je te propose cette règle claire :
+
+La QR régie mobile doit permettre une exploitation live complète du match sur smartphone et tablette, sans recours obligatoire à l’interface desktop, pour toutes les actions essentielles de score, chronomètre, exclusions et changements.
+
+Priorité de roadmap
+
+Je classerais ça comme :
+
+Priorité haute
+
+chrono
+
+score
+
+exclusion rugby
+
+lever exclusion
+
+changements simples
+
+Priorité moyenne
+
+discipline avancée par sport
+
+historique détaillé
+
+raccourcis personnalisés
+
+Priorité plus tard
+
+mode hors ligne partiel
+
+gestes rapides
+
+rôles multi-opérateurs
+
+verrouillage anti-erreur avancé
+
+Ce que ça implique immédiatement dans la bible/roadmap
+
+Il faut ajouter un bloc explicite :
+
+Module “Régie mobile QR”
+
+interface mobile-first
+
+smartphone + tablette
+
+accès sécurisé par URL / QR
+
+commandes live essentielles
+
+synchronisation temps réel avec l’Operator principal et le Display
+
+support multi-sport avec actions contextualisées
+
+Et dans le périmètre V2 :
+
+rugby : score + chrono + sin bin + changement
+
+football : score + chrono + changement
+
+basket/handball : score + chrono + actions de base
+
+Ma recommandation nette : oui, il faut l’intégrer au périmètre V2.
+Sans ça, la QR régie mobile reste trop limitée pour un vrai usage terrain.
