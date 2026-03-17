@@ -760,14 +760,7 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
           gap: 24,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 14, overflow: "hidden" }}>
-          {showLogos && homeLogo && (
-            <img
-              src={homeLogo}
-              alt=""
-              style={{ height: "clamp(36px,5vw,72px)", width: "auto", objectFit: "contain", flexShrink: 0 }}
-            />
-          )}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 10 }}>
           <div
             style={{
               fontWeight: 900,
@@ -783,6 +776,13 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
           >
             {homeName}
           </div>
+          {showLogos && homeLogo && (
+            <img
+              src={homeLogo}
+              alt=""
+              style={{ height: "clamp(56px,8vw,120px)", width: "auto", objectFit: "contain" }}
+            />
+          )}
         </div>
 
         <div
@@ -836,7 +836,7 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
           ) : null}
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 14, overflow: "hidden" }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 10 }}>
           <div
             style={{
               fontWeight: 900,
@@ -857,7 +857,7 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
             <img
               src={awayLogo}
               alt=""
-              style={{ height: "clamp(36px,5vw,72px)", width: "auto", objectFit: "contain", flexShrink: 0 }}
+              style={{ height: "clamp(56px,8vw,120px)", width: "auto", objectFit: "contain" }}
             />
           )}
         </div>
@@ -1110,14 +1110,7 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
           gap: 24,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 12, overflow: "hidden" }}>
-          {showLogos && homeLogo && (
-            <img
-              src={homeLogo}
-              alt=""
-              style={{ height: "clamp(28px,4vw,56px)", width: "auto", objectFit: "contain", flexShrink: 0 }}
-            />
-          )}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 8 }}>
           <div
             style={{
               fontWeight: 900,
@@ -1133,6 +1126,13 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
           >
             {homeName}
           </div>
+          {showLogos && homeLogo && (
+            <img
+              src={homeLogo}
+              alt=""
+              style={{ height: "clamp(44px,6vw,96px)", width: "auto", objectFit: "contain" }}
+            />
+          )}
         </div>
 
         <div
@@ -1186,7 +1186,7 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
           ) : null}
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, overflow: "hidden" }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
           <div
             style={{
               fontWeight: 900,
@@ -1207,7 +1207,7 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
             <img
               src={awayLogo}
               alt=""
-              style={{ height: "clamp(28px,4vw,56px)", width: "auto", objectFit: "contain", flexShrink: 0 }}
+              style={{ height: "clamp(44px,6vw,96px)", width: "auto", objectFit: "contain" }}
             />
           )}
         </div>
