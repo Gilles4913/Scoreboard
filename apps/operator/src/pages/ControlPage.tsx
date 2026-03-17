@@ -3331,92 +3331,75 @@ function PlayerStatsTable({
   return (
     <div style={styles.playerTableCard}>
       <div style={styles.statCardTitle}>{title}</div>
-      <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
-        {players.map((player) => {
-          const isCritical = maxFouls ? (player.fouls || 0) >= maxFouls : false;
-
-          return (
-            <div key={player.id} style={styles.playerRowExtended}>
-              <div>
-                <div style={{ fontWeight: 800 }}>
-                  #{player.number} {player.name}
-                </div>
-              </div>
-
-              <div style={styles.playerStatsGrid}>
-                <MiniPlayerStat
-                  label="Fautes"
-                  value={player.fouls || 0}
-                  danger={isCritical}
-                  onMinus={() => onChange(player.id, "fouls", -1)}
-                  onPlus={() => onChange(player.id, "fouls", 1)}
-                />
-
-                {showPoints ? (
-                  <MiniPlayerStat
-                    label="Points"
-                    value={player.points || 0}
-                    onMinus={() => onChange(player.id, "points", -1)}
-                    onPlus={() => onChange(player.id, "points", 1)}
-                  />
-                ) : null}
-
-                {showCards ? (
+      <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 8, fontSize: 13 }}>
+        <thead>
+          <tr style={{ color: "#64748b", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            <th style={{ textAlign: "left", padding: "0 6px 6px 0", fontWeight: 600 }}>#</th>
+            <th style={{ textAlign: "left", padding: "0 8px 6px 0", fontWeight: 600 }}>Nom</th>
+            <th style={{ textAlign: "center", padding: "0 4px 6px", fontWeight: 600 }}>Fautes</th>
+            {showPoints && <th style={{ textAlign: "center", padding: "0 4px 6px", fontWeight: 600 }}>Pts</th>}
+            {showCards && <th style={{ textAlign: "center", padding: "0 4px 6px", fontWeight: 600 }}>🟡</th>}
+            {showCards && <th style={{ textAlign: "center", padding: "0 4px 6px", fontWeight: 600 }}>🔴</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {players.map((player) => {
+            const isCritical = maxFouls ? (player.fouls || 0) >= maxFouls : false;
+            return (
+              <tr key={player.id} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                <td style={{ padding: "5px 6px 5px 0", color: "#64748b", whiteSpace: "nowrap", verticalAlign: "middle" }}>
+                  {player.number}
+                </td>
+                <td style={{ padding: "5px 8px 5px 0", fontWeight: 600, whiteSpace: "nowrap", verticalAlign: "middle", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {player.name}
+                </td>
+                <td style={{ padding: "5px 4px", verticalAlign: "middle" }}>
+                  <CompactStatControl value={player.fouls || 0} danger={isCritical} onMinus={() => onChange(player.id, "fouls", -1)} onPlus={() => onChange(player.id, "fouls", 1)} />
+                </td>
+                {showPoints && (
+                  <td style={{ padding: "5px 4px", verticalAlign: "middle" }}>
+                    <CompactStatControl value={player.points || 0} onMinus={() => onChange(player.id, "points", -1)} onPlus={() => onChange(player.id, "points", 1)} />
+                  </td>
+                )}
+                {showCards && (
                   <>
-                    <MiniPlayerStat
-                      label="Jaunes"
-                      value={player.yellow_cards || 0}
-                      onMinus={() => onChange(player.id, "yellow_cards", -1)}
-                      onPlus={() => onChange(player.id, "yellow_cards", 1)}
-                    />
-                    <MiniPlayerStat
-                      label="Rouges"
-                      value={player.red_cards || 0}
-                      onMinus={() => onChange(player.id, "red_cards", -1)}
-                      onPlus={() => onChange(player.id, "red_cards", 1)}
-                    />
+                    <td style={{ padding: "5px 4px", verticalAlign: "middle" }}>
+                      <CompactStatControl value={player.yellow_cards || 0} onMinus={() => onChange(player.id, "yellow_cards", -1)} onPlus={() => onChange(player.id, "yellow_cards", 1)} />
+                    </td>
+                    <td style={{ padding: "5px 4px", verticalAlign: "middle" }}>
+                      <CompactStatControl value={player.red_cards || 0} danger={(player.red_cards || 0) > 0} onMinus={() => onChange(player.id, "red_cards", -1)} onPlus={() => onChange(player.id, "red_cards", 1)} />
+                    </td>
                   </>
-                ) : null}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+                )}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
 
-function MiniPlayerStat({
-  label,
+function CompactStatControl({
   value,
   onMinus,
   onPlus,
   danger = false,
 }: {
-  label: string;
   value: number;
   onMinus: () => void;
   onPlus: () => void;
   danger?: boolean;
 }) {
+  const btn: React.CSSProperties = {
+    width: 22, height: 22, borderRadius: 5, border: "none", cursor: "pointer",
+    fontSize: 13, fontWeight: 700, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center",
+  };
   return (
-    <div style={styles.playerMiniStat}>
-      <div style={{ fontSize: 11, opacity: 0.72 }}>{label}</div>
-      <div
-        style={{
-          fontSize: 20,
-          fontWeight: 900,
-          color: danger ? "#fca5a5" : "#e7eefc",
-          marginTop: 4,
-          marginBottom: 8,
-        }}
-      >
-        {value}
-      </div>
-      <div style={styles.scoreActions}>
-        <button onClick={onMinus} style={styles.ghostBtnSmall}>-1</button>
-        <button onClick={onPlus} style={styles.primaryBtnSmall}>+1</button>
-      </div>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+      <button onClick={onMinus} style={{ ...btn, background: "rgba(255,255,255,0.08)", color: "#cbd5e1" }}>−</button>
+      <span style={{ minWidth: 20, textAlign: "center", fontWeight: 700, fontSize: 14, color: danger ? "#fca5a5" : "#e7eefc" }}>{value}</span>
+      <button onClick={onPlus} style={{ ...btn, background: "#1d4ed8", color: "#fff" }}>+</button>
     </div>
   );
 }
@@ -3572,28 +3555,6 @@ const styles: Record<string, any> = {
     borderRadius: 16,
     background: "rgba(255,255,255,.04)",
     border: "1px solid rgba(255,255,255,.08)",
-  },
-  playerRowExtended: {
-    display: "grid",
-    gridTemplateColumns: "220px 1fr",
-    gap: 12,
-    alignItems: "center",
-    padding: 10,
-    borderRadius: 12,
-    background: "rgba(255,255,255,.03)",
-    border: "1px solid rgba(255,255,255,.06)",
-  },
-  playerStatsGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
-    gap: 10,
-  },
-  playerMiniStat: {
-    padding: 10,
-    borderRadius: 12,
-    background: "rgba(255,255,255,.04)",
-    border: "1px solid rgba(255,255,255,.08)",
-    textAlign: "center",
   },
   eventList: { display: "grid", gap: 8 },
   eventRow: {
