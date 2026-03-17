@@ -2221,11 +2221,6 @@ export default function ControlPage() {
             >
               Réinitialiser tout
             </button>
-            {displayHref ? (
-              <a href={displayHref} target="_blank" rel="noreferrer" style={styles.linkBtn}>
-                Ouvrir l'écran d'affichage
-              </a>
-            ) : null}
           </div>
         </div>
 
@@ -2307,14 +2302,18 @@ export default function ControlPage() {
 
             <div style={styles.qrGrid}>
               <div style={styles.qrCard}>
-                <div style={styles.qrTitle}>QR régie mobile</div>
+                <a href={controlHref} target="_blank" rel="noreferrer" style={{ ...styles.qrTitle, color: "inherit", textDecoration: "underline", cursor: "pointer" }}>QR régie mobile ↗</a>
                 <div style={{ background: "white", padding: 8, borderRadius: 10, marginTop: 10, display: "inline-block" }}>
                   <QRCodeSVG value={controlHref} size={160} />
                 </div>
               </div>
 
               <div style={styles.qrCard}>
-                <div style={styles.qrTitle}>QR écran public stable équipe</div>
+                {displayHref ? (
+                  <a href={displayHref} target="_blank" rel="noreferrer" style={{ ...styles.qrTitle, color: "inherit", textDecoration: "underline", cursor: "pointer" }}>QR écran d’affichage ↗</a>
+                ) : (
+                  <div style={styles.qrTitle}>QR écran d’affichage</div>
+                )}
                 {displayHref ? (
                   <div style={{ background: "white", padding: 8, borderRadius: 10, marginTop: 10, display: "inline-block" }}>
                     <QRCodeSVG value={displayHref} size={160} />
