@@ -591,10 +591,12 @@ function SinBinTimer({
   sinBins,
   clockRunning,
   theme,
+  large = false,
 }: {
   sinBins: ActiveSinBin[];
   clockRunning: boolean;
   theme: ThemeMode;
+  large?: boolean;
 }) {
   // remainingMap: { [sinBinId]: remaining_ms } — local countdown seeded from backend
   const [remainingMap, setRemainingMap] = useState<Record<string, number>>(() => {
@@ -666,21 +668,21 @@ function SinBinTimer({
       style={{
         display: "inline-flex",
         alignItems: "center",
-        gap: 6,
-        padding: "5px 12px",
-        borderRadius: 8,
+        gap: large ? 10 : 6,
+        padding: large ? "10px 22px" : "5px 12px",
+        borderRadius: large ? 12 : 8,
         background: "rgba(245,158,11,0.12)",
-        border: "1px solid rgba(245,158,11,0.35)",
-        marginTop: 4,
+        border: `${large ? "2px" : "1px"} solid rgba(245,158,11,0.4)`,
       }}
     >
       <span
         style={{
-          fontSize: "clamp(11px,1.5vw,16px)",
-          fontWeight: 700,
+          fontSize: large ? "clamp(20px,3vw,42px)" : "clamp(11px,1.5vw,16px)",
+          fontWeight: 800,
           color: "#f59e0b",
-          letterSpacing: "0.03em",
+          letterSpacing: large ? "0.06em" : "0.03em",
           fontVariantNumeric: "tabular-nums",
+          fontFamily: large ? "'Courier New','Lucida Console',monospace" : undefined,
         }}
       >
         {label}
@@ -930,6 +932,33 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
         )}
       </div>
 
+      {context.show_sin_bin_timer && (
+        (context.home_active_sin_bins?.length ?? 0) > 0 ||
+        (context.away_active_sin_bins?.length ?? 0) > 0
+      ) && (
+        <div
+          style={{
+            padding: "0 40px 16px",
+            display: "grid",
+            gridTemplateColumns: "1fr auto 1fr",
+            gap: 24,
+            alignItems: "flex-start",
+          }}
+        >
+          <div>
+            {(context.home_active_sin_bins?.length ?? 0) > 0 && (
+              <SinBinTimer sinBins={context.home_active_sin_bins!} clockRunning={!!context.clock_running} theme={theme} large />
+            )}
+          </div>
+          <div style={{ width: 2 }} />
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            {(context.away_active_sin_bins?.length ?? 0) > 0 && (
+              <SinBinTimer sinBins={context.away_active_sin_bins!} clockRunning={!!context.clock_running} theme={theme} large />
+            )}
+          </div>
+        </div>
+      )}
+
       {(context.show_rugby_score_breakdown !== false || context.show_sin_bin !== false || context.show_cards !== false) && (
         <div
           style={{
@@ -949,11 +978,8 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
                 {context.show_rugby_drop_goals !== false && <BreakdownChip label="Drop" value={safeNum(context.rugby_home_drop_goals)} color={accentHome} theme={theme} />}
               </>
             )}
-            {showSinBin && homeSinBin > 0 && !context.show_sin_bin_timer && (
+            {showSinBin && homeSinBin > 0 && (
               <BreakdownChip label="Excl. temp." value={homeSinBin} color="#f59e0b" theme={theme} />
-            )}
-            {context.show_sin_bin_timer && (context.home_active_sin_bins?.length ?? 0) > 0 && (
-              <SinBinTimer sinBins={context.home_active_sin_bins!} clockRunning={!!context.clock_running} theme={theme} />
             )}
             {showCards && homeYellow > 0 && (
               <BreakdownChip label="J" value={homeYellow} color="#eab308" theme={theme} />
@@ -982,11 +1008,8 @@ function RugbyStadeLayout({ context, activeOverlay }: Props) {
                 {context.show_rugby_drop_goals !== false && <BreakdownChip label="Drop" value={safeNum(context.rugby_away_drop_goals)} color={accentAway} theme={theme} />}
               </>
             )}
-            {showSinBin && awaySinBin > 0 && !context.show_sin_bin_timer && (
+            {showSinBin && awaySinBin > 0 && (
               <BreakdownChip label="Excl. temp." value={awaySinBin} color="#f59e0b" theme={theme} />
-            )}
-            {context.show_sin_bin_timer && (context.away_active_sin_bins?.length ?? 0) > 0 && (
-              <SinBinTimer sinBins={context.away_active_sin_bins!} clockRunning={!!context.clock_running} theme={theme} />
             )}
             {showCards && awayYellow > 0 && (
               <BreakdownChip label="J" value={awayYellow} color="#eab308" theme={theme} />
@@ -1236,6 +1259,33 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
         )}
       </div>
 
+      {context.show_sin_bin_timer && (
+        (context.home_active_sin_bins?.length ?? 0) > 0 ||
+        (context.away_active_sin_bins?.length ?? 0) > 0
+      ) && (
+        <div
+          style={{
+            padding: "0 40px 14px",
+            display: "grid",
+            gridTemplateColumns: "1fr auto 1fr",
+            gap: 24,
+            alignItems: "flex-start",
+          }}
+        >
+          <div>
+            {(context.home_active_sin_bins?.length ?? 0) > 0 && (
+              <SinBinTimer sinBins={context.home_active_sin_bins!} clockRunning={!!context.clock_running} theme={theme} large />
+            )}
+          </div>
+          <div style={{ width: 2 }} />
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            {(context.away_active_sin_bins?.length ?? 0) > 0 && (
+              <SinBinTimer sinBins={context.away_active_sin_bins!} clockRunning={!!context.clock_running} theme={theme} large />
+            )}
+          </div>
+        </div>
+      )}
+
       {(context.show_rugby_score_breakdown !== false || context.show_sin_bin !== false || context.show_cards !== false) && (
         <div
           style={{
@@ -1255,11 +1305,8 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
                 {context.show_rugby_drop_goals !== false && <BreakdownChip label="Drop" value={safeNum(context.rugby_home_drop_goals)} color={accentHome} theme={theme} />}
               </>
             )}
-            {context.show_sin_bin !== false && homeSinBin > 0 && !context.show_sin_bin_timer && (
+            {context.show_sin_bin !== false && homeSinBin > 0 && (
               <BreakdownChip label="Excl. temp." value={homeSinBin} color="#f59e0b" theme={theme} />
-            )}
-            {context.show_sin_bin_timer && (context.home_active_sin_bins?.length ?? 0) > 0 && (
-              <SinBinTimer sinBins={context.home_active_sin_bins!} clockRunning={!!context.clock_running} theme={theme} />
             )}
             {context.show_cards !== false && homeYellow > 0 && (
               <BreakdownChip label="J" value={homeYellow} color="#eab308" theme={theme} />
@@ -1288,11 +1335,8 @@ function RugbyExpertLayout({ context, activeOverlay }: Props) {
                 {context.show_rugby_drop_goals !== false && <BreakdownChip label="Drop" value={safeNum(context.rugby_away_drop_goals)} color={accentAway} theme={theme} />}
               </>
             )}
-            {context.show_sin_bin !== false && awaySinBin > 0 && !context.show_sin_bin_timer && (
+            {context.show_sin_bin !== false && awaySinBin > 0 && (
               <BreakdownChip label="Excl. temp." value={awaySinBin} color="#f59e0b" theme={theme} />
-            )}
-            {context.show_sin_bin_timer && (context.away_active_sin_bins?.length ?? 0) > 0 && (
-              <SinBinTimer sinBins={context.away_active_sin_bins!} clockRunning={!!context.clock_running} theme={theme} />
             )}
             {context.show_cards !== false && awayYellow > 0 && (
               <BreakdownChip label="J" value={awayYellow} color="#eab308" theme={theme} />
