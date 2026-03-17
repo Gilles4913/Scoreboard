@@ -1,0 +1,369 @@
+Voici des prompts complets pour Replit, prêts à coller, en mode incrémental, avec tout le contexte utile.
+
+Je te conseille de les lancer dans l’ordre.
+Le plus efficace est de demander à Replit de modifier les fichiers directement et de te rendre les fichiers complets quand demandé.
+
+Prompt 1 — Audit ciblé avant correction
+Tu travailles sur le repo Scoreboard-main.
+
+Contexte produit à respecter :
+- mode public officiel = URL stable par équipe via teamSlug
+- contrat live global en place avec last_event_seq et ancres chrono
+- Rugby et Football en affichage visuel count_up
+- Basket et Handball en count_down
+- bandeau de remplacement doit durer 10 secondes
+- paramètres d’affichage multi-sport partiellement finalisés
+
+Sujet prioritaire :
+corriger le flux complet des exclusions temporaires rugby (sin bin).
+
+Ce que je veux de toi dans cette étape :
+1. auditer précisément le flux rugby sin bin de bout en bout
+2. confirmer les points de rupture exacts
+3. ne pas encore faire de gros refactor inutile
+4. me répondre avec :
+   - les fichiers impliqués
+   - les fonctions impliquées
+   - les bugs avérés
+   - les corrections minimales recommandées
+
+Zones à auditer obligatoirement :
+1. settings show_sin_bin / show_sin_bin_timer
+2. données match_sin_bins
+3. payload get-display-context
+4. rendu Scoreboard rugby
+5. temps réel / live patch / polling / refresh
+
+Fichiers probablement concernés :
+- apps/operator/src/pages/DisplaySettingsPage.tsx
+- apps/operator/src/pages/ControlPage.tsx
+- apps/display/src/main.tsx
+- apps/display/src/components/Scoreboard.tsx
+- supabase/functions/get-display-context/index.ts
+- supabase/migrations/20260316000003_rugby_sin_bin_timer.sql
+- éventuellement apps/operator/src/realtime.ts
+
+Points déjà suspectés et à vérifier dans le code :
+- la table match_sin_bins existe
+- issueRugbyYellow() insère une ligne match_sin_bins
+- endRugbySinBin() clôture une ligne
+- get-display-context calcule remaining_ms côté backend
+- Scoreboard affiche soit un compteur synthétique, soit SinBinTimer
+- mais il peut manquer :
+  - auto-expiration des sin bins arrivés à 0
+  - cohérence entre compteurs matches et table match_sin_bins
+  - propagation live immédiate des home_active_sin_bins / away_active_sin_bins
+  - suppression correcte d’un timer arrivé à terme
+
+Vérifie explicitement ces symptômes :
+- un sin bin arrivé à 00:00 reste visible
+- le bouton “-” jaune rugby décrémente les compteurs sans mettre à jour match_sin_bins
+- le timer détaillé n’apparaît ou ne disparaît qu’après polling / refresh
+- le payload edge retourne encore des sin bins actifs expirés
+
+Contraintes :
+- ne touche pas au comportement count_up / count_down des sports
+- ne touche pas au bandeau remplacement 10s
+- ne casse pas le contrat live existant
+- préfère des corrections minimales, lisibles et robustes
+
+Format de réponse attendu :
+- diagnostic structuré
+- liste des bugs confirmés
+- proposition de plan de correction en 2 ou 3 étapes max
+- indique précisément quels fichiers devront être modifiés ensuite
+Prompt 2 — Correctif backend + operator sur la vérité métier des sin bins
+
+Celui-ci est le plus important.
+
+Tu vas maintenant implémenter le correctif minimal et robuste du flux rugby sin bin.
+
+Objectif métier :
+une exclusion temporaire rugby doit être correcte de bout en bout :
+- création propre
+- durée correcte basée sur le temps de jeu effectif
+- pause gelée si clock_running = false
+- disparition quand terminée
+- cohérence entre la table match_sin_bins et les compteurs synthétiques du match
+- pas de timer fantôme à 00:00
+
+Contexte fonctionnel :
+- show_sin_bin active l’affichage des exclusions rugby
+- show_sin_bin_timer bascule entre affichage synthétique et timer détaillé
+- les exclusions détaillées sont stockées dans public.match_sin_bins
+- get-display-context calcule remaining_ms à partir des ancres chrono live
+- le Display ne doit pas avoir à recalculer la vérité métier ; il consomme un payload propre
+- le système live global avec last_event_seq existe déjà et ne doit pas être cassé
+
+Bugs à corriger :
+1. un sin bin arrivé à terme peut rester is_active=true et donc visible à 00:00
+2. les boutons “-” jaune rugby peuvent désynchroniser les compteurs matches et la table match_sin_bins
+3. la source de vérité doit devenir la table match_sin_bins active réelle, pas un simple compteur décrémenté à la main
+
+Fichiers à modifier en priorité :
+- apps/operator/src/pages/ControlPage.tsx
+- supabase/functions/get-display-context/index.ts
+- éventuellement apps/operator/src/realtime.ts si nécessaire pour typer le patch
+- ajoute une migration SQL seulement si strictement nécessaire ; sinon évite
+
+Travail demandé :
+
+A. Corriger la lecture backend dans get-display-context
+- au moment de charger match_sin_bins actifs, calcule remaining_ms comme aujourd’hui à partir de :
+  - started_game_clock_ms
+  - duration_s
+  - temps de jeu effectif / ancre chrono
+- filtre les sin bins expirés du payload détaillé :
+  - si remaining_ms <= 0, ils ne doivent plus apparaître dans home_active_sin_bins / away_active_sin_bins
+- recalcule les compteurs synthétiques rugby_home_sin_bin_active et rugby_away_sin_bin_active à partir des sin bins réellement encore actifs métier
+- le payload retourné doit donc être cohérent même si les colonnes synthétiques du match ont dérivé
+- ne fais pas d’effet de bord DB dans l’edge function si ce n’est pas nécessaire ; priorité à un payload exact
+
+B. Corriger l’operator ControlPage
+- identifie le code des boutons “-” sur les cartons jaunes rugby
+- remplace le comportement actuel s’il décrémente directement rugby_home_yellow_sin_bin / rugby_home_sin_bin_active ou rugby_away_* sans toucher match_sin_bins
+- nouveau comportement attendu :
+  - pour rugby, le bouton “-” jaune doit retirer proprement la dernière exclusion active correspondante de l’équipe concernée, en clôturant une vraie ligne match_sin_bins
+  - si aucune exclusion active n’existe, alors seulement décrémenter le compteur total de jaunes si le métier le permet
+- garantis la cohérence entre :
+  - match_sin_bins
+  - rugby_home_yellow_sin_bin / rugby_away_yellow_sin_bin
+  - rugby_home_sin_bin_active / rugby_away_sin_bin_active
+- réutilise endRugbySinBin() si possible, ou factorise une fonction claire
+- évite le code dupliqué home/away
+
+C. Auto-nettoyage métier
+- quand un sin bin est expiré selon le temps de jeu effectif, il ne doit plus être considéré actif
+- au minimum, il doit disparaître du payload
+- si tu peux le faire proprement sans fragiliser le système, ajoute aussi une clôture DB opportuniste côté operator quand on recharge l’écran ou quand on agit sur le match ; sinon laisse la DB telle quelle et rends le payload exact
+- priorité absolue : exactitude fonctionnelle visible côté Display
+
+Contraintes fortes :
+- ne change pas l’API publique hors sujet
+- ne touche pas au football
+- ne touche pas aux overlays de remplacement
+- ne touche pas au mode public teamSlug
+- garde le style TypeScript existant
+- garde des changements localisés
+- si tu modifies une fonction, rends le fichier complet concerné
+
+Livrables attendus :
+1. résumé ultra-court des corrections
+2. liste des fichiers modifiés
+3. le contenu complet de chaque fichier modifié
+4. explication précise de pourquoi le bug “timer bloqué à 00:00” est corrigé
+5. explication précise de pourquoi le bug “bouton - désynchronise la table” est corrigé
+
+Tests manuels à vérifier mentalement et à couvrir dans ta réponse :
+- jaune rugby home sur joueur => timer visible
+- pause chrono => timer figé
+- reprise chrono => timer repart
+- arrivée à terme => timer disparaît du payload détaillé
+- bouton “Lever l’exclusion” => disparition correcte
+- bouton “-” jaune rugby => plus de décrémentation aveugle qui laisse une ligne active orpheline
+- deux exclusions simultanées même équipe => compteur et liste détaillée cohérents
+Prompt 3 — Correctif Display pour mise à jour immédiate et disparition propre du timer
+
+Celui-ci cible l’expérience temps réel côté public.
+
+Tu vas maintenant corriger la partie Display du flux rugby sin bin pour que l’affichage soit propre en temps réel.
+
+Objectif :
+- quand une exclusion rugby est créée, le timer détaillé doit apparaître rapidement et proprement
+- quand une exclusion est levée ou expirée, le timer doit disparaître proprement
+- pas de timer fantôme affiché à 00:00
+- pas de régression sur les autres sports
+
+Contexte technique :
+- le display charge un payload initial via get-display-context
+- apps/display/src/main.tsx fusionne ensuite les données live
+- apps/display/src/components/Scoreboard.tsx affiche soit :
+  - le compteur synthétique d’exclusions
+  - soit SinBinTimer quand show_sin_bin_timer = true
+- le contrat live global basé sur last_event_seq existe déjà
+- si le patch live ne contient pas les tableaux détaillés home_active_sin_bins / away_active_sin_bins, il faut gérer intelligemment la cohérence côté display sans casser le reste
+
+Fichiers à inspecter et modifier si nécessaire :
+- apps/display/src/main.tsx
+- apps/display/src/components/Scoreboard.tsx
+- éventuellement apps/display/src/api.ts
+
+Bugs/risques à traiter :
+1. le timer détaillé peut n’apparaître qu’après polling / refresh
+2. après levée manuelle ou expiration, le timer peut rester visible trop longtemps
+3. le composant SinBinTimer peut afficher 00:00 au lieu de disparaître
+4. la fusion payload initial + patch live peut conserver une vieille liste détaillée
+
+Ce que je veux :
+A. sécuriser la fusion des données dans apps/display/src/main.tsx
+- si un patch live modifie les compteurs synthétiques rugby_home_sin_bin_active / rugby_away_sin_bin_active mais ne contient pas les listes détaillées, éviter qu’une vieille liste détaillée reste affichée de façon incohérente
+- la priorité métier :
+  - si compteur actif = 0, la liste détaillée affichée pour ce côté doit être vidée
+  - si compteur actif > 0 mais pas de détail récent, on peut laisser le polling recharger, mais jamais afficher de ligne impossible
+- garde un comportement simple, robuste, lisible
+
+B. sécuriser le rendu Scoreboard / SinBinTimer
+- n’affiche jamais un timer dont remaining_ms <= 0
+- si après filtrage il n’y a plus aucun sin bin valide, ne rends rien pour ce bloc timer
+- le compteur synthétique doit rester possible si show_sin_bin_timer = false
+- ne modifie pas le rendu des autres sports
+
+C. garder la logique de pause
+- clock_running = false => le timer visuel se fige
+- clock_running = true => il décrémente
+- mais un timer expiré ne doit plus rester visible à 00:00
+
+Contraintes :
+- pas de refactor massif
+- pas de changement de style global
+- pas d’impact sur football / basket / handball
+- garde le composant lisible
+- rends les fichiers complets modifiés
+
+Livrables :
+1. résumé court
+2. fichiers modifiés
+3. contenu complet de chaque fichier modifié
+4. explication du scénario :
+   - émission jaune rugby
+   - affichage timer
+   - expiration
+   - disparition
+   - levée manuelle
+5. mention explicite que le bug “timer fantôme” est neutralisé
+Prompt 4 — Vérification finale de bout en bout
+
+À lancer après les correctifs.
+
+Je veux maintenant une vérification finale de bout en bout du flux rugby sin bin après tes modifications.
+
+Mission :
+faire un contrôle complet et me dire honnêtement si le fonctionnement est maintenant correct ou s’il reste un angle mort.
+
+Checklist obligatoire :
+1. settings show_sin_bin / show_sin_bin_timer
+2. table match_sin_bins
+3. payload get-display-context
+4. fusion live côté display
+5. rendu Scoreboard rugby
+6. cohérence bouton “-” jaune rugby
+7. cohérence bouton “Lever l’exclusion”
+8. expiration naturelle
+9. comportement pendant pause chrono
+10. cas multi-exclusions sur la même équipe
+
+Je veux en sortie :
+- Oui / Non sur le fonctionnement global
+- ce qui est garanti
+- ce qui reste éventuellement imparfait
+- la liste des fichiers touchés
+- les régressions potentielles à surveiller
+- une mini batterie de tests manuels précis
+
+Important :
+- ne me fais pas une réponse vague
+- si un point dépend encore du polling plutôt que du live patch, dis-le explicitement
+- si un point est robuste seulement “fonctionnellement” mais pas encore “persisté DB”, dis-le explicitement
+Version “gros prompt unique” si tu préfères tout faire en une fois
+Tu travailles sur le repo Scoreboard-main.
+
+Contexte produit :
+- mode public officiel = URL stable par équipe via teamSlug
+- contrat live global en place avec last_event_seq et ancres chrono
+- Rugby et Football en affichage visuel count_up
+- Basket et Handball en count_down
+- bandeau de remplacement doit durer 10 secondes
+- paramètres d’affichage multi-sport partiellement finalisés
+
+Sujet prioritaire :
+corriger de bout en bout les exclusions temporaires rugby (sin bin).
+
+Vérité métier attendue :
+- show_sin_bin active l’affichage des exclusions temporaires rugby
+- show_sin_bin_timer bascule entre affichage synthétique et timer détaillé
+- la table public.match_sin_bins porte le détail des exclusions
+- le backend get-display-context calcule remaining_ms à partir du temps de jeu effectif, pas à partir d’un simple timer navigateur
+- si le chrono est en pause, le timer doit être figé
+- une exclusion arrivée à son terme ne doit plus être considérée active
+- aucun timer ne doit rester affiché à 00:00
+- le Display doit consommer un payload propre et cohérent
+
+Fichiers à inspecter et modifier :
+- apps/operator/src/pages/DisplaySettingsPage.tsx
+- apps/operator/src/pages/ControlPage.tsx
+- apps/display/src/main.tsx
+- apps/display/src/components/Scoreboard.tsx
+- supabase/functions/get-display-context/index.ts
+- apps/operator/src/realtime.ts si nécessaire
+- migration SQL seulement si vraiment indispensable
+
+Bugs probables déjà identifiés, à confirmer puis corriger :
+1. un sin bin expiré peut rester is_active=true et donc rester visible à 00:00
+2. le bouton “-” jaune rugby décrémente des compteurs sans synchroniser match_sin_bins
+3. le patch live ne transporte pas forcément les listes détaillées home_active_sin_bins / away_active_sin_bins
+4. le display peut conserver une vieille liste détaillée et afficher un timer incohérent
+5. le payload doit être correct même si les colonnes synthétiques du match ont dérivé
+
+Travail demandé :
+A. Audit rapide mais précis
+- confirme les bugs réels
+- identifie les fonctions exactes impliquées
+
+B. Correctif backend
+- dans supabase/functions/get-display-context/index.ts :
+  - calcule remaining_ms comme aujourd’hui
+  - exclue du payload détaillé tout sin bin expiré
+  - recalcule rugby_home_sin_bin_active / rugby_away_sin_bin_active à partir des sin bins réellement actifs métier
+  - retourne home_active_sin_bins / away_active_sin_bins propres
+  - priorité à l’exactitude du payload, sans effet de bord DB inutile
+
+C. Correctif operator
+- dans apps/operator/src/pages/ControlPage.tsx :
+  - corrige le bouton “-” jaune rugby pour qu’il ne décrémente plus aveuglément des compteurs si une vraie exclusion active existe
+  - fais en sorte qu’il clôture proprement une ligne match_sin_bins correspondante, ou réutilise endRugbySinBin()
+  - garantis la cohérence entre table et colonnes synthétiques
+  - garde le code lisible et localisé
+
+D. Correctif display
+- dans apps/display/src/main.tsx et/ou Scoreboard.tsx :
+  - n’affiche jamais un timer expiré
+  - si le compteur actif d’un côté tombe à 0, vide la liste détaillée locale correspondante
+  - évite les timers fantômes entre deux refresh
+  - garde la logique pause/reprise
+
+Contraintes :
+- ne touche pas au football
+- ne touche pas au count_up/count_down existant
+- ne touche pas au bandeau remplacement 10 secondes
+- ne casse pas le contrat live global
+- pas de refactor massif
+- changements localisés, robustes et lisibles
+- si un fichier est modifié, rends son contenu complet
+
+Livrables attendus :
+1. résumé court des bugs confirmés
+2. liste des fichiers modifiés
+3. contenu complet de chaque fichier modifié
+4. explication de pourquoi le bug “00:00 fantôme” est corrigé
+5. explication de pourquoi le bouton “-” ne désynchronise plus la table
+6. verdict final Oui/Non sur le fonctionnement bout en bout
+7. mini plan de tests manuels couvrant :
+   - jaune home
+   - jaune away
+   - pause chrono
+   - reprise chrono
+   - expiration naturelle
+   - levée manuelle
+   - bouton “-”
+   - deux exclusions simultanées
+Recommandation pratique
+
+Le meilleur enchaînement dans Replit est :
+
+Prompt 1 pour cadrer
+
+Prompt 2 pour corriger la logique métier
+
+Prompt 3 pour sécuriser le rendu temps réel
+
+Prompt 4 pour la recette finale
