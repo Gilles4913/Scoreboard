@@ -672,9 +672,23 @@ serve(async (req) => {
         ? (sport_profile as any).clock_overrun_mode
         : "stop_at_limit";
 
+    // Rugby-specific display flags from org_display_sport_profiles
+    // Spread BEFORE template config_json so template can override if needed
+    const sp = (sport_profile as any) ?? null;
+    const rugbyDisplayFlags = sp ? {
+      show_rugby_score_breakdown: sp.show_rugby_score_breakdown ?? true,
+      show_sin_bin:               sp.show_sin_bin               ?? true,
+      show_sin_bin_timer:         sp.show_sin_bin_timer         ?? false,
+      show_rugby_tries:           sp.show_rugby_tries           ?? true,
+      show_rugby_conversions:     sp.show_rugby_conversions     ?? true,
+      show_rugby_penalties:       sp.show_rugby_penalties       ?? true,
+      show_rugby_drop_goals:      sp.show_rugby_drop_goals      ?? true,
+    } : {};
+
     const display_settings = {
       ...baseDisplayDefaults,
       ...(orgDisplaySettings ?? {}),
+      ...rugbyDisplayFlags,
       ...(resolvedTemplate?.config_json ?? {}),
       ...(resolvedTemplate?.layout_mode ? { layout_mode: resolvedTemplate.layout_mode } : {}),
       show_live_badge: showLiveBadge,
