@@ -1,0 +1,173 @@
+Voici le bloc final à ajouter à la Bible pour figer ce lot.
+
+## Paramètres d’affichage — état réellement opérationnel
+
+Les paramètres d’affichage par sport ne doivent être considérés comme “implémentés” que s’ils sont :
+
+1. stockés en base
+2. exposés en settings
+3. transportés jusqu’au Display
+4. réellement utilisés par le rendu
+
+### Règle ON / OFF
+Un paramètre n’est considéré comme opérationnel que si :
+
+- **ON** → le bloc s’affiche réellement
+- **OFF** → le bloc ne s’affiche pas
+
+Les flags présents dans les types ou payloads mais sans impact visuel réel ne doivent pas être considérés comme finalisés.
+
+---
+
+## Flags actuellement opérationnels
+
+### Tronc commun
+Les flags suivants sont réellement branchés dans le rendu :
+
+- `show_score`
+- `show_clock`
+- `show_period`
+- `show_status`
+- `show_lower_third`
+- `show_logos`
+- `show_sponsors`
+- `show_live_badge`
+- `show_live_overlays`
+- `show_substitution_banner`
+
+### Basket
+Flags réellement opérationnels :
+- `show_team_fouls`
+- `show_player_fouls`
+- `show_timeouts`
+- `show_bonus`
+- `show_shot_clock`
+
+### Rugby
+Flags réellement opérationnels :
+- `show_cards`
+- `show_sin_bin`
+- `show_sin_bin_timer`
+- `show_rugby_score_breakdown`
+- `show_rugby_tries`
+- `show_rugby_conversions`
+- `show_rugby_penalties`
+- `show_rugby_drop_goals`
+
+### Football
+Flags réellement opérationnels :
+- `show_cards`
+- `show_penalty_shootout`
+- `show_added_time`
+
+### Handball
+Flags réellement opérationnels :
+- `show_cards`
+- `show_two_min_suspensions`
+- `show_warnings`
+- `show_disqualifications`
+
+### Volleyball
+Flags réellement opérationnels :
+- `show_sets`
+- `show_set_points`
+- `show_service`
+- `show_current_set`
+- `show_tiebreak`
+
+---
+
+## Flags présents mais non finalisés
+
+Les flags suivants existent encore mais ne pilotent pas à ce stade un bloc de rendu réellement distinct :
+
+- `show_substitutions`
+- `show_match_phase`
+
+### Interprétation actuelle
+- `show_substitutions` est couvert de fait par le bandeau de remplacement (`show_substitution_banner`)
+- `show_match_phase` est couvert de fait par l’affichage de période (`show_period`)
+
+Ils ne doivent pas être considérés comme des ON/OFF indépendants tant qu’un rendu autonome n’existe pas.
+
+---
+
+## Rugby — exclusion temporaire
+
+Le Rugby supporte désormais un affichage optionnel du chrono d’exclusion temporaire.
+
+### Paramètres
+- `show_sin_bin`
+- `show_sin_bin_timer`
+- `rugby_sin_bin_duration_s`
+
+### Valeur par défaut
+Pour le rugby à XV :
+- `rugby_sin_bin_duration_s = 600` secondes
+- soit **10 minutes**
+
+### Affichage
+Si `show_sin_bin_timer = false` :
+- seul l’état synthétique / le nombre d’exclusions actives est affiché
+
+Si `show_sin_bin_timer = true` :
+- le Display peut afficher un format compact du type :
+  - `Excl. temp. 1 • 07:32`
+
+### Règle métier
+Le chrono d’exclusion temporaire est basé sur le **temps de jeu**.
+Il ne doit pas continuer à décrémenter pendant une pause du match.
+
+---
+
+## Bandeau de remplacement
+
+Le bandeau de remplacement Display est un overlay temporaire.
+
+### Règle actuelle
+- durée par défaut : **10 secondes**
+- si `overlay_duration_ms` est défini dans la config résolue Display, cette valeur est prioritaire
+- sinon fallback à **10000 ms**
+
+### Objectif UX
+- rendre le remplacement visible sur écran LED
+- laisser suffisamment de temps de lecture
+- rester non intrusif pour le score principal
+
+---
+
+## Chronomètre visuel par sport
+
+Le moteur interne du chrono peut rester technique, mais la **valeur visible** doit être cohérente entre :
+
+- la Régie principale
+- la QR Console
+- le Display
+
+### Comportement cible
+- **Rugby** : affichage `count_up`
+- **Football** : affichage `count_up`
+- **Basket** : affichage `count_down`
+- **Handball** : affichage `count_down`
+- **Volleyball** : comportement simple, sans régression
+
+### Important
+La représentation visuelle du chrono doit être identique sur toutes les surfaces, même si le moteur interne reste basé sur une valeur technique différente.
+
+---
+
+## Wording Rugby
+
+Le libellé utilisateur validé est :
+
+- **`Procédure de départage`**
+
+Le libellé :
+
+- `Séance de tirs au but`
+
+ne doit plus être utilisé pour le Rugby.
+
+Et ajoute aussi cette phrase courte dans la section résumé produit :
+
+Les paramètres d’affichage ne sont considérés comme finalisés que lorsqu’ils pilotent réellement le rendu Display en ON/OFF.

@@ -1179,3 +1179,98 @@ scoreDisplay est un produit multi-apps (Home, Operator, Display, Admin) basé su
 - Colonnes obligatoires dans `matches` : `last_event_seq`, `last_event_at`, `clock_anchor_epoch_ms`, `clock_anchor_clock_ms`
 - `is_live` est dérivé de `status` côté DB — jamais écrit de façon indépendante
 - Toute migration qui touche `matches` doit vérifier l'alignement des vues `matches_v`, `matches_canon`, `matches_list`
+
+---
+
+## Paramètres d'affichage — état réellement opérationnel
+
+Les paramètres d'affichage ne sont considérés comme finalisés que lorsqu'ils pilotent réellement le rendu Display en ON/OFF.
+
+Un paramètre n'est considéré comme opérationnel que s'il est :
+1. stocké en base
+2. exposé en settings
+3. transporté jusqu'au Display
+4. réellement utilisé par le rendu
+
+### Règle ON / OFF
+- **ON** → le bloc s'affiche réellement
+- **OFF** → le bloc ne s'affiche pas
+
+Les flags présents dans les types ou payloads mais sans impact visuel réel ne doivent pas être considérés comme finalisés.
+
+### Tronc commun — flags opérationnels
+`show_score`, `show_clock`, `show_period`, `show_status`, `show_lower_third`, `show_logos`, `show_sponsors`, `show_live_badge`, `show_live_overlays`, `show_substitution_banner`
+
+### Basket — flags opérationnels
+`show_team_fouls`, `show_player_fouls`, `show_timeouts`, `show_bonus`, `show_shot_clock`
+
+### Rugby — flags opérationnels
+`show_cards`, `show_sin_bin`, `show_sin_bin_timer`, `show_rugby_score_breakdown`, `show_rugby_tries`, `show_rugby_conversions`, `show_rugby_penalties`, `show_rugby_drop_goals`
+
+### Football — flags opérationnels
+`show_cards`, `show_penalty_shootout`, `show_added_time`
+
+### Handball — flags opérationnels
+`show_cards`, `show_two_min_suspensions`, `show_warnings`, `show_disqualifications`
+
+### Volleyball — flags opérationnels
+`show_sets`, `show_set_points`, `show_service`, `show_current_set`, `show_tiebreak`
+
+### Flags présents mais non finalisés
+- `show_substitutions` — couvert de fait par `show_substitution_banner` ; pas de bloc de rendu distinct
+- `show_match_phase` — couvert de fait par `show_period` ; pas de bloc de rendu distinct
+
+Ces flags ne doivent pas être considérés comme des ON/OFF indépendants tant qu'un rendu autonome n'existe pas.
+
+---
+
+## Rugby — exclusion temporaire (sin bin)
+
+### Paramètres
+- `show_sin_bin` — affichage du compteur synthétique d'exclusions actives
+- `show_sin_bin_timer` — affichage du chrono compact par exclusion
+- `rugby_sin_bin_duration_s` — durée de l'exclusion (défaut : **600 s = 10 min** pour le rugby à XV)
+
+### Affichage
+- `show_sin_bin_timer = false` → seul l'état synthétique est affiché (nombre d'exclusions actives)
+- `show_sin_bin_timer = true` → format compact : `Excl. temp. 1 • 07:32` ou `Excl. temp. 2 • 03:11`
+
+### Règle métier
+Le chrono d'exclusion temporaire est basé sur le **temps de jeu effectif**.
+- Il ne doit pas décrémenter pendant une pause du match (`clock_running = false`)
+- Le `remaining_ms` est calculé côté backend (edge function `get-display-context`) depuis l'ancre chrono
+- Le Display ne recalcule pas cette logique — il affiche le résultat et compte à rebours localement, asservi à `clock_running`
+
+---
+
+## Bandeau de remplacement
+
+- Durée par défaut : **10 000 ms (10 secondes)**
+- Si `overlay_duration_ms` est défini dans la config résolue Display, cette valeur est prioritaire
+- Sinon fallback à `10000 ms`
+- Objectif UX : lisibilité sur écran LED, non intrusif pour le score principal
+
+---
+
+## Chronomètre visuel par sport
+
+La valeur visible du chrono doit être **identique** sur toutes les surfaces (Régie, QR Console, Display), même si le moteur interne reste basé sur une valeur technique différente.
+
+| Sport | Mode d'affichage |
+|---|---|
+| Rugby | `count_up` (0:00 → limite, rouge si dépassement) |
+| Football | `count_up` (0:00 → limite, rouge si dépassement) |
+| Basket | `count_down` |
+| Handball | `count_down` |
+| Volleyball | comportement simple, sans chrono de période |
+
+Helper partagée `computeDisplayClock(clockMs, clockMsUnclamped, direction, limitS, overrunMode)` utilisée dans `ControlPage.tsx`, `MobileControlPage.tsx` et `Scoreboard.tsx`.
+
+---
+
+## Wording Rugby validé
+
+| Contexte | Libellé correct |
+|---|---|
+| Prolongation / tiebreak | **Procédure de départage** |
+| ~~Séance de tirs au but~~ | ❌ ne pas utiliser pour le Rugby |
